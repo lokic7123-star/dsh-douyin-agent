@@ -1,9 +1,42 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Input, Tag } from '@dsh/primitives';
 import { useAutoSave, AutoSaveStatus } from './use-auto-save.jsx';
+import { watchIsActive } from './api.mjs';
 
 const number = value => Number(value || 0).toLocaleString('zh-CN');
 const kinds = { watch: '自主观看', task: '手动任务', comment: '评论生成', spark: '自动问候', chat: '私信回复' };
+const watchStates = { running: '运行中', stopping: '正在停止', stopped: '未运行', limited: '已到限制', failed: '运行中断', needs_user: '等待手动操作' };
+
+export function StatusSummary({ connected, configured, watchReady, browser, video, videoTimeEnabled, watch, share, chat, interactions, actions }) {
+  const openBacklog = (chat?.contacts || []).reduce((sum, item) => sum + (item.unanswered || []).filter(entry => !entry.handledByUserAt && entry.autoHandled !== true && !entry.autoHandledAt).length, 0);
+  const shareReview = share?.needsReview?.length || 0;
+  const blockers = [
+    !connected && { label: '本机服务未连接', detail: '正在自动重试；数据可能不是最新。' },
+    connected && !configured && { label: '模型未配置', detail: '还没有配置模型与 API Key，任何自动能力都不会运行。', action: '去配置模型', onClick: actions.openSettings },
+    browser?.loginRequired === true && { label: '抖音需要登录', detail: '专用浏览器停在登录页；登录前不能观看、回复或分享。', action: '打开抖音', onClick: actions.openDouyin },
+    !browser?.loginRequired && browser?.verificationRequired === true && { label: '抖音需要安全验证', detail: '验证码需要本人在专用浏览器完成。', action: '打开抖音', onClick: actions.openDouyin },
+    connected && configured && watchReady === false && { label: '观看状态尚未核实', detail: '等待本机服务回读；核实前不能开始观看或任务。' },
+    videoTimeEnabled && video?.allowed === false && { label: '不在允许观看时段', detail: video.reason || '当前时间不在每日允许时段内。' },
+    Boolean(watch?.lastError) && { label: '上次自主观看中断', detail: watch.lastError },
+    shareReview > 0 && { label: `${shareReview} 条分享收据待核对`, detail: '分享是否送达尚未确认；不会自动重发。', action: '查看分享收据', onClick: actions.openReceipts },
+    openBacklog > 0 && { label: `${openBacklog} 条好友消息待处理`, detail: '这些消息没有完成自动回复，已保留待核对；不会自动补发。', action: '去好友互动', onClick: actions.openFriends },
+    Boolean(interactions?.friend?.lastError) && { label: '回复服务异常', detail: interactions.friend.lastError, action: '去好友互动', onClick: actions.openFriends },
+  ].filter(Boolean);
+  const current = blockers[0], presence = interactions?.presence, watching = watchIsActive(watch);
+  const detail = current ? current.detail : [presence?.label, watching ? '自主观看运行中' : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。';
+  return <section className="status-summary" aria-label="当前状态摘要">
+    <div className="status-row"><span aria-hidden="true">{current ? '●' : '○'}</span><strong>{current ? current.label : '一切正常'}</strong><span className="status-detail-text">{detail}</span>{current?.action && <Button size="sm" variant="outline" onClick={current.onClick}>{current.action}</Button>}</div>
+    <details className="status-detail"><summary>技术详情</summary>
+      <p>连接：{connected ? '已连接' : '未连接'} · 模型：{configured ? '已配置' : '未配置'} · 观看核实：{watchReady === false ? '未完成' : '已完成'}</p>
+      <p>浏览器：{browser ? [browser.loginRequired ? '需要登录' : '', browser.verificationRequired ? '需要验证' : ''].filter(Boolean).join('、') || '已打开抖音' : '未打开'}</p>
+      <p>自主观看：{watch ? watchStates[watch.status] || watch.status || '未知' : '状态未读取'}{watch?.lastError ? ` · ${watch.lastError}` : ''}</p>
+      <p>好友回复：{presence ? `${presence.label || '状态待核实'}${presence.reason ? ` · ${presence.reason}` : ''}` : '状态未读取'}</p>
+      <p>分享：{share ? [shareReview > 0 ? `${shareReview} 条收据待核对` : '', share.paused ? '已暂停' : '', share.recoveryRequired ? '需要恢复核对' : ''].filter(Boolean).join('、') || '无待核对收据' : '状态未读取'}</p>
+      <p>遗留待答：{openBacklog} 条</p>
+    </details>
+  </section>;
+}
+
 export function HealthDashboard({ api, run, busy, connected }) {
   const [usage, setUsage] = useState(null), [diagnostics, setDiagnostics] = useState(null), [error, setError] = useState(''), [repairResult, setRepairResult] = useState(''), [updatedAt, setUpdatedAt] = useState(''), [refreshing, setRefreshing] = useState(false);
   const latestApi = useRef(api), lifecycle = useRef({ mounted: false, connected: false, epoch: 0, pending: null, queued: false }); latestApi.current = api;

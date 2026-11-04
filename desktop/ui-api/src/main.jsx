@@ -1,7 +1,7 @@
 import brandIcon from '../../../assets/brand.png';
 import { UpdateDialog } from './autonomy-panels.jsx';
 import { SETTINGS_SECTIONS } from '../../../settings-sections.mjs';
-import { HealthDashboard, TopicPanel } from './health-dashboard.jsx';
+import { HealthDashboard, TopicPanel, StatusSummary } from './health-dashboard.jsx';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button, Input, Switch, Tag, StateDot, MarkdownText, JsonBlock, DisclosureRow } from '@dsh/primitives';
@@ -199,10 +199,43 @@ function FriendInteractionPanel({ state, interactions, share, api, run, busy, co
     <Field title="群聊响应昵称（逗号或换行分隔）"><textarea aria-label="群聊响应昵称" value={draft.groupMentionNamesText} onChange={event => edit({ groupMentionNamesText: event.target.value }, { blurOnly: true })} onBlur={() => { void form.flush(); }} rows={2} /></Field>
     <AutoSaveStatus status={form.status} />
     <Note>今日回复模型请求 {state?.daily?.requests || 0} 次 · 今日分享 {share?.daily?.attempts || 0} 次。未确认发送会暂停，不自动重发。</Note>
-    {(state?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => <div className="paused-contact" key={item.id}><strong>{contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id))}</strong><p>{item.reason || '该会话暂缓处理，状态会继续更新。'}</p>{item.identityReviewRequired === true && <p>请重新读取联系人并确认许可名单；身份未通过前不会发送。</p>}</div>)}
+    {(state?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => <div className="paused-contact" key={item.id}><strong>{contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id))}</strong><p>{item.reason || '该会话暂缓处理，状态会继续更新。'}</p>{item.identityReviewRequired === true && <p>请重新读取联系人并确认许可名单；身份未通过前不会发送。</p>}{!(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0) && !(state?.running || state?.starting || state?.busy || state?.worker?.alive) && <div className="actions"><Button size="sm" variant="outline" disabled={!connected || busy.has('chatResolve')} onClick={() => { void run('chatResolve', async () => { const value = await api('/api/chat/resolve', { recipientId: item.id }); setChat(value); }); }}>{busy.has('chatResolve') ? '正在解除…' : '已人工核对，解除暂停'}</Button></div>}</div>)}
+    <UnansweredSection api={api} run={run} busy={busy} connected={connected} allowlist={state?.policy?.allowlist || []} workerActive={state?.running === true || state?.starting === true || state?.busy === true || state?.worker?.alive === true} />
     <div id="share-receipts"><ShareReceipts state={share} api={api} run={run} busy={busy} connected={connected} /></div>
     <details><summary>回复处理记录</summary><Data value={{ recovery: state?.recovery, contacts: (state?.contacts || []).map(item => ({ recovery: item.recovery, reason: item.reason, name: contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id)), status: item.status, pending: Boolean(item.pending), unanswered: item.unanswered?.length || 0 })), events: state?.events || [] }} /></details>
   </Panel>;
+}
+
+const PHASE_LABELS = { unqualified: '新消息资格未核实', 'unsupported-media': '附件类型未支持', 'not-sent': '发送前检查未通过', 'stopped-before-send': '服务停止前未发送', 'delivery-uncertain': '上次发送结果未确认' };
+function UnansweredSection({ api, run, busy, connected, allowlist, workerActive }) {
+  const [list, setList] = useState(null), [error, setError] = useState(''), [marks, setMarks] = useState(new Set());
+  useEffect(() => {
+    if (!connected) return; let alive = true;
+    void api('/api/chat/unanswered').then(value => { if (alive && value?.protocol === 'chat-unanswered-v1') { setList(value); setError(''); } }).catch(failure => { if (alive) setError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
+    return () => { alive = false; };
+  }, [connected, allowlist.length]);
+  const count = list?.count ?? 0;
+  async function markHandled(ids, snapshot) {
+    const key = ids.join(',');
+    setMarks(old => new Set([...old, key]));
+    try { const value = await api('/api/chat/unanswered/resolve', { recordIds: ids, snapshot }); setList(value.unanswered || null); setError(''); }
+    catch (failure) { setError(failure.message || '标记未完成，请刷新后重试。'); }
+    finally { setMarks(old => { const next = new Set(old); next.delete(key); return next; }); }
+  }
+  return <section className="unanswered-section" aria-label="遗留待处理消息">
+    {count > 0 && <Note error>有 {count} 条好友消息漏答未处理，原因各不相同；确认后不会补发。</Note>}
+    {(list?.items || []).map(item => <div className="paused-contact" key={item.recordId}>
+      <strong>{item.contactName}</strong>
+      <p>{PHASE_LABELS[item.phase] || '原因待核对'}{item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false })}` : ''}{item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}</p>
+      {item.preview ? <p>内容预览：{item.preview}</p> : <p className="muted">{item.previewNote}</p>}
+      <p className="muted">{item.reason}</p>
+      {marks.has(item.recordId) ? <p role="status">核对结果已提交，等待状态回读；不会补发。</p> : <div className="actions"><Button size="sm" variant="outline" disabled={!connected || workerActive || busy.has(`unanswered-${item.recordId}`)} onClick={() => { void run(`unanswered-${item.recordId}`, () => markHandled([item.recordId], list.snapshot)); }}>已处理，不再补答</Button></div>}
+    </div>)}
+    {count > 1 && <div className="actions"><Button size="sm" variant="outline" disabled={!connected || workerActive || busy.has('unanswered-all')} onClick={() => { void run('unanswered-all', () => markHandled(list.items.map(item => item.recordId), list.snapshot)); }}>全部标记已处理</Button></div>}
+    {error && <Note error>{error}</Note>}
+    {list && count === 0 && <Note>没有遗留待处理消息。</Note>}
+    {!list && !error && <p className="muted">正在读取遗留待处理消息…</p>}
+  </section>;
 }
 
 function ForwardPanel({ api, run, busy, allowed, running, suggestedUrl }) {
@@ -327,7 +360,8 @@ export function App() {
   const answer = task?.message || selectedEvents.filter(item => item.type === 'model.answer').at(-1)?.message;
   const stopWatch = () => { void run('watchSchedule', () => api('/api/watch/schedule', { enabled: false })); };
 
-  const settingsPage = <div className="settings-page"><h1>大肥鱼抖音助手</h1><div role="tablist" aria-label="刷抖音设置分类" className="settings-tabs">{Object.keys(SETTINGS_SECTIONS).map(name => <Button key={name} role="tab" aria-selected={settingsCategory === name} size="sm" variant={settingsCategory === name ? 'primary' : 'outline'} onClick={() => setSettingsCategory(name)}>{name}</Button>)}</div>
+  const settingsPage = <div className="settings-page"><h1>大肥鱼抖音助手</h1>
+    <StatusSummary connected={connected} configured={configured} watchReady={watchReady} browser={browser} video={video} videoTimeEnabled={boot?.videoTime?.enabled === true} watch={watch} share={share} chat={chat} interactions={interactions} actions={{ openSettings: () => setSettingsOpen(true), openDouyin, openReceipts: () => setReviewOpen(true), openFriends: () => setSettingsCategory('好友互动') }} /><div role="tablist" aria-label="刷抖音设置分类" className="settings-tabs">{Object.keys(SETTINGS_SECTIONS).map(name => <Button key={name} role="tab" aria-selected={settingsCategory === name} size="sm" variant={settingsCategory === name ? 'primary' : 'outline'} onClick={() => setSettingsCategory(name)}>{name}</Button>)}</div>
     {settingsCategory === '基础设置' && <><Panel title="模型设置"><p className="muted">独立软件使用自己的 API Key，设置控件与插件采用同一套 DSH 组件。</p><p>当前模型：{settings.model || '尚未配置'} · {configured ? '已配置 Key' : '尚未配置 Key'}</p><Button size="sm" onClick={() => setSettingsOpen(true)}>配置模型与 API Key</Button></Panel><PersonaPanel snapshot={persona} onSnapshot={setPersona} api={api} run={run} bridge={bridge} busy={busy} watchState={watch} watchReady={watchReady} /><details><summary>检索共享记忆</summary><MemoryView settings={settings} api={api} run={run} busy={busy} bridge={bridge} /></details></>}
     {settingsCategory === '视频观看' && <><TopicPanel state={watch?.options} active={watchActive} api={api} run={run} busy={busy} connected={connected && watchReady} /><VideoPanel state={video} schedule={schedule} watch={watch} api={api} run={run} busy={busy} connected={connected} configured={configured}>{boot?.mode?.available && <SilentPanel state={mode} connected={connected} api={api} run={run} busy={busy} />}</VideoPanel><TaskBudgetPanel state={taskLimits} api={api} run={run} busy={busy} operationActive={operationActive} /></>}
     {settingsCategory === '好友互动' && <FriendInteractionPanel state={chat} interactions={interactions} share={share} api={api} run={run} busy={busy} configured={configured} connected={connected} />}
@@ -349,7 +383,7 @@ export function App() {
       {boot?.watch?.available && !watchReady && <div className="watch-running-strip" role="status">自主观看状态尚未核实，请等待本机服务回读后再开始操作。</div>}
       {watchActive && <div className="watch-running-strip" role="status">自主观看进行中 · 今日已观看 {Math.floor(video?.daily?.usedSeconds || 0)} 秒 · 模型请求 {video?.daily?.requests || 0} 次</div>}
       {view === 'settings' ? settingsPage : view === 'health' ? <HealthDashboard api={api} run={run} busy={busy} connected={connected} /> : view === 'reports' ? <ReportsView connected={connected} api={api} run={run} busy={busy} /> : view === 'memory' ? <MemoryView api={api} run={run} settings={settings} bridge={bridge} busy={busy} persona={persona} onPersona={setPersona} personaAvailable={boot?.persona?.available} watchState={watch} watchReady={watchReady} /> : view === 'watch' ? <WatchView state={watch} video={video} browser={browser} snapshot={persona} onSettings={() => setRightOpen(true)} /> : <>
-        <div className="conversation" aria-live="polite">{!task ? <div className="welcome"><div className="welcome-symbol">◉</div><h1>今天想看些什么？</h1><p>搜索作品、观察视频，把值得记住的内容留下来。</p><div className="suggestions">{EXAMPLES.slice(0, 4).map(([label, value]) => <Button variant="outline" key={label} onClick={() => setInstruction(value)}>{label} ↗</Button>)}</div></div> : <><div className="user-message">{task.instruction}</div><div className="assistant-message"><div className="assistant-avatar">鱼</div><div className="assistant-content">{answer ? <MarkdownText text={answer} labels={MARKDOWN_LABELS} streaming={false} /> : <p className="muted">{running && task.id === currentTask.current ? '正在查看与操作专用浏览器…' : '还没有模型答复。'}</p>}{task.partialMessage && <MarkdownText text={task.partialMessage} labels={MARKDOWN_LABELS} />}{task.status && <small className="task-status">{statusLabel(task.status)}</small>}<details className="activity" open={running && task.id === currentTask.current}><summary>运行过程 · {selectedEvents.length} 条</summary>{selectedEvents.map(item => <EventItem key={item.revision} event={item} />)}</details></div></div></>}</div>
+        <div className="conversation" aria-live="polite">{!task ? <><StatusSummary connected={connected} configured={configured} watchReady={watchReady} browser={browser} video={video} videoTimeEnabled={boot?.videoTime?.enabled === true} watch={watch} share={share} chat={chat} interactions={interactions} actions={{ openSettings: () => setSettingsOpen(true), openDouyin, openReceipts: () => setReviewOpen(true), openFriends: () => { setSettingsCategory('好友互动'); setView('settings'); } }} /><div className="welcome"><div className="welcome-symbol">◉</div><h1>今天想看些什么？</h1><p>搜索作品、观察视频，把值得记住的内容留下来。</p><div className="suggestions">{EXAMPLES.slice(0, 4).map(([label, value]) => <Button variant="outline" key={label} onClick={() => setInstruction(value)}>{label} ↗</Button>)}</div></div></> : <><div className="user-message">{task.instruction}</div><div className="assistant-message"><div className="assistant-avatar">鱼</div><div className="assistant-content">{answer ? <MarkdownText text={answer} labels={MARKDOWN_LABELS} streaming={false} /> : <p className="muted">{running && task.id === currentTask.current ? '正在查看与操作专用浏览器…' : '还没有模型答复。'}</p>}{task.partialMessage && <MarkdownText text={task.partialMessage} labels={MARKDOWN_LABELS} />}{task.status && <small className="task-status">{statusLabel(task.status)}</small>}<details className="activity" open={running && task.id === currentTask.current}><summary>运行过程 · {selectedEvents.length} 条</summary>{selectedEvents.map(item => <EventItem key={item.revision} event={item} />)}</details></div></div></>}</div>
         <div className="composer-area"><div className="quick-actions">{EXAMPLES.map(([label, value]) => <button key={label} type="button" onClick={() => setInstruction(value)}>{label}</button>)}</div><form className="composer" onSubmit={submit}><textarea aria-label="视频任务" placeholder={configured ? '告诉大肥鱼这次想看什么…' : '先在设置中连接 API Key'} maxLength={4000} value={instruction} onChange={event => setInstruction(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form.requestSubmit(); } }} /><div className="composer-footer"><span>{boot?.limits ? `最多 ${taskLimits?.policy?.maxSteps ?? boot.limits.maxSteps ?? 20} 步 · ${taskLimits?.policy?.maxToolCalls ?? boot.limits.maxToolCalls} 次工具 · ${taskLimits?.policy?.timeoutSeconds ?? boot.limits.taskTimeoutSeconds} 秒` : 'Enter 发送 · Shift + Enter 换行'}</span>{running ? <Button variant="outline" disabled={busy.has('stop')} onClick={() => { void run('stop', () => api('/api/stop', {})); }}>■ 停止任务</Button> : <Button variant="primary" type="submit" disabled={watchActive || share?.busy || !watchReady || busy.has('watchStart') || !configured || !connected || !allowed || !instruction.trim() || busy.has('task') || busy.has('forward')}>开始任务 ↑</Button>}</div></form>{watchActive && <p className="composer-hint">自主观看正在运行。停止后可手动下达视频任务。</p>}{!watchActive && <p className="composer-hint">手动任务的次数、步骤和超时独立于视频时段与自主观看预算，任一预算先到会停止。自动观看按每日预算和允许时段运行。</p>}{!allowed && <p className="composer-hint">{video?.reason || '请在设置中开启自动观看并确认允许时段。'}</p>}</div>
       </>}
     </main>
