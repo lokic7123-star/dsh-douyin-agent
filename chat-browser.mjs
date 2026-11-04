@@ -1037,6 +1037,10 @@ export class ChatBrowser {
     let row = page.locator(`[data-e2e="conversation-item"][data-deepseek-chat-id="${recipientId}"]`);
     if (await row.count() !== 1) throw new Error('指定会话不是唯一匹配，已停止操作。');
     const current = await page.evaluate(readChatIdentityDom);
+    // “身份匹配时跳过重新点击”的成立条件：contactList 刚在本页重读全部会话身份并在标记前逐行核对
+    // 显示名与原生ID，此处再以 readChatIdentityDom 双向核对稳定身份。无法独立证明的部分：标记行在
+    // 两次求值之间没有页面侧回执可排除虚拟列表复用替换，只能依赖每次读取前的上述复核，不补点击。
+    const clickSkipped = !refresh && matches(current);
     if (refresh || !matches(current)) {
       try { await row.click({ timeout: 5000 }); }
       catch {
@@ -1062,7 +1066,8 @@ export class ChatBrowser {
     }
     if (stableSamples < 3) throw Object.assign(new Error(identity?.identityUnavailable && !weak ? '当前会话缺少可核对的稳定身份信息，或切换动画尚未结束；未读取正文或发送。' : '当前会话的显示名、类型或稳定身份与许可联系人不一致，未读取正文或发送。'), { code: 'CHAT_CONVERSATION_IDENTITY_MISMATCH' });
     stop(signal);
-    return { contact, flags };
+    // 证据只含布尔值、计数和来源种类，不携带原始会话 ID、显示名等身份文本，避免随公开结果外泄。
+    return { contact, flags, pageReadyEvidence: { pageReady: true, pageUrlSource: '专用聊天页消息面板可见', conversationIdentityChecked: true, identitySamples: stableSamples, identitySourceKind: identity?.identitySource ? 'stable-dom-identity' : 'none', clickSkipped, checkedAt: new Date().toISOString() } };
   }
   async stableConversation(page, contact, signal, { weak = false } = {}) {
     let previous;
@@ -1126,7 +1131,7 @@ export class ChatBrowser {
     if (allowed !== true) return Promise.reject(new Error('读取正文需要这个指定联系人的明确授权。'));
     return this.withPage(async page => {
       if (backgroundOnly && await this.isForeground(page)) throw Object.assign(new Error('专用浏览器在前台，暂不切换私信页。'), { code: 'CHAT_FOREGROUND' });
-      const { contact, flags } = await this.select(page, recipientId, signal, { refresh, weak });
+      const { contact, flags, pageReadyEvidence } = await this.select(page, recipientId, signal, { refresh, weak });
       if (flags.blocked) return { ...flags, conversation: null, contact: null, messages: [] };
       let raw, messages;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1139,7 +1144,9 @@ export class ChatBrowser {
       }
       const { avatar, nativeId: _nativeId, identityKey: _identityKey, profileUrl: _profileUrl, identityConflict: _identityConflict, ...publicContact } = contact;
       return { ...flags, conversation: { id: contact.id, displayName: contact.displayName, isGroup: contact.isGroup, conversationType: contact.conversationType }, contact: publicContact,
-        messages, dayEvidence: { observedAt: raw.observedAt, latestEndVerified: raw.latestEndVerified, chronology: raw.chronology, historyStartVerified: raw.historyStartVerified, emptyTodayVerified: raw.emptyTodayVerified } };
+        messages, pageReadyEvidence,
+        readEvidence: { pageReady: pageReadyEvidence?.pageReady === true, conversationIdentityChecked: true, stableSamplesBeforeRead: pageReadyEvidence?.identitySamples ?? 0, clickSkipped: pageReadyEvidence?.clickSkipped ?? null, readAttempts: 1, observedAt: raw.observedAt, messageCount: messages.length, nativeIdCount: messages.filter(item => item.nativeId).length, latestEndVerified: raw.latestEndVerified, chronology: raw.chronology, chronologySource: raw.chronologySource, readAt: new Date().toISOString() },
+        dayEvidence: { observedAt: raw.observedAt, latestEndVerified: raw.latestEndVerified, chronology: raw.chronology, historyStartVerified: raw.historyStartVerified, emptyTodayVerified: raw.emptyTodayVerified } };
     }, { signal, launch: !backgroundOnly, create: !backgroundOnly });
   }
   captureMessage(recipientId, messageId, { allowed = false, signal } = {}) {
