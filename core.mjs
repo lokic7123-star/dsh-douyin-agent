@@ -790,15 +790,24 @@ export class BrowserController {
         if (name==='douyin_open') await this.navigate(RECOMMEND,signal);
         if (name==='douyin_search') await this.navigate(`https://www.douyin.com/search/${encodeURIComponent(args.query)}`,signal);
         if (name==='douyin_open_video') {
-          if (args.url) await this.navigate(`https://www.douyin.com/video/${/\/video\/(\d+)/.exec(args.url)[1]}`,signal);
-          else {
-            const before = await this.state();
-            const result = before.searchResults.find(item=>item.index===args.index);
-            if (!result) throw new Error('这个 index 不在当前可见搜索结果内，请重新搜索。');
-            const card = result.id ? this.page.locator(`[id="waterfall_item_${result.id}"] .search-result-card`) : this.page.locator('.search-result-card,[data-e2e="search-card"],[data-e2e="search-result"]').filter({visible:true}).nth(args.index);
-            if(await card.count()) { await card.click(); await this.settle(signal,{kind:'video',videoId:result.id}); }
-            else if(result.url) await this.navigate(result.url,signal);
-            else throw new Error('搜索结果卡片已变化，请重新搜索。');
+          // 慢加载偶发 30 秒等不到就绪；刷新重试一次再报错，等不了两次就如实失败。
+          for (let attempt=0;;attempt++) {
+            try {
+              if (args.url) await this.navigate(`https://www.douyin.com/video/${/\/video\/(\d+)/.exec(args.url)[1]}`,signal);
+              else {
+                const before = await this.state();
+                const result = before.searchResults.find(item=>item.index===args.index);
+                if (!result) throw new Error('这个 index 不在当前可见搜索结果内，请重新搜索。');
+                const card = result.id ? this.page.locator(`[id="waterfall_item_${result.id}"] .search-result-card`) : this.page.locator('.search-result-card,[data-e2e="search-card"],[data-e2e="search-result"]').filter({visible:true}).nth(args.index);
+                if(await card.count()) { await card.click(); await this.settle(signal,{kind:'video',videoId:result.id}); }
+                else if(result.url) await this.navigate(result.url,signal);
+                else throw new Error('搜索结果卡片已变化，请重新搜索。');
+              }
+              break;
+            } catch (error) {
+              if (attempt>=1 || !(error instanceof Error) || !['目标作品尚未加载完成，请读取状态后重试。','搜索结果未就绪，未确认搜索完成。'].includes(error.message)) throw error;
+              await this.page.reload({waitUntil:'domcontentloaded'}).catch(()=>{});
+            }
           }
         }
         if (name==='douyin_next'||name==='douyin_previous') return await this.switchVideo(name==='douyin_next'?1:-1,signal,{recordLearning:!autonomousRunId,expectedVideoId});

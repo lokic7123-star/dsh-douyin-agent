@@ -35,7 +35,14 @@ export class ScheduledWatch {
     if(manual){if(!Number.isSafeInteger(manual.pid)||manual.pid<1||typeof manual.token!=='string')throw new Error('手动视频操作锁无法核对，未启动自主观看。');try{process.kill(manual.pid,0);return;}catch(error){if(error.code==='EPERM')return;if(error.code!=='ESRCH')throw error;}}
     const watch=await this.getWatchState();if(watch?.running||watch?.busy||watch?.pendingRequests>0)return;
     let operation;this.control(()=>{if(!this.policy().enabled)return;const ledger=this.ledger(),last=ledger.runs.at(-1);
-      if(ledger.runs.some(item=>item.key===slot.key&&item.status==='failed'))return;
+      if(ledger.runs.some(item=>item.key===slot.key&&item.status==='failed')){
+        // 同一时段失败后不永久趴窝：退避后允许再试，当天至多三次；
+        // needs_user（登录/验证/人工占用）不重试，仍等人工处理。
+        const failedAt=Date.parse(ledger.runs.filter(item=>item.key===slot.key&&item.status==='failed').at(-1)?.completedAt||'');
+        if(Number.isSafeInteger(failedAt)&&this.now()-failedAt<15*60_000)return;
+        const attempts=ledger.runs.filter(item=>item.key===slot.key&&['failed','acknowledged'].includes(item.status)).length;
+        if(attempts>=3)return;
+      }
       if(last?.key===slot.key&&last.status==='starting')return;
       if(last?.key===slot.key&&last.status==='started'&&['failed','needs_user'].includes(watch?.status)){last.status='failed';last.completedAt=new Date(this.now()).toISOString();last.error=explain(watch.lastError||'自主观看异常停止，请处理后重新开启允许观看。');ledger.lastError=last.error;write(this.ledgerFile,ledger);this.error=last.error;return;}
       operation={...slot,id:randomUUID(),source:this.source,pid:process.pid,startedAt:new Date(this.now()).toISOString(),status:'starting'};ledger.runs.push(operation);write(this.ledgerFile,ledger);

@@ -131,6 +131,13 @@ function watchCommentContext(value) {
   return { enabled: value?.enabled === true && value.paused !== true && remainingDaily > 0 && remainingSession > 0, paused: value?.paused === true, remainingDaily, remainingSession };
 }
 
+// GLM 等模型即使被要求只输出 JSON，也常把决策包进 Markdown 代码围栏；
+// 剥掉围栏再交给严格校验，围栏内的 JSON 仍然逐字段验证，不放宽校验本身。
+function stripDecisionFence(text) {
+  const match = /^\s*```[a-zA-Z0-9]*\s*\n([\s\S]*?)\n?\s*```\s*$/.exec(text);
+  return match ? match[1] : text;
+}
+
 export function parseWatchDecision(value, controls = {}) {
   try { return parseWatchDecisionStrict(value, controls); }
   catch (error) {
@@ -139,7 +146,7 @@ export function parseWatchDecision(value, controls = {}) {
   }
 }
 function parseWatchDecisionStrict(value, { shareContext, commentContext } = {}) {
-  if (typeof value === 'string') { if (value.length > 12_000) throw new Error('自主观看决策过长。'); try { value = JSON.parse(value); } catch { throw new Error('自主观看模型没有返回有效 JSON。'); } }
+  if (typeof value === 'string') { if (value.length > 12_000) throw new Error('自主观看决策过长。'); try { value = JSON.parse(stripDecisionFence(value)); } catch { throw new Error('自主观看模型没有返回有效 JSON。'); } }
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['action', 'reason', 'topics', 'reflection', 'query', 'seconds', 'recipientId', 'recipientIds'].includes(key))) throw new Error('自主观看决策字段无效。');
   if (!['search', 'skip', 'stay', 'share', 'comment', 'stop'].includes(value.action) || typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 500 || typeof value.reflection !== 'string' || value.reflection.length > 1000) throw new Error('自主观看决策缺少有效动作、理由或反思。');
   if (!Array.isArray(value.topics) || value.topics.length > 5 || value.topics.some(item => !item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).some(key => !['topic', 'signal'].includes(key)) || typeof item.topic !== 'string' || !item.topic.trim() || item.topic.length > 80 || !['like', 'dislike', 'neutral'].includes(item.signal))) throw new Error('自主观看兴趣主题格式无效。');

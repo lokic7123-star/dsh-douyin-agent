@@ -275,7 +275,7 @@ export class AutonomousWatch {
   }
   async run() {
     let status = 'stopped', lastError = '';
-    this.liveSkipStreak = 0;this.invalidDecisionStreak=0;this.shareProgress=null;
+    this.liveSkipStreak = 0;this.invalidDecisionStreak=0;this.switchRecoveries=0;this.shareProgress=null;
     try {
       this.save({shareProgress:null,decisionRetry:null});
       let current = await this.execute('douyin_status');
@@ -355,6 +355,14 @@ export class AutonomousWatch {
           }
           current = await this.skipLivePreviews(current);
           if (current.changed === false || !readyVideo(current.state || current) || (current.state || current).video.id === observedState.video.id) {
+            // 偶发局面：预载卡片让页面出现两个视频候选，作品身份暂时读不出来。
+            // 回推荐流重置页面再继续，整轮观看不必为此终止；每轮至多自救两次。
+            if (this.switchRecoveries < 2 && !(current.state || current).video?.id && !(current.state || current).loginRequired && !(current.state || current).verificationRequired && !(current.state || current).privateChatVisible && !(current.state || current).unsupportedPage) {
+              this.switchRecoveries++;
+              this.onEvent({ type: 'watch.switch-recovery', attempt: this.switchRecoveries, reasonCode: current.reasonCode || 'autonomous-switch-not-ready', message: '作品身份暂时读不出来，回推荐流重置页面后继续观看。' });
+              current = await this.execute('douyin_open');
+              continue;
+            }
             const reasonCode = current.reasonCode || (!readyVideo(current.state || current) ? 'autonomous-switch-not-ready' : (current.state || current).video.id === observedState.video.id ? 'autonomous-switch-same-id' : 'autonomous-switch-changed-false');
             this.recordSwitchFailure('douyin_next',{...current,before:current.before||observedState.video,reasonCode},{startedAt:switchStartedAt,expectedVideoId:observedState.video.id,stage:'autonomous-verification'});
             throw failure('未确认切换到另一条就绪作品，已停止自主观看。');
