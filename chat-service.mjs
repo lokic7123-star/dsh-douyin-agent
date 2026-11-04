@@ -59,8 +59,11 @@ const unansweredReason=item=>typeof item?.reason==='string'&&item.reason.trim()?
   unqualified:'新消息尚未取得可靠的新到达资格，未自动回复。',
   'unsupported-media':'消息附件未能可靠读取，未推断内容。',
   'not-sent':'发送前检查未通过，未发送。',
-  'stopped-before-send':'维护或停止前未发送，保留待核对。',
-  'delivery-uncertain':'上次发送结果未确认，未自动重发。',
+  'stopped-before-send':'停止前未发送，保留待核对。',
+  'delivery-uncertain':'发送结果未确认，未自动重发。',
+  model:'回复尚未发送，保留待核对。',
+  observing:'回复尚未发送，保留待核对。',
+  superseded:'生成期间到达新消息或人工回复，本次未发送。',
 }[item?.phase]||'这条消息没有完成自动回复，保留待核对。');
 const messageKind=message=>message?.media?.type==='voice'?'语音':message?.media?.type==='image'?'图片':message?.media?.type==='emoji'?'表情':message?.media?.type==='shared-work'?'分享作品':message?.unsupported===true?'不支持的消息':typeof message?.text==='string'&&message.text.trim()?'文字':'未知类型';
 const unansweredRecordId=(contactId,item)=>createHash('sha256').update(JSON.stringify([contactId,item?.archiveId?['archive',item.archiveId]:['legacy',item?.phase||'',item?.skippedAt||null,item?.at||null,(item?.incoming||[]).map(message=>({id:message?.id||'',kind:message?.kind||null,type:message?.type||null,media:message?.media?.type||null}))]])).digest('hex');
@@ -71,6 +74,12 @@ function unansweredPreview(item){const messages=Array.isArray(item?.incoming)?it
 function maintenanceActive(stateDir){try{const value=load(path.join(stateDir,'friend-interactions-policy.json'),{version:1,enabled:true});return value?.version===1&&value.enabled===true&&fs.existsSync(path.join(stateDir,'friend-interactions-settings.guard'));}catch{return false;}}
 function revokeError(stateDir,phase){const maintenance=maintenanceActive(stateDir);return Object.assign(new Error(maintenance?'正在维护好友名单，发送已暂缓。':'好友互动开关或回复许可已撤回，未继续发送。'),{code:maintenance?'CHAT_MAINTENANCE_REVOKED':'CHAT_INTERACTIONS_REVOKED',safeBeforeDispatch:phase==='prepare'});}
 function allowMaintenanceRecovery(pending){if(pending?.recoveryEvidence?.beforeDispatch===true){pending.restartAllowed=true;pending.recoveryExpiresAt??=Date.now()+5*60_000;}}
+// 待答发送状态四态：certain-unsent=确定未发送（发送前阶段且保留完整 beforeDispatch 证据，且用户停止时未明确要求不恢复）；
+// sending/inflight=正在发送；uncertain=发送不明（已可能点击发送或进入自动补答队列）；confirmed=已确认送达（无待答）。
+// 只有 certain-unsent 且回读资格仍有效才自动恢复；uncertain 只读回核对，不自动重发。
+const certainUnsentPhases=['outbound-wait','observing','model','superseded','stopped-before-send','unqualified'];
+const certainUnsentPending=pending=>Boolean(pending&&certainUnsentPhases.includes(pending.phase)&&pending.recoveryEvidence?.beforeDispatch===true&&!pending.backlogAuthorization&&pending.restartAllowed!==false);
+const backlogWaitReason=code=>({'waiting-reliable-conversation':'等待可核对的会话快照','waiting-backlog-evidence-or-outgoing':'等待补答证据或排除已回复可能','waiting-archive-identity':'等待待答记录标识核对','waiting-bounded-generation-evidence':'等待可生成回复的上下文证据','waiting-target-context-capacity':'等待上下文容量核对','waiting-context-after-bounded-generation':'该上下文的生成次数已达上限，稍后自动重试','waiting-generated-text':'等待生成的回复文本','bounded-generation-failed':'上次自动生成失败，稍后自动重试','waiting-native-outgoing-readback':'正在读回已发出的消息以确认发送结果','waiting-zero-click-retry':'上次未能点击发送，稍后自动重试','waiting-contact-recheck':'等待重新核对该会话'}[code]||'自动整理进行中');
 function archivePending(mark,pending,reason,{handledByUserAt}={}) {
   if(!pending)return;
   mark.unanswered||=[];const archiveKey=JSON.stringify([pending.phase,pending.incoming||[]]);const existing=mark.unanswered.find(item=>item.archiveKey===archiveKey&&!item.handledByUserAt);if(existing){if(handledByUserAt)existing.handledByUserAt=handledByUserAt;return;}
@@ -138,6 +147,7 @@ export class ChatService {
     this.running = false; this.busy = false; this.timer = null; this.abort = null; this.starting = null; this.runId = null; this.heartbeat = null; this.ownershipLost = false;
     this.pollRequested = false; this.pollScheduled = null; this.incomingPriority = new Set(); this.incomingUnsubscribe = null; this.notificationsTask = null; this.notificationCleanup = null; this.lastFullScanAt = 0; this.unreadProbeUnavailable = false;
     this.events = [];
+    this.readEvidence = new Map();
     this.replyQualifications = new Map(); this.supersededQualifications = new Map();
     this.groupVideos = groupVideoInbox ?? (typeof observeSharedWork === 'function' && videoLimits && typeof agent.inspectSharedVideo === 'function' ? new GroupVideoInbox({ stateDir }) : null);
     if (!fs.existsSync(this.watermarkFile)) initialize(this.watermarkFile, this.watermarks);
@@ -286,14 +296,15 @@ export class ChatService {
     const worker = this.worker();
     const sharedVideos = this.groupVideos?.state() || (fs.existsSync(path.join(this.stateDir, 'group-video-inbox.json')) ? new GroupVideoInbox({ stateDir: this.stateDir }).state() : undefined);
     if (!worker?.owned) { this.policy = validatePolicy(load(this.policyFile, this.policy)); this.watermarks = load(this.watermarkFile, this.watermarks); this.events = recentEvents(this.logFile); }
-    const contacts=Object.entries(this.watermarks.contacts).filter(([id])=>this.policy.allowlist.some(item=>item.id===id)).map(([id,mark])=>({id,status:mark.status==='inflight'&&worker?.alive?'inflight':['inflight','delivery-uncertain'].includes(mark.status)?'auto-readback':mark.status,reason:mark.accountActionRequired?mark.reason||'':mark.identityReviewRequired?'会话身份暂未重新核实，正在等待。':autoPendingCount(mark)?'正在自动整理待答。':mark.reason||'',...(mark.identityReviewRequired?{identityReviewRequired:true}:{}),pending:mark.pending||null,unanswered:mark.unanswered||[],lastCheckedAt:mark.lastCheckedAt,recovery:{pendingManualCount:unresolvedManual(mark),requiresUserAction:mark.accountActionRequired===true,autoPendingCount:autoPendingCount(mark),autoRetryCount:autoPendingCount(mark)?mark.autoBacklog?.retryCount||0:0,recoverableCount:mark.recoveryQueue||mark.pending?.restartAllowed?1:0}}));
-    return { running: this.running || Boolean(worker?.alive && worker.status === 'running'), starting: Boolean(this.starting || worker?.status === 'starting'), busy: this.busy || sharedVideos?.running === true, worker, coordination: { protocol: 'guard-v1', guardPresent: fs.existsSync(this.guardFile) }, pollSeconds: this.pollIntervalMs / 1000, fullScanSeconds: this.fullScanIntervalMs / 1000, replyTokens: this.agent.replyTokens ?? 512, policy: this.policy, daily: { date: dayKey(), requests: this.watermarks.days[dayKey()] ?? 0, limit: null, remaining: null },contacts,recovery:{pendingManualCount:contacts.reduce((sum,item)=>sum+item.recovery.pendingManualCount,0),requiresUserAction:contacts.some(item=>item.recovery.requiresUserAction),autoPendingCount:contacts.reduce((sum,item)=>sum+item.recovery.autoPendingCount,0),autoRetryCount:contacts.reduce((sum,item)=>sum+item.recovery.autoRetryCount,0),recoverableCount:contacts.reduce((sum,item)=>sum+item.recovery.recoverableCount,0)}, ...(sharedVideos ? { sharedVideos } : {}), events: this.events.slice(-30) };
+    const contacts=Object.entries(this.watermarks.contacts).filter(([id])=>this.policy.allowlist.some(item=>item.id===id)).map(([id,mark])=>({id,status:mark.status==='inflight'&&worker?.alive?'inflight':['inflight','delivery-uncertain'].includes(mark.status)?'auto-readback':mark.status,reason:mark.accountActionRequired?mark.reason||'':mark.identityReviewRequired?'会话身份暂未重新核实，正在等待。':mark.autoBacklog?.state==='waiting'&&mark.autoBacklog.reason?`${mark.reason||'正在自动整理待答。'}${backlogWaitReason(mark.autoBacklog.reason)}；不会自动补发不确定的结果。`:autoPendingCount(mark)?'正在自动整理待答。':mark.reason||'',...(mark.identityReviewRequired?{identityReviewRequired:true}:{}),pending:mark.pending||null,unanswered:mark.unanswered||[],lastCheckedAt:mark.lastCheckedAt,recovery:{pendingManualCount:unresolvedManual(mark),requiresUserAction:mark.accountActionRequired===true,autoPendingCount:autoPendingCount(mark),autoRetryCount:autoPendingCount(mark)?mark.autoBacklog?.retryCount||0:0,recoverableCount:mark.recoveryQueue||mark.pending?.restartAllowed?1:0}}));
+    return { running: this.running || Boolean(worker?.alive && worker.status === 'running'), starting: Boolean(this.starting || worker?.status === 'starting'), busy: this.busy || sharedVideos?.running === true, worker, coordination: { protocol: 'guard-v1', guardPresent: fs.existsSync(this.guardFile) }, pollSeconds: this.pollIntervalMs / 1000, fullScanSeconds: this.fullScanIntervalMs / 1000, replyTokens: this.agent.replyTokens ?? 512, policy: this.policy, daily: { date: dayKey(), requests: this.watermarks.days[dayKey()] ?? 0, limit: null, remaining: null },unansweredCount:contacts.reduce((sum,item)=>sum+(item.unanswered||[]).filter(isOpenBacklogRecord).length,0),contacts,recovery:{pendingManualCount:contacts.reduce((sum,item)=>sum+item.recovery.pendingManualCount,0),requiresUserAction:contacts.some(item=>item.recovery.requiresUserAction),autoPendingCount:contacts.reduce((sum,item)=>sum+item.recovery.autoPendingCount,0),autoRetryCount:contacts.reduce((sum,item)=>sum+item.recovery.autoRetryCount,0),recoverableCount:contacts.reduce((sum,item)=>sum+item.recovery.recoverableCount,0)}, ...(sharedVideos ? { sharedVideos } : {}), events: this.events.slice(-30) };
   }
   unanswered() {
     const policy=validatePolicy(load(this.policyFile,this.policy)),watermarks=load(this.watermarkFile,this.watermarks),records=unansweredItems(watermarks,policy).filter(entry=>isOpenBacklogRecord(entry.item));
     records.sort((left,right)=>(Date.parse(left.item.at||left.item.skippedAt)||0)-(Date.parse(right.item.at||right.item.skippedAt)||0)||left.recordId.localeCompare(right.recordId));
     const items=records.map(({contact,item,recordId})=>{const preview=unansweredPreview(item),types=[...new Set((item.incoming||[]).map(messageKind))];return{recordId,contactId:contact.id,contactName:contact.name||'许可会话',at:Number.isFinite(Date.parse(item.at||item.skippedAt))?new Date(item.at||item.skippedAt).toISOString():null,reason:redact(unansweredReason(item),[this.config?.apiKey]).slice(0,200),phase:item.phase||'unknown',messageCount:Array.isArray(item.incoming)?item.incoming.length:0,types,...preview,canResolve:true};});
-    return{protocol:'chat-unanswered-v1',checkedAt:new Date().toISOString(),count:items.length,snapshot:unansweredSnapshot(records),items};
+    const worker=this.worker();
+    return{protocol:'chat-unanswered-v1',checkedAt:new Date().toISOString(),count:items.length,snapshot:unansweredSnapshot(records),running:Boolean(worker?.alive&&['running','starting'].includes(worker.status)),worker:worker?{alive:worker.alive,status:worker.status,heartbeatAt:worker.heartbeatAt}:null,items};
   }
   markUnansweredHandled({recordIds,snapshot}={}) {
     if(this.running||this.starting||this.busy||this.worker()?.alive)throw Object.assign(new Error('请先停止自动回复，再标记待处理消息。'),{status:409});
@@ -616,6 +627,7 @@ export class ChatService {
         if(pending?.incoming?.length&&pending.phase!=='handled-by-user'&&!pending.backlogAuthorization){
           const restored=recoverableIncoming(pending,contact,messages,load(this.stopFile,null));
           if(restored){next.recoveryQueue=structuredClone(pending);this.log('recovery.queued',{recipientId:contact.id,messageIds:restored.map(item=>item.id),message:'维护中断前已核对且未开始发送的消息进入恢复队列，未修改旧消息水位。'});}
+          else if(certainUnsentPending(pending)){const queueEntry=structuredClone(pending);allowMaintenanceRecovery(queueEntry);next.recoveryQueue=queueEntry;this.log('recovery.queued_certain_unsent',{recipientId:contact.id,phase:pending.phase,message:'崩溃或停止前处于发送前阶段且保留完整未发送证据，进入恢复队列；回读资格核对通过后才自动恢复。'});}
           else{archivePending(next,pending,'重启时缺少完整未发送与消息资格证据，或消息/会话已变化；仅留人工待答，不自动补发。');this.log('baseline.skipped_pending',{recipientId:contact.id,message:'未答消息保留在本机清单，不自动补发。'});}
         }
         this.watermarks.contacts[contact.id]=next;
@@ -753,8 +765,13 @@ export class ChatService {
     const cachedMatches = queue.text && queue.watermark && compareMessageWatermark(queue.watermark, messages, snapshot).matches;
     if (!cachedMatches) {
       queue.text = null;
+      // 已生成未发送的回复直接复用：唯一来信仍是窗口最新消息时沿用原语义；媒体分享目标无法在受界上下文内
+      // 重新生成，只要其后没有已发出的消息（本人未接手），复用旧文本是唯一不漏答路径。
       const lastIncoming = messages.findLastIndex(message => message.sender === 'incoming');
-      if (targets.length === 1 && targets.at(-1).index === lastIncoming && !queue.generationAttempts) {
+      const candidate = targets.at(-1);
+      const targetIsLatest = targets.length === 1 && candidate && candidate.index === lastIncoming;
+      const mediaTargetStale = targets.length === 1 && candidate && Boolean(candidate.message.media) && candidate.index >= 0 && !messages.slice(candidate.index + 1).some(item => item.sender === 'outgoing');
+      if ((targetIsLatest || mediaTargetStale) && !queue.generationAttempts) {
         try { queue.text = normalizeChatReplyText(ready[0].record.generatedText ?? ready[0].record.text); queue.replySource = 'existing-matching-generated-text'; } catch {}
       }
       if (!queue.text) {
@@ -762,6 +779,8 @@ export class ChatService {
         const eligibleContext = messages.slice(0,targets.at(-1).index+1).filter(message => (!message.kind || message.kind === 'text') && !message.media && typeof message.text === 'string' && message.text.trim());
         const currentTail = eligibleContext.at(-1);
         if (targets.length > 6 || !currentTail || currentTail.sender !== 'incoming' || contact.isGroup && !groupMessageAddressesFish(currentTail, this.policy.groupMentionNames) || targets.some(item => item.message.media || item.message.kind !== 'text' || !item.message.text?.trim())) { this.backlogPause(mark, 'waiting-bounded-generation-evidence'); return; }
+        // 纯媒体目标无法在此上下文内生成；若已有针对该来信的旧生成文本则仍可复用（上方分支）。
+        const mediaOnly = targets.some(item => item.message.media || item.message.kind !== 'text' || !item.message.text?.trim());
         const chosen = new Set([...targets.map(item => item.message.id), ...eligibleContext.slice(-(12 - targets.length)).map(item => item.id)]);
         const context = eligibleContext.filter(message => chosen.has(message.id)).map(message => structuredClone(message));
         if (context.length > 12 || targets.some(item => !context.some(message => message.id === item.message.id))) { this.backlogPause(mark, 'waiting-target-context-capacity'); return; }
@@ -863,18 +882,20 @@ export class ChatService {
     try {
       const prioritized = [...this.policy.allowlist].sort((left, right) => Number(this.incomingPriority.has(right.id)) - Number(this.incomingPriority.has(left.id)));
       const dueBacklog=new Set(prioritized.filter(contact=>this.autoDue(this.watermarks.contacts[contact.id])).map(contact=>contact.id));
+      // 带恢复队列的会话必须读取：恢复核对不依赖未读角标，漏掉会让重启恢复条件失效。
+      const recovering=new Set(prioritized.filter(contact=>this.watermarks.contacts[contact.id]?.recoveryQueue).map(contact=>contact.id));
       let toRead = new Set(prioritized.map(contact => contact.id));
       if (typeof this.browser.unreadCounts === 'function') {
         const now = Date.now(), fullScan = !this.lastFullScanAt || now - this.lastFullScanAt >= this.fullScanIntervalMs;
         if (fullScan) { this.lastFullScanAt = now; this.unreadProbeUnavailable = false; }
-        else if (this.unreadProbeUnavailable) { if(!dueBacklog.size)return;toRead=dueBacklog; }
+        else if (this.unreadProbeUnavailable) { if(!dueBacklog.size&&!recovering.size)return;toRead=new Set([...dueBacklog,...recovering]); }
         else {
           try {
             const hints = await this.browser.unreadCounts(prioritized.map(contact => contact.id), { signal });
             if (hints.available === true && hints.counts && typeof hints.counts === 'object') {
               this.unreadProbeUnavailable = false;
               const unread = new Set(Object.entries(hints.counts).filter(([, count]) => Number(count) > 0).map(([id]) => id));
-              toRead = new Set([...this.incomingPriority, ...unread, ...dueBacklog]);
+              toRead = new Set([...this.incomingPriority, ...unread, ...dueBacklog, ...recovering]);
               if (!toRead.size) return;
             } else { this.lastFullScanAt = now; this.unreadProbeUnavailable = true; }
           } catch { this.lastFullScanAt = now; this.unreadProbeUnavailable = true; }
@@ -895,12 +916,22 @@ export class ChatService {
         if(mark.status!=='ready')continue;
         try {
           const snapshot = await this.browser.readConversation(contact.id, { allowed: true, signal, weak: ['manual', 'existing-conversation', 'existing-group'].includes(contact.authorizationKind), backgroundOnly: true }); signal.throwIfAborted();
+          // 消息链路证据：页面就绪、消息读取时间戳、会话身份核对与消息集合变化。浏览器层未提供证据时记为 null，
+          // 如实标注“无法证明”，不冒充已核对；仅在首读、集合变化、证据明确缺失或距上次记录满5分钟时写事件，避免刷日志。
+          if (snapshot.contact && Array.isArray(snapshot.messages)) {
+            const rows = snapshot.messages, messageSet = rows.map(item => item?.id).join(','), nowMs = Date.now();
+            const previousEvidence = this.readEvidence.get(contact.id);
+            const evidence = { pageReady: snapshot.pageReadyEvidence ? snapshot.pageReadyEvidence.pageReady === true : null, pageUrlSource: snapshot.pageReadyEvidence?.pageUrlSource ?? null, conversationIdentityChecked: snapshot.pageReadyEvidence ? snapshot.pageReadyEvidence.conversationIdentityChecked === true : null, identitySamples: snapshot.pageReadyEvidence?.identitySamples ?? null, clickSkipped: snapshot.pageReadyEvidence?.clickSkipped ?? null, observedAt: snapshot.readEvidence?.observedAt ?? snapshot.dayEvidence?.observedAt ?? null, readAt: snapshot.readEvidence?.readAt ?? new Date().toISOString(), messageCount: snapshot.readEvidence?.messageCount ?? rows.length, nativeIdCount: snapshot.readEvidence?.nativeIdCount ?? null, latestEndVerified: snapshot.dayEvidence?.latestEndVerified ?? null, chronology: snapshot.dayEvidence?.chronology ?? null, messageSetChanged: previousEvidence ? previousEvidence.messageSet !== messageSet : true, messageSet };
+            const shouldLog = !previousEvidence || evidence.messageSetChanged || evidence.pageReady === false || evidence.conversationIdentityChecked === false || nowMs - (previousEvidence.lastLoggedAt ?? 0) >= 300_000;
+            this.readEvidence.set(contact.id, { ...evidence, lastLoggedAt: shouldLog ? nowMs : previousEvidence.lastLoggedAt });
+            if (shouldLog) this.log('message.read_evidence', { recipientId: contact.id, pageReady: evidence.pageReady, pageUrlSource: evidence.pageUrlSource, conversationIdentityChecked: evidence.conversationIdentityChecked, identitySamples: evidence.identitySamples, clickSkipped: evidence.clickSkipped, observedAt: evidence.observedAt, readAt: evidence.readAt, messageCount: evidence.messageCount, nativeIdCount: evidence.nativeIdCount, latestEndVerified: evidence.latestEndVerified, chronology: evidence.chronology, messageSetChanged: evidence.messageSetChanged });
+          }
           const verified = verifiedAuthorizedContact(contact, snapshot.contact);
           assertConversationSnapshot(verified, snapshot);
           contact = this.refreshAuthorizedContact(contact, verified);delete mark.identityReviewRequired;delete mark.accountActionRequired;
           const messages = messagesOf(snapshot);this.rememberReplyQualifications(contact, messages);let restored=[],restoreEvidence;
           this.qualifyNativeBacklog(contact, mark, snapshot, messages);
-          if(mark.recoveryQueue){restoreEvidence=mark.recoveryQueue.recoveryEvidence;restored=recoverableIncoming(mark.recoveryQueue,contact,messages,load(this.stopFile,null))||[];if(!restored.length)archivePending(mark,mark.recoveryQueue,'维护恢复前消息、会话或停止许可已经变化，未补发旧待答。');delete mark.recoveryQueue;this.persist();}
+          if(mark.recoveryQueue){restoreEvidence=mark.recoveryQueue.recoveryEvidence;restored=recoverableIncoming(mark.recoveryQueue,contact,messages,load(this.stopFile,null))||[];if(!restored.length){if(certainUnsentPending(mark.recoveryQueue)){this.log('recovery.certain_unsent_recheck_failed',{recipientId:contact.id,phase:mark.recoveryQueue.phase,message:'确定未发送的待答回读资格未通过（消息或会话已变化），转人工待答，不补发。'});archivePending(mark,mark.recoveryQueue,'重启前确定未发送，但回读时消息、会话或停止许可已经变化；宁可不发也不重复发。');}else archivePending(mark,mark.recoveryQueue,'维护恢复前消息、会话或停止许可已经变化，未补发旧待答。');}delete mark.recoveryQueue;this.persist();}
           if (hasStableConversationIdentity(contact) && mark.pending && mark.pending.phase !== 'handled-by-user' && (!matchesAuthorizedContact(mark.pending.recoveryEvidence?.contact, contact) || !matchesAuthorizedContact(contact, mark.pending.recoveryEvidence?.contact))) {
             archivePending(mark, mark.pending, '待答记录的旧身份凭据无法与当前稳定身份双向核对，仅留人工待答。'); delete mark.pending; this.persist();
           }
