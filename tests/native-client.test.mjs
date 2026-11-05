@@ -281,5 +281,26 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   const prepare = page.getByRole('button', { name: '准备回复通道/重新连接并重试', exact: true }); await prepare.waitFor(); await prepare.click();
   await page.waitForTimeout(100); assert.equal(calls.some(item => item.route === '/chat/prepare'), true);
   state.watch.running = false;
+  state.interactions.presence = { status: 'online', online: true, label: '在线 · 等待消息', reason: '合成后端确认许可会话全部就绪', checkedAt: new Date().toISOString() };
+  state.video.allowed = true; state.video.reason = ''; state.watch.lastError = '';
+  await page.getByLabel('当前状态摘要').filter({ hasText: '一切正常' }).waitFor();
+  state.watch.lastError = '合成观看中断';
+  await page.getByLabel('当前状态摘要').filter({ hasText: '上次自主观看中断' }).waitFor();
+  state.watch.lastError = ''; state.video.allowed = false; state.video.reason = '请先开始新一轮。';
+  await page.getByLabel('当前状态摘要').filter({ hasText: '不在允许观看时段' }).waitFor();
+  state.video.allowed = true; // 暂时恢复允许，验证待答卡点排序在时段之后仍可触发
+  state.chat.unansweredCount = 2; state.chat.running = false; state.chat.worker = null;
+  await page.getByLabel('当前状态摘要').filter({ hasText: '2 条好友消息待处理' }).waitFor();
+  state.video.allowed = false; state.video.reason = '请先开始新一轮。';  await page.getByRole('tab', { name: '好友互动', exact: true }).click();
+  const markHandled = page.getByRole('button', { name: '已处理，不再补答', exact: true }).first(); await markHandled.waitFor();
+  const readsBeforeStop = calls.filter(item => item.route === '/chat/unanswered').length;
+  assert.equal(await markHandled.isEnabled(), true, '服务已停止时按钮可用，不因旧列表缓存永久禁用');
+  state.chat.running = true;
+  await page.waitForFunction(() => { const button = [...document.querySelectorAll('button')].find(item => item.textContent === '已处理，不再补答'); return button && button.disabled; });
+  assert.ok(calls.filter(item => item.route === '/chat/unanswered').length > readsBeforeStop, '服务启动后待答列表重新读取');
+  state.chat.running = false;
+  await page.waitForFunction(() => { const button = [...document.querySelectorAll('button')].find(item => item.textContent === '已处理，不再补答'); return button && !button.disabled; });
+  await page.getByRole('tab', { name: '基础设置', exact: true }).click();
+  assert.equal(await page.getByLabel('当前状态摘要').count(), 1, '摘要只在页面顶部渲染一次');
   assert.equal(calls.filter(item => item.method === 'POST').every(item => item.token === state.token), true); assert.deepEqual(errors, []);
 });

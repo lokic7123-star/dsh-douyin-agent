@@ -179,14 +179,16 @@ window.__ModuleLoader__.load({
         return h('div', { style: column }, h('label', { style: column }, `${label} API Key`, h(Input, { 'aria-label': `${label} API Key`, type: 'password', autoComplete: 'off', maxLength: 4096, value: credentials[backend], disabled: !ready || operationActive || busy.has(`key:${backend}`), onChange: event => { keyValues.current = { ...keyValues.current, [backend]: event.target.value }; setCredentials(keyValues.current); }, onBlur: () => { const secret = keyValues.current[backend].trim(); if (!secret) return; void perform(`key:${backend}`, async () => { const result = await api.request('/media/credentials', { backend, apiKey: secret }); if (keyValues.current[backend].trim() === secret) { keyValues.current = { ...keyValues.current, [backend]: '' }; setCredentials(keyValues.current); } setKeyStatus(old => ({ ...old, [backend]: 'Key 已保存，不回显。' })); return result; }); } })), note(keyStatus[backend] || (state?.media?.backends?.[backend]?.credential?.configured ? '已配置；填写新 Key 后离开输入框即可替换。' : '填写 Key，离开输入框后保存。')));
       }
       const friendEnabled = state?.interactions?.policy?.enabled === true, watchEnabled = state?.schedule?.policy?.enabled === true;
+      const presence = ready ? state?.interactions?.presence : null, replyPresence = presence?.reply || presence, watchState = presence?.watch, presenceLabel = replyPresence?.label || '状态待核实', presenceReason = replyPresence?.reason || '正在读取好友回复服务状态。', watchLabel = watchState?.active ? watchState.label : '';
       const PHASE_LABELS = { unqualified: '新消息资格未核实', 'unsupported-media': '附件类型未支持', 'not-sent': '发送前检查未通过', 'stopped-before-send': '停止前未发送', 'delivery-uncertain': '发送结果未确认', model: '回复尚未发送', observing: '回复尚未发送', superseded: '生成期间有新消息' };
+      const chatActive = Boolean(active(state?.chat));
       const [unanswered, setUnanswered] = useState(null), [unansweredError, setUnansweredError] = useState('');
       useEffect(() => {
         if (!ready) return; let aliveView = true;
         void api.request('/chat/unanswered').then(value => { if (aliveView && value?.protocol === 'chat-unanswered-v1') { setUnanswered(value); setUnansweredError(''); } }).catch(failure => { if (aliveView) setUnansweredError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
         return () => { aliveView = false; };
-      }, [api, ready, state?.chat?.unansweredCount]);
-      const workerActive = unanswered?.running === true || unanswered?.worker?.alive === true;
+      }, [api, ready, state?.chat?.unansweredCount, chatActive]);
+      const workerActive = chatActive;
       const markHandled = (recordId, snapshot) => perform(`unanswered:${recordId.slice(0, 8)}`, async () => {
         const value = await api.request('/chat/unanswered/resolve', { recordIds: [recordId], snapshot }); setUnanswered(value.unanswered || null); setUnansweredError(''); return value;
       });
@@ -208,7 +210,6 @@ window.__ModuleLoader__.load({
         if (replyPresence?.status === 'attention') return { label: '回复服务异常', detail: presenceReason, tab: '好友互动' };
         return { label: '一切正常', detail: [replyPresence?.label, watchState?.active ? watchState.label : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。' };
       })();
-      const presence = ready ? state?.interactions?.presence : null, replyPresence = presence?.reply || presence, watchState = presence?.watch, presenceLabel = replyPresence?.label || '状态待核实', presenceReason = replyPresence?.reason || '正在读取好友回复服务状态。', watchLabel = watchState?.active ? watchState.label : '';
       return h('div', { style: { ...column, maxWidth: 900, paddingBottom: 32 } },
         h('h2', null, '大肥鱼抖音助手'), !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
         ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', style: row }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
