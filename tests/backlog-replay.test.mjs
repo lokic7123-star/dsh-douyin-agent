@@ -47,34 +47,44 @@ test('回放基线（C1）：R1 历史映射失效记录每轮扫描都不进队
   assert.equal(record.phase,'superseded');
 });
 
-test('回放基线（C1）：R2/R3 媒体记录与 R4–R6 纯文本记录合并队列，当前行为为整批媒体门槛连坐（C2 将改变）',async t=>{
+test('回放（C2）：混合队列中纯文本解出照常推进，媒体记录拆出标需人工不再连坐',async t=>{
   const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1'),videoIncoming('video-2')];
+  let sendCalls=0;
   const f=await replay(t,{messages,records:[
     archiveRecord(authorized,messages,{id:'replay-r2-text-',phase:'model',targetIds:['text-target']}),
     archiveRecord(authorized,messages,{id:'replay-r3-video-',phase:'model',targetIds:['video-1']}),
     archiveRecord(authorized,messages,{id:'replay-r4-video-',phase:'model',targetIds:['video-2']}),
   ]});
+  f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
   f.due();await f.service.poll();
-  const queue=f.mark().autoBacklog;
-  assert.ok(queue,'应构建补答队列');
-  assert.equal(queue.reason,'waiting-bounded-generation-evidence','当前行为：混合队列在生成门槛连坐');
-  assert.equal(queue.retryCount,1);
-  assert.equal(queue.text,null,'不得为混合队列生成回复文本');
-  assert.ok([f.record('replay-r2-text-'),f.record('replay-r3-video-'),f.record('replay-r4-video-')].every(record=>record.autoHandled===undefined),'整批保持 open');
-  // 三条记录的 targets 都被映射进队列（连坐范围=全部）
-  assert.deepEqual(queue.archiveIds.length,3);
+  // 媒体记录拆出标需人工，不进队列、不连坐
+  for(const id of ['replay-r3-video-','replay-r4-video-']){
+    const record=f.record(id);
+    assert.equal(record.mediaNeedsManual,true,`${id} 应标需人工`);
+    assert.equal(record.autoHandled,undefined,`${id} 保持 open 不整条结案`);
+  }
+  assert.ok(f.service.events.some(event=>event.type==='backlog.media_needs_manual'),'需人工标记应有事件');
+  // 纯文本记录解出后照常生成发送并结案
+  const textRecord=f.record('replay-r2-text-');
+  assert.equal(sendCalls,1,'发送只发生在合成 transport 上，恰好一次');
+  assert.equal(textRecord.autoHandled,true,'纯文本记录照常结案');
 });
 
-test('回放基线（C1）：混合记录（单条 targets 含文字+媒体）在当前行为下同样连坐',async t=>{
+test('回放（C2）：混合记录（单条 targets 含文字+媒体）文字目标随本次发送结案，媒体目标保持 open 标需人工，整条结案被禁止',async t=>{
   const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1')];
+  let sendCalls=0;
   const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-mixed-',phase:'model',targetIds:['text-target','video-1']})]});
+  f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
   f.due();await f.service.poll();
-  const queue=f.mark().autoBacklog;
-  assert.equal(queue?.reason,'waiting-bounded-generation-evidence');
-  assert.equal(f.record('replay-mixed-').autoHandled,undefined);
+  const record=f.record('replay-mixed-');
+  assert.equal(record.mediaNeedsManual,true,'媒体目标应标需人工');
+  assert.equal(record.autoHandled,undefined,'混合记录不得因文字目标完成而整条结案');
+  assert.equal(record.autoHandledProof,undefined);
+  assert.equal(sendCalls,1,'文字目标照常生成发送一次');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.media_needs_manual'),'混合结案事件应存在');
 });
 
-test('回放基线（C1）：纯文本单记录不受影响，照常生成发送一次',async t=>{
+test('回放（C2）：纯文本单记录不受影响，照常生成发送一次',async t=>{
   const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问')];
   let sendCalls=0;
   const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-text-ok-',phase:'model',targetIds:['text-target']})]});
@@ -82,4 +92,46 @@ test('回放基线（C1）：纯文本单记录不受影响，照常生成发送
   f.due();await f.service.poll();
   assert.equal(f.record('replay-text-ok-').autoHandled,true);
   assert.equal(sendCalls,1,'发送只发生在合成 transport 上，恰好一次');
+});
+test('回放（C2）：文本记录引用同批媒体（quote 指向）时跟随媒体转人工，不得脱离媒体盲答',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),{...videoIncoming('video-1'),reference:{text:'（合成改写）引用的视频预览',scope:'visible-quoted-message',contentStatus:'preview-only'}},{...textIncoming('quote-target','（合成改写）这个视频里讲的是什么'),reference:{text:'（合成改写）引用的视频预览',scope:'visible-quoted-message',contentStatus:'preview-only'}}];
+  let sendCalls=0;
+  const f=await replay(t,{messages,records:[
+    archiveRecord(authorized,messages,{id:'replay-quote-media-',phase:'model',targetIds:['video-1']}),
+    archiveRecord(authorized,messages,{id:'replay-quote-text-',phase:'model',targetIds:['quote-target']}),
+  ]});
+  f.service.browser.sendMessage=async()=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
+  f.due();await f.service.poll();
+  assert.equal(f.record('replay-quote-text-').mediaNeedsManual,true,'引用媒体的文本记录应跟随媒体转人工');
+  assert.equal(f.record('replay-quote-text-').autoHandled,undefined);
+  assert.equal(sendCalls,0,'引用跟随场景不得发送脱离媒体的盲答');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.media_needs_manual'));
+});
+test('回放（C2 补充）：身份凭据无法双向核对的记录不再静默跳过——补事件与可见标记',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-stale-id-',phase:'model',targetIds:['text-target']})]});
+  // 模拟旧归档记录凭据过期/会话换绑：recoveryEvidence.contact 的绑定换成另一会话
+  const record=f.record('replay-stale-id-');
+  record.recoveryEvidence.contact={...structuredClone(authorized),identityBinding:'binding:'+'2'.repeat(64)};
+  f.service.persist();
+  f.due();await f.service.poll();
+  assert.ok(record.identityUnverifiableAt,'应有可见的不可核对标记');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.identity_unverifiable'),'跳过必须有事件，不得静默');
+  assert.equal(record.autoHandled,undefined);
+});
+test('回放（C2 兼容）：旧形状记录（无新字段的历史归档）经新逻辑读取不报错且不被误改',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-legacy-shape-',phase:'model',targetIds:['text-target']})]});
+  // 模拟真实 state 旧形状：剥掉新字段并伪造已结案的旧记录与新 open 记录共存
+  let sendCalls=0;
+  f.service.browser.sendMessage=async()=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
+  const record=f.record('replay-legacy-shape-');
+  delete record.mediaNeedsManual; delete record.identityUnverifiableAt;
+  const oldDone={...structuredClone(record),archiveId:'replay-old-done-',autoHandled:true,autoHandledAt:new Date(Date.now()-86_400_000).toISOString(),autoHandledBy:'dafeiyu',autoHandledProof:{version:1,source:'authorized-unsent-backlog-v1',method:'confirmed-platform-reply',messageId:'old-sent',confirmed:true},autoAttempt:{version:1,source:'authorized-unsent-backlog-v1',queueKey:'old',sourceHash:'0'.repeat(64),targets:[{id:'old-target',fingerprint:'0'.repeat(64)}],state:'confirmed',text:'（合成改写）历史回复',at:new Date(Date.now()-172_800_000).toISOString()}};
+  f.mark().unanswered.push(oldDone);f.service.persist();
+  f.due();await f.service.poll();
+  assert.equal(oldDone.autoHandled,true,'旧已结案记录保持已结案');
+  assert.equal(oldDone.mediaNeedsManual,undefined,'旧记录不被误改');
+  assert.equal(record.autoHandled,true,'新 open 记录照常推进');
+  assert.equal(sendCalls,1,'发送恰好一次且只在合成 transport');
 });

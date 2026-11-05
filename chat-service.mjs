@@ -696,8 +696,7 @@ export class ChatService {
     record.autoHandled = true; record.autoHandledAt = new Date().toISOString(); record.autoHandledBy = 'dafeiyu';
     record.autoHandledProof = { version: 1, source: 'authorized-unsent-backlog-v1', method, messageId, confirmed: true };
     if (record.autoAttempt) record.autoAttempt.state = 'confirmed';
-  }
-  restoreBacklogReceipt(contact, mark) {
+  }  restoreBacklogReceipt(contact, mark) {
     const queue = mark.autoBacklog, receipt = queue?.receipt;
     if (receipt?.confirmed !== true || receipt.key !== queue.key || !Array.isArray(receipt.archiveIds) || !Array.isArray(receipt.targets) || !matchesAuthorizedContact(queue.authorizationContact, contact) || !matchesAuthorizedContact(contact, queue.authorizationContact)) return false;
     const key = createHash('sha256').update(JSON.stringify([contact.id, receipt.archiveIds.slice().sort(), receipt.targets.map(item => [item.id, item.fingerprint])])).digest('hex');
@@ -743,7 +742,16 @@ export class ChatService {
     for (const record of records) {
       const isUncertain = record.legacyUncertain === true || record.recoveryEvidence?.beforeDispatch === false || ['sending', 'delivery-uncertain'].includes(record.phase) || ['reserved', 'uncertain'].includes(record.autoAttempt?.state);
       const savedContact = record.recoveryEvidence?.contact;
-      if (!matchesAuthorizedContact(savedContact, contact) || !matchesAuthorizedContact(contact, savedContact)) {if(isUncertain)unmappedUncertain=true;continue;}
+      // 身份凭据无法双向核对的记录不得静默跳过——那是用户不可见的永久卡死（漏答形态之一）。补事件与可见标记，等待人工核对。
+      if (!matchesAuthorizedContact(savedContact, contact) || !matchesAuthorizedContact(contact, savedContact)) {
+        if (isUncertain) unmappedUncertain = true;
+        if (!record.identityUnverifiableAt) {
+          record.identityUnverifiableAt = new Date().toISOString();
+          this.log('backlog.identity_unverifiable', { recipientId: contact.id, archiveId: record.archiveId, phase: record.phase, hasContact: Boolean(savedContact), verifiedAt: savedContact?.verifiedAt ?? null, message: '待答记录的身份凭据无法与当前许可会话双向核对，已标记需人工核对，不再自动推进。' });
+          this.persist();
+        }
+        continue;
+      }
       if (isUncertain) for (const item of record.recoveryEvidence.qualifiedIncoming || []) uncertainSources.add(item.message?.id + '\0' + item.fingerprint);
       const mapped = mapBacklogMessages(record, messages); if (!mapped.ready) { if(isUncertain)unmappedUncertain=true;continue; }
       if (mapped.uncertain) { mapped.targets.forEach(item => uncertainTargets.add(item.message.id)); for (const item of record.recoveryEvidence.qualifiedIncoming) uncertainSources.add(item.message.id + '\0' + item.fingerprint); }
@@ -754,6 +762,40 @@ export class ChatService {
       if (mapped.canSend) ready.push({ record, mapped });
     }
     ready = unmappedUncertain ? [] : ready.filter(item => item.mapped.targets.every(target => !uncertainTargets.has(target.message.id)) && item.record.recoveryEvidence.qualifiedIncoming.every(target => !uncertainSources.has(target.message.id + '\0' + target.fingerprint)));
+    // C2 拆分：媒体门槛只拦媒体，不再连坐纯文本。媒体观察不持久化、补答无法重采画面，是设计事实——
+    // 含媒体目标的记录标「缺媒体观察·需人工」（结构性），纯文本记录解出照常生成发送。
+    // 引用关系保留：文本记录显式引用（quote）或文本指向同批媒体目标时，跟随媒体转人工，不脱离媒体盲答。
+    const mediaTargetIds = new Set(ready.flatMap(item => item.mapped.targets.filter(target => target.message.media || target.message.kind !== 'text' || !target.message.text?.trim()).map(target => target.message.id)));
+    const textRefersTo = (record, mapped) => mapped.targets.some(target => typeof target.message.text === 'string' && /这个|那条|上面|刚才|发你|分享|视频|作品/.test(target.message.text) && typeof target.message.reference?.text === 'string' && target.message.reference.text.trim()) || mapped.targets.some(target => typeof target.message.reference?.text === 'string' && target.message.reference.text.trim());
+    const manualMedia = new Set(), textReady = [];
+    for (const item of ready) {
+      const mediaTargets = item.mapped.targets.filter(target => target.message.media || target.message.kind !== 'text' || !target.message.text?.trim());
+      const textTargets = item.mapped.targets.filter(target => !target.message.media && target.message.kind === 'text' && target.message.text?.trim());
+      // 引用跟随：文本目标带 quote 引用且同批存在媒体目标时，文本跟随媒体转人工，不脱离媒体盲答。
+      // 误判风险：仅按 reference 字段与指向性关键词判定；无 quote 的纯指向性文本（“刚才那个视频”）不识别为引用——
+      // 这类保持自动推进但回复上下文里本就含该媒体前文，风险可接受；有 quote 的不会漏。
+      const refersMedia = textTargets.length > 0 && mediaTargetIds.size > 0 && textTargets.some(target => typeof target.message.reference?.text === 'string' && target.message.reference.text.trim());
+      if (mediaTargets.length && textTargets.length) {
+        // 混合记录：媒体目标转人工（标记），文字目标解出按目标粒度推进，记录保持 open。
+        manualMedia.add(item.record.archiveId);
+        if (!refersMedia) textReady.push({ ...item, mapped: { ...item.mapped, targets: textTargets, canSend: true } });
+      } else if (mediaTargets.length) {
+        manualMedia.add(item.record.archiveId);
+      } else if (!refersMedia) {
+        textReady.push(item);
+      } else {
+        manualMedia.add(item.record.archiveId);
+      }
+    }
+    for (const id of manualMedia) {
+      const item = ready.find(entry => entry.record.archiveId === id);
+      if (!item.record.mediaNeedsManual) {
+        item.record.mediaNeedsManual = true; item.record.mediaNeedsManualAt = new Date().toISOString();
+        this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: id, targets: item.mapped.targets.map(target => target.message.kind), message: '该待答含媒体目标（媒体观察不持久化，补答无法重采画面），已标记需人工处理，不再阻塞纯文本待答。' });
+      }
+    }
+    if (manualMedia.size && !textReady.length) { this.backlogPause(mark, 'waiting-media-manual'); return; }
+    ready = textReady;
     if (!ready.length) { this.backlogPause(mark, 'waiting-backlog-evidence-or-outgoing'); return; }
     const archiveIds = ready.map(item => item.record.archiveId);
     if (archiveIds.some(id => typeof id !== 'string' || !id) || new Set(archiveIds).size !== archiveIds.length) { this.backlogPause(mark, 'waiting-archive-identity'); return; }
@@ -778,9 +820,8 @@ export class ChatService {
         const ids = new Set(targets.map(item => item.message.id));
         const eligibleContext = messages.slice(0,targets.at(-1).index+1).filter(message => (!message.kind || message.kind === 'text') && !message.media && typeof message.text === 'string' && message.text.trim());
         const currentTail = eligibleContext.at(-1);
+        // C2 后此处 targets 已不含媒体目标（媒体记录在上方拆出）；媒体条件保留为不变量守护，命中即防御性等待而非连坐。
         if (targets.length > 6 || !currentTail || currentTail.sender !== 'incoming' || contact.isGroup && !groupMessageAddressesFish(currentTail, this.policy.groupMentionNames) || targets.some(item => item.message.media || item.message.kind !== 'text' || !item.message.text?.trim())) { this.backlogPause(mark, 'waiting-bounded-generation-evidence'); return; }
-        // 纯媒体目标无法在此上下文内生成；若已有针对该来信的旧生成文本则仍可复用（上方分支）。
-        const mediaOnly = targets.some(item => item.message.media || item.message.kind !== 'text' || !item.message.text?.trim());
         const chosen = new Set([...targets.map(item => item.message.id), ...eligibleContext.slice(-(12 - targets.length)).map(item => item.id)]);
         const context = eligibleContext.filter(message => chosen.has(message.id)).map(message => structuredClone(message));
         if (context.length > 12 || targets.some(item => !context.some(message => message.id === item.message.id))) { this.backlogPause(mark, 'waiting-target-context-capacity'); return; }
@@ -806,7 +847,21 @@ export class ChatService {
     catch (error) { if (signal.aborted) throw error; delivery = { confirmed: false, deliveryUncertain: ready.some(item => ['reserved', 'uncertain'].includes(item.record.autoAttempt?.state)) }; }
     if (delivery?.confirmed === true && delivery.messageId) {
       queue.receipt = { confirmed: true, messageId: delivery.messageId, key, at: new Date().toISOString(), archiveIds, targets: targets.map(item => ({ id: item.message.id, fingerprint: item.fingerprint })) }; this.persist();
-      ready.forEach(item => this.settleBacklog(item.record, delivery.messageId, 'confirmed-platform-reply'));
+      // C2：混合记录（targets 含媒体，媒体部分已拆给人工）的文字目标随本次发送结案时，只按本次队列实际覆盖的
+      // 文字目标粒度结案；若记录还有媒体目标未处理，不得整条结案——标记媒体需人工并保持 open。
+      for (const item of ready) {
+        const recordMediaTargets = item.record.incoming?.filter(message => message.media || (message.kind && message.kind !== 'text')) ?? [];
+        const mediaStillOpen = recordMediaTargets.length > 0;
+        if (mediaStillOpen) {
+          if (!item.record.mediaNeedsManual) {
+            item.record.mediaNeedsManual = true; item.record.mediaNeedsManualAt = new Date().toISOString();
+            this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: item.record.archiveId, message: '混合待答的文字目标已随本次回复结案，媒体目标无法自动补答（媒体观察不持久化），保持待答并由人工处理。' });
+          }
+          this.persist();
+          continue;
+        }
+        this.settleBacklog(item.record, delivery.messageId, 'confirmed-platform-reply');
+      }
       queue.state = 'complete'; queue.nextRetryAt = null; queue.retryCount = 0;
     } else {
       for (const item of ready) if (item.record.autoAttempt || delivery?.deliveryUncertain === true) item.record.autoAttempt = { ...(item.record.autoAttempt || { version: 1, source: 'authorized-unsent-backlog-v1', text: queue.text, at: new Date().toISOString() }), state: delivery?.deliveryUncertain === true ? 'uncertain' : 'zero-click' };
