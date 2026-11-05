@@ -235,7 +235,7 @@ test('生成期间原私信被撤回或同 ID 正文改变时不发送', async (
 });
 test('重新启动保留模型失败的待答记录，明确设为基线跳过且不自动补发', async (t) => {
   const f = fixture(t, { agent: { reply: async () => { throw new Error('合成模型失败'); } } }); await prepare(f); f.messages.push(message('failed', '需要人工处理')); await f.service.poll(); f.service.stop(); await f.service.start({ schedule: false }); await f.service.poll();
-  assert.equal(f.service.state().contacts[0].unanswered[0].incoming[0].text, '需要人工处理'); assert.equal(f.service.state().daily.requests, 1); assert.ok(f.service.state().events.some((item) => item.type === 'baseline.skipped_pending'));
+  assert.equal(f.service.state().contacts[0].unansweredAll[0].incoming[0].text, '需要人工处理'); assert.equal(f.service.state().contacts[0].unanswered[0].backlogState, 'retrying'); assert.equal(f.service.state().daily.requests, 1); assert.ok(f.service.state().events.some((item) => item.type === 'baseline.skipped_pending'));
 });
 test('配置回读等待期间另一个入口启动时不能覆盖正在运行的白名单', async (t) => {
   const f = fixture(t); await f.service.configure({ recipientIds: [contact.id] }); let release;

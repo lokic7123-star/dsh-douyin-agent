@@ -61,7 +61,7 @@ test('浏览器prepare尚未开始输入时遇维护，保留已证明未发送�
 });
 
 test('未知incoming附件保留自动等待元数据但不编造文本，明确撤回或系统通知不生成待答',async t=>{
-  const f=fixture(t,{blockModel:false});await start(f);f.messages.push({...incoming('unknown-media',''),kind:'unsupported',unsupported:true});await f.service.poll();assert.equal(f.sent.length,0);assert.equal(f.service.state().recovery.autoPendingCount,1);const item=f.service.state().contacts[0].unanswered[0].incoming[0];assert.equal(item.id,'unknown-media');assert.equal(item.text,undefined);assert.equal(item.unsupported,true);
+  const f=fixture(t,{blockModel:false});await start(f);f.messages.push({...incoming('unknown-media',''),kind:'unsupported',unsupported:true});await f.service.poll();assert.equal(f.sent.length,0);assert.equal(f.service.state().recovery.autoPendingCount,1);const item=f.service.state().contacts[0].unansweredAll[0].incoming[0];assert.equal(item.id,'unknown-media');assert.equal(item.text,undefined);assert.equal(item.unsupported,true);const openItem=f.service.state().contacts[0].unanswered[0];assert.equal(openItem.backlogState,'retrying','未知附件待答为暂时失败可恢复');assert.ok(openItem.blockerCode);
   f.messages.push({...incoming('recalled',''),kind:'recalled',unsupported:true},{...incoming('system',''),kind:'system',unsupported:true});await f.service.poll();assert.equal(f.service.state().recovery.autoPendingCount,1);assert.equal(f.sent.length,0);
   f.messages.push(incoming('later-normal','合成下一条文字'));await f.service.poll();assert.equal(f.sent.length,1);assert.equal(f.service.state().recovery.autoPendingCount,1);
 });
@@ -83,7 +83,7 @@ test('旧版pending缺少完整资格证据，只归自动等待，后续新消�
 
 test('运行中的旧paused联系人保留自动待答审计且继续接收新消息，旧手动接口仍可结案',async t=>{
   const f=fixture(t,{blockModel:false});await start(f);const mark=f.service.watermarks.contacts[f.contact.id];mark.status='paused';mark.pending={phase:'model',incoming:[{id:'older-pending',text:'合成旧未答'}]};f.service.persist();f.messages.push(incoming('actual-new','合成当前新消息'));await f.service.poll();assert.equal(f.sent.length,1);assert.equal(f.service.state().recovery.autoPendingCount,1);
-  f.service.stop();const before=f.service.state().contacts[0].unanswered.length;f.service.resumeContact(f.contact.id);const state=f.service.state();assert.equal(state.recovery.pendingManualCount,0);assert.equal(state.contacts[0].unanswered.length,before);assert.ok(state.contacts[0].unanswered.every(item=>item.handledByUserAt));
+  f.service.stop();const before=f.service.state().contacts[0].unansweredAll.length;f.service.resumeContact(f.contact.id);const state=f.service.state();assert.equal(state.recovery.pendingManualCount,0);assert.equal(state.contacts[0].unansweredAll.length,before);assert.ok(state.contacts[0].unansweredAll.every(item=>item.handledByUserAt));assert.equal(state.contacts[0].unanswered.length,0,'新口径 open 列表在人工结案后清空');
 });
 
 test('正常取消无待答的只读检查不谎报有未答消息或暂停联系人',async t=>{
