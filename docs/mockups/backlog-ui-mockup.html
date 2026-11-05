@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>样稿 · 大肥鱼抖音助手 — 待答与状态重设计（暗色独立页 + 浅色弹窗内嵌）</title>
+<style>
+/* ===== DSH 主题令牌（取自 DSH ui-theme design-platform.css 的别名定义，样稿内联固定值） =====
+   暗色：bg-base=#151517(bluish-950) layer-1=#232324(875) layer-2=#2c2c2e(850) label=bluish-50/300/400 border=white.12
+   浅色：bg=#fff(bluish-00) label=bluish-1000/700/600 border=black.10 mask=black.24（宿主弹窗层叠） */
+*{box-sizing:border-box}
+body{margin:0;background:#0d0d0f;color:#d5d8dd;font:14px/1.6 var(--font, sans-serif)}
+.theme{font-size:14px;line-height:1.6}
+.theme button{font:inherit;cursor:pointer}
+.theme button:disabled{cursor:default}
+.theme :focus-visible{outline:2px solid #8eaaff;outline-offset:2px}
+.theme code{font-family:var(--mono)}
+
+/* ---------- 暗色独立页 ---------- */
+.theme-dark{
+  --bg-base:#151517; --bg-layer-1:#232324; --bg-layer-2:#2c2c2e; --bg-layer-3:#353538;
+  --label-primary:#f9fafb; --label-secondary:#cfd3d6; --label-tertiary:#adb2b8; --label-dimmed:#989ea6;
+  --border-l1:rgba(255,255,255,.06); --border-l2:rgba(255,255,255,.12); --border-l3:rgba(255,255,255,.16);
+  --ok:#22c55e; --ok-dim:rgba(34,197,94,.14); --warn:#f7ad31; --warn-dim:rgba(247,173,49,.13);
+  --err:#f87171; --err-dim:rgba(248,113,113,.14); --info:#60a5fa; --info-dim:rgba(96,165,250,.13);
+  --uncertain:#c084fc; --uncertain-dim:rgba(192,132,252,.13);
+  color:var(--label-primary); background:var(--bg-base);
+  padding:20px 24px 40px; max-width:900px; margin:0 auto;
+}
+/* ---------- 浅色 · 宿主设置弹窗内嵌 ---------- */
+.theme-light{
+  --bg-base:#ffffff; --bg-layer-1:#f5f6f7; --bg-layer-2:#ececef; --bg-layer-3:#e3e5e9;
+  --label-primary:#0f1115; --label-secondary:#3c3c3d; --label-tertiary:#5f6368; --label-dimmed:#6b6f74;
+  --border-l1:rgba(0,0,0,.04); --border-l2:rgba(0,0,0,.1); --border-l3:rgba(0,0,0,.12);
+  --ok:#15803d; --ok-dim:rgba(21,128,61,.1); --warn:#92400e; --warn-dim:rgba(180,83,9,.1);
+  --err:#b91c1c; --err-dim:rgba(185,28,28,.08); --info:#1d4ed8; --info-dim:rgba(29,78,216,.1);
+  --uncertain:#6d28d9; --uncertain-dim:rgba(109,40,217,.08);
+  color:var(--label-primary);
+}
+.dialog-demo{padding:34px 18px 44px;background:radial-gradient(circle at 30% 20%, #2a2a30 0%, #17171a 70%)}
+.dialog-chrome{max-width:640px;margin:0 auto;background:var(--bg-base);border-radius:14px;
+  box-shadow:0 18px 50px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);overflow:hidden;border:1px solid rgba(255,255,255,.08)}
+.dialog-head{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--border-l2)}
+.dialog-head strong{font-size:15px}
+.dialog-head .x{margin-left:auto;border:0;background:transparent;color:var(--label-tertiary);font-size:16px;line-height:1;padding:2px 6px;border-radius:6px}
+.dialog-head .x:hover{background:var(--bg-layer-2)}
+.dialog-body{max-height:520px;overflow-y:auto;padding:16px 18px 22px;scrollbar-width:thin}
+
+/* ===== 顶部紧凑行 ===== */
+.toprow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:4px 0 12px;border-bottom:1px solid var(--border-l1)}
+.theme-light .toprow{border-bottom-color:var(--border-l1)}
+.toprow h1{font-size:20px;font-weight:600;margin:0}
+.toprow .spacer{flex:1}
+.btn{border:1px solid var(--border-l2);background:transparent;color:var(--label-primary);border-radius:8px;padding:6px 13px;font-size:13px}
+.btn:hover{background:var(--bg-layer-2)}
+.btn.primary{background:var(--label-primary);border-color:var(--label-primary);color:var(--bg-base)}
+.btn:disabled{color:var(--label-dimmed);border-color:var(--border-l1);background:transparent}
+
+/* ===== 运行状态行：三个数字分开 ===== */
+.statusline{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding:12px 2px 10px}
+.statusline .seg{display:flex;align-items:center;gap:7px;min-width:0}
+.statusline .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.statusline .dot.warn{background:var(--warn)} .statusline .dot.err{background:var(--err)} .statusline .dot.idle{background:var(--label-dimmed)}
+.statusline .num{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.statusline .cap{color:var(--label-tertiary);font-size:12px}
+.statusline .sep{width:1px;height:16px;background:var(--border-l2);flex:none}
+.statusline .time{margin-left:auto;color:var(--label-dimmed);font-size:12px}
+
+/* 警示条：仅有需人工项时出现 */
+.alertbar{display:flex;align-items:center;gap:10px;padding:9px 13px;border:1px solid var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,transparent);background:var(--warn-dim);border-radius:9px;color:var(--label-secondary);font-size:13px;margin:0 0 12px}
+.alertbar .grow{flex:1;min-width:0}
+
+/* ===== 导航：单行，自然溢出滚动 ===== */
+.tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:8px;padding:10px 0 2px;scrollbar-width:thin;scrollbar-color:var(--bg-layer-3) transparent}
+.tabs::-webkit-scrollbar{height:6px}
+.tabs::-webkit-scrollbar-thumb{background:var(--bg-layer-3);border-radius:3px}
+.tab{flex:none;border:1px solid var(--border-l2);background:transparent;color:var(--label-secondary);border-radius:8px;padding:6px 13px;font-size:13px;white-space:nowrap}
+.tab:hover{background:var(--bg-layer-2);color:var(--label-primary)}
+.tab[aria-selected="true"]{background:var(--label-primary);border-color:var(--label-primary);color:var(--bg-base);font-weight:500}
+
+/* ===== 正文节奏 ===== */
+.panel{margin-top:16px;display:flex;flex-direction:column;gap:12px}
+h2.section{font-size:15px;font-weight:600;margin:6px 0 0}
+h3.section{font-size:13px;font-weight:600;color:var(--label-secondary);margin:0}
+.card{border:1px solid var(--border-l1);background:var(--bg-layer-1);border-radius:11px;padding:13px 15px}
+.theme-light .card{background:var(--bg-base);border-color:var(--border-l2)}
+.muted{color:var(--label-tertiary);font-size:12.5px;margin:0}
+.muted.dim{color:var(--label-dimmed)}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.row .grow{flex:1;min-width:0}
+details{border:1px solid var(--border-l1);border-radius:9px;background:var(--bg-base)}
+.theme-light details{background:var(--bg-layer-1)}
+details>summary{cursor:pointer;padding:8px 12px;color:var(--label-tertiary);font-size:12.5px;list-style:none}
+details>summary::before{content:'▸ ';color:var(--label-dimmed)}
+details[open]>summary::before{content:'▾ '}
+details>div{padding:2px 12px 11px}
+pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px solid var(--border-l1);border-radius:8px;overflow:auto;font:12px/1.55 var(--mono);color:var(--label-secondary);max-height:240px}
+.theme-light pre{background:var(--bg-layer-2)}
+
+/* ===== 待答区块 ===== */
+.unanswered-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:2px 0 0}
+.unanswered-head .big{font-size:15px;font-weight:600}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin:0;color:var(--label-dimmed);font-size:12px}
+.legend b{color:var(--label-secondary);font-weight:500}
+
+.bcard{border:1px solid var(--border-l2);border-radius:12px;background:var(--bg-layer-1);overflow:hidden}
+.theme-light .bcard{background:var(--bg-base)}
+.bcard+.bcard{margin-top:10px}
+.bcard-top{display:flex;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--border-l1);flex-wrap:wrap}
+.statechip{display:inline-flex;align-items:center;gap:6px;border-radius:14px;padding:2.5px 11px;font-size:12px;font-weight:500;white-space:nowrap}
+.statechip .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+.statechip.run{color:var(--info);background:var(--info-dim)}
+.statechip.retry{color:var(--warn);background:var(--warn-dim)}
+.statechip.missing{color:var(--err);background:var(--err-dim)}
+.statechip.uncertain{color:var(--uncertain);background:var(--uncertain-dim)}
+.bcard-top .who{font-weight:600;font-size:13.5px}
+.bcard-top .at{margin-left:auto;color:var(--label-dimmed);font-size:12px;white-space:nowrap}
+.bcard-body{padding:11px 15px;display:flex;flex-direction:column;gap:7px}
+.summary-line{font-size:13.5px;color:var(--label-primary);margin:0}
+.reason{font-size:12.5px;color:var(--label-secondary);margin:0}
+.bcard-actions{display:flex;gap:9px;flex-wrap:wrap;padding:0 15px 13px;align-items:center}
+.bcard-actions .why{color:var(--label-dimmed);font-size:12px;margin-left:2px}
+.detail-list{display:flex;flex-direction:column;gap:5px;margin:6px 0 0}
+.detail-list .msg{display:flex;gap:9px;align-items:baseline;font-size:13px;color:var(--label-secondary)}
+.detail-list .msg .k{flex:none;color:var(--label-dimmed);font-size:11.5px;min-width:46px;font-variant-numeric:tabular-nums}
+.detail-list .msg.unclear{color:var(--label-dimmed)}
+.field-note{color:var(--label-dimmed);font-size:12px;margin:4px 0 0}
+
+/* 许可名单 */
+.perm-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-l1);flex-wrap:wrap}
+.perm-row:last-child{border-bottom:0}
+.perm-row .nm{font-weight:500;font-size:13.5px;min-width:110px}
+.perm-row .st{font-size:12px}
+.perm-row .grow{flex:1}
+.oktag{color:var(--ok);font-size:12px}
+.warntag{color:var(--warn);font-size:12px}
+
+/* 策略与自检 */
+.policy{border:1px solid var(--border-l1);border-radius:11px;background:var(--bg-layer-1);padding:13px 15px;display:flex;flex-direction:column;gap:8px}
+.theme-light .policy{background:var(--bg-layer-1)}
+.policy ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;color:var(--label-secondary);font-size:13px}
+.policy .tl{font-weight:600;font-size:13px;color:var(--label-primary)}
+.diag-row{display:flex;gap:10px;align-items:baseline}
+.diag-row .mark{flex:none;width:16px;text-align:center;font-weight:600}
+.diag-row .mark.ok{color:var(--ok)} .diag-row .mark.warn{color:var(--warn)}
+.diag-row .txt b{font-weight:600;font-size:13px}
+.diag-row .txt span{color:var(--label-tertiary);font-size:12.5px}
+
+/* 分节标题与附注 */
+.divider{margin:34px 0 18px;padding-top:18px;border-top:1px solid var(--border-l3);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.divider h2{margin:0;font-size:16px}
+.divider span{color:var(--label-dimmed);font-size:12.5px}
+.theme-dark .divider{border-top-color:var(--border-l3)}
+.stub{color:var(--label-dimmed);font-size:12.5px;border:1px dashed var(--border-l2);border-radius:9px;padding:10px 13px}
+.accept{margin-top:22px;border:1px dashed var(--border-l3);border-radius:11px;padding:13px 15px}
+.accept ol{margin:6px 0 0;padding-left:20px;color:var(--label-secondary);font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+.note-mockup{margin:0 0 14px;padding:9px 13px;border:1px dashed var(--border-l3);border-radius:9px;background:var(--bg-layer-1);color:var(--label-tertiary);font-size:12px}
+.note-mockup strong{color:var(--label-secondary)}
+@media (max-width:560px){.theme{padding-left:14px;padding-right:14px}.statusline{gap:14px}.statusline .time{margin-left:0;width:100%}}
+</style>
+</head>
+<body>
+
+<!-- ================= 第一套：暗色 · 独立设置页 ================= -->
+<div class="theme theme-dark" id="dark">
+  <p class="note-mockup"><strong>静态样稿（不实装）</strong>· 演示数据全部为合成素材：昵称「薄荷抹茶」、六条消息内容均为虚构示例，不含任何真实账号信息；原始取证材料存私有位置，不进入公开仓库。本页同时提供第二套「浅色 · 宿主设置弹窗内嵌」渲染（见页面下半部分）。反馈请直接对着本页提。</p>
+
+  <header class="toprow">
+    <h1>大肥鱼抖音助手</h1>
+    <span class="spacer"></span>
+    <button class="btn" type="button">打开抖音</button>
+    <button class="btn" type="button">刷新插件状态</button>
+  </header>
+
+  <div class="statusline" role="status" aria-label="运行状态">
+    <span class="seg"><span class="dot" aria-hidden="true"></span><span class="num">运行中</span><span class="cap">自动回复</span></span>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="seg"><span class="dot warn" aria-hidden="true"></span><span class="num">3</span><span class="cap">自动恢复中（无需人工）</span></span>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="seg"><span class="dot err" aria-hidden="true"></span><span class="num">2</span><span class="cap">需人工核对</span></span>
+    <span class="time">数据更新于 14:32:08 · 每 2.5 秒自动刷新</span>
+  </div>
+
+  <div class="alertbar" role="alert">
+    <span class="grow">有 2 条消息需要你核对处理。</span>
+    <button class="btn" type="button" onclick="document.getElementById('unanswered').scrollIntoView({behavior:'smooth',block:'start'})">查看待答</button>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="抖音设置分类" tabindex="0">
+    <button class="tab" role="tab" aria-selected="false" type="button">基础设置</button>
+    <button class="tab" role="tab" aria-selected="false" type="button">视频观看</button>
+    <button class="tab" role="tab" aria-selected="true" type="button">好友互动</button>
+    <button class="tab" role="tab" aria-selected="false" type="button">公开评论</button>
+    <button class="tab" role="tab" aria-selected="false" type="button">音频与密钥</button>
+    <button class="tab" role="tab" aria-selected="false" type="button">观看日报</button>
+    <button class="tab" role="tab" aria-selected="false" type="button">自检与用量</button>
+  </nav>
+  <p class="muted dim" style="margin:2px 0 0">栏目单行排列；容器窄于内容（约 559px）时自然横向滚动，无换行断点（见 nav-measurement.md）。</p>
+
+  <div class="panel" role="tabpanel" aria-label="好友互动">
+    <h2 class="section">好友互动</h2>
+
+    <div class="card">
+      <div class="row">
+        <h3 class="section">许可名单与运行状态</h3>
+        <span class="grow"></span>
+        <button class="btn" type="button">读取联系人与群聊</button>
+      </div>
+      <p class="muted">总开关已开启 · 已许可 2 个会话 · 服务运行中，正在检查新消息。</p>
+      <div class="perm-row">
+        <span class="nm">薄荷抹茶</span>
+        <span class="st oktag">● 正常接收</span>
+        <span class="grow"></span>
+        <span class="muted dim">最近检查 14:32:05</span>
+      </div>
+      <div class="perm-row">
+        <span class="nm">山栀的群</span>
+        <span class="st warntag">● 等待身份重新核对</span>
+        <span class="grow"></span>
+        <span class="muted dim">需要重新读取联系人确认；未通过前不发送</span>
+      </div>
+    </div>
+
+    <section id="unanswered" aria-label="待答消息">
+      <div class="unanswered-head">
+        <span class="big">待答消息 · 5 条</span>
+        <span class="legend"><span><b>3</b> 条自动恢复中</span><span><b>2</b> 条需人工核对</span></span>
+      </div>
+      <p class="muted">补答只处理已核实「确实没有发出」的消息，不会重复发送。卡片默认只显示摘要、原因和可做的操作；细节收在「详情」里。</p>
+
+      <!-- 态 a：自动补答进行中 -->
+      <article class="bcard">
+        <div class="bcard-top">
+          <span class="statechip run"><span class="d" aria-hidden="true"></span>自动补答中</span>
+          <span class="who">薄荷抹茶</span>
+          <span class="at">14:18 到达</span>
+        </div>
+        <div class="bcard-body">
+          <p class="summary-line">「这次的活动到几号结束呀」</p>
+          <p class="reason">阶段：生成中 · 最后检查 14:32:05</p>
+        </div>
+        <div class="bcard-actions">
+          <button class="btn" type="button">查看进度</button>
+        </div>
+        <details style="margin:0 15px 13px">
+          <summary>详情（消息与说明）</summary>
+          <div>
+            <div class="detail-list">
+              <span class="msg"><span class="k">14:18</span><span>这次的活动到几号结束呀</span></span>
+            </div>
+            <p class="field-note">说明：回复文本已生成，等待读回确认后再判定送达；确认前不会重复输入。系统将持续自动重试，直到可核对新证据或你手动结束。</p>
+            <p class="field-note">记录字段：phase=generating · 最后检查 14:32:05 · 最近核对 3 秒前</p>
+          </div>
+        </details>
+      </article>
+
+      <!-- 态 b：等待重试（文字追问） -->
+      <article class="bcard">
+        <div class="bcard-top">
+          <span class="statechip retry"><span class="d" aria-hidden="true"></span>等待重试</span>
+          <span class="who">薄荷抹茶</span>
+          <span class="at">14:11 到达</span>
+        </div>
+        <div class="bcard-body">
+          <p class="summary-line">「周六下午有空一起拼桌吗」（另有一条 14:12 的补充）</p>
+          <p class="reason">上次自动生成失败（服务超时）· 最后检查 14:30:41</p>
+        </div>
+        <div class="bcard-actions">
+          <button class="btn" type="button">安全重新检查</button>
+          <span class="why">只重读会话核对状态，不发送任何消息。</span>
+        </div>
+        <details style="margin:0 15px 13px">
+          <summary>详情（消息与说明）</summary>
+          <div>
+            <div class="detail-list">
+              <span class="msg"><span class="k">14:11</span><span>周六下午有空一起拼桌吗</span></span>
+              <span class="msg"><span class="k">14:12</span><span>提前一天提醒我一声</span></span>
+            </div>
+            <p class="field-note">说明：系统将持续自动重试，直到可核对新证据或你手动结束；重试间隔按节奏自动放宽。</p>
+            <p class="field-note">记录字段：phase=model · reason=bounded-generation-failed · 最后检查 14:30:41</p>
+          </div>
+        </details>
+      </article>
+
+      <!-- 态 b2：等待重试（视频分享） -->
+      <article class="bcard">
+        <div class="bcard-top">
+          <span class="statechip retry"><span class="d" aria-hidden="true"></span>等待重试</span>
+          <span class="who">薄荷抹茶</span>
+          <span class="at">13:47 到达</span>
+        </div>
+        <div class="bcard-body">
+          <p class="summary-line">「（分享了一条视频）」</p>
+          <p class="reason">等待可核对的会话快照 · 最后检查 14:28:12</p>
+        </div>
+        <div class="bcard-actions">
+          <button class="btn" type="button">安全重新检查</button>
+          <button class="btn" type="button">结束待答，不再回复</button>
+        </div>
+        <details style="margin:0 15px 13px">
+          <summary>详情（消息与说明）</summary>
+          <div>
+            <div class="detail-list">
+              <span class="msg unclear"><span class="k">13:47</span><span>（视频卡片 · 封面已存本地预览，标题未识别）</span></span>
+            </div>
+            <p class="field-note">说明：分享类消息按原视频预算单独采样理解；系统将持续自动重试，直到可核对新证据或你手动结束；「结束待答，不再回复」不会发送任何消息。</p>
+            <p class="field-note">记录字段：phase=observing · reason=waiting-reliable-conversation · 最后检查 14:28:12</p>
+          </div>
+        </details>
+      </article>
+
+      <!-- 态 c：无法自动补答（缺证据） -->
+      <article class="bcard">
+        <div class="bcard-top">
+          <span class="statechip missing"><span class="d" aria-hidden="true"></span>无法自动补答</span>
+          <span class="who">薄荷抹茶</span>
+          <span class="at">11:02 到达</span>
+        </div>
+        <div class="bcard-body">
+          <p class="summary-line">「（引用了更早的一条消息）这里排版是不是换过了」</p>
+          <p class="reason">缺少「确实未发送」的完整证据，无法排除已经发出，系统不会自动补发。</p>
+        </div>
+        <div class="bcard-actions">
+          <button class="btn primary" type="button">打开原会话核对</button>
+        </div>
+        <details style="margin:0 15px 13px">
+          <summary>详情（消息与说明）</summary>
+          <div>
+            <div class="detail-list">
+              <span class="msg"><span class="k">11:02</span><span>（引用了更早的一条消息）这里排版是不是换过了</span></span>
+            </div>
+            <p class="field-note">说明：本次重启发生在发送建立之前，待答缺少可双向核对的完整证据；按「宁可不发也不重复发」的边界保留为人工核对。</p>
+            <p class="field-note">记录字段：phase=stopped-before-send · reason=重启时缺少完整未发送与消息资格证据 · 最后检查 14:25:03</p>
+          </div>
+        </details>
+      </article>
+
+      <!-- 态 d：发送结果不明 -->
+      <article class="bcard">
+        <div class="bcard-top">
+          <span class="statechip uncertain"><span class="d" aria-hidden="true"></span>发送结果不明</span>
+          <span class="who">薄荷抹茶</span>
+          <span class="at">10:55 到达</span>
+        </div>
+        <div class="bcard-body">
+          <p class="summary-line">「行，那就先这么办」</p>
+          <p class="reason">回复已尝试发送，但未取得平台确认；是否送达只有原会话能核实。</p>
+        </div>
+        <div class="bcard-actions">
+          <button class="btn primary" type="button">打开原会话核对</button>
+        </div>
+        <details style="margin:0 15px 13px">
+          <summary>详情（消息与说明）</summary>
+          <div>
+            <div class="detail-list">
+              <span class="msg"><span class="k">10:55</span><span>行，那就先这么办</span></span>
+            </div>
+            <p class="field-note">说明：发送动作已发生、确认未取得；在原会话核实之前，系统不重发、不重试，也不把这条记为已回复。</p>
+            <p class="field-note">记录字段：phase=delivery-uncertain · reason=未取得发送确认，需人工核对；不会自动重发 · 最后检查 14:22:57</p>
+          </div>
+        </details>
+      </article>
+
+      <!-- 态 e：历史折叠 -->
+      <details>
+        <summary>处理历史 · 今天已自动补答 1 条，人工结束 0 条（不计入待处理）</summary>
+        <div>
+          <div class="detail-list" style="padding-top:6px">
+            <span class="msg"><span class="k">09:40</span><span>薄荷抹茶 · 问候消息 → 已自动回复，平台确认送达</span></span>
+          </div>
+          <p class="muted dim" style="margin-top:8px">历史只保留结果与核对方式，不重复展示正文。</p>
+        </div>
+      </details>
+    </section>
+
+    <h3 class="section">回复与分享设置</h3>
+    <div class="stub">允许好友互动（总开关）· 群聊响应昵称 · 自主分享收据，沿用现有设置行与节奏，本样稿不展开。</div>
+  </div>
+
+  <section class="policy" aria-label="加载与缓存策略">
+    <span class="tl">加载与缓存策略（实装需遵守的口径）</span>
+    <ul>
+      <li><b>重开立即显示上次真实内容</b>：先呈现上次会话保存的列表与状态并标注「数据更新于 HH:MM:SS」，随后后台刷新并原地更新时间戳，不以骨架屏清空旧内容。</li>
+      <li><b>刷新失败保留内容</b>：失败时保留已显示内容，顶部加「刷新失败，显示的是 HH:MM 的数据 · 重试」提示条，不清空、不回退为「尚未获取」。</li>
+      <li><b>首次无数据</b>：没有任何已保存快照时显示「尚未获取到运行状态」，不显示「在线 / 一切正常」：没有核实过就不承诺。</li>
+      <li><b>权限与发送永远最新核验</b>：读取联系人与任何发送、解除、结束操作实时调用本机服务并要求回执，不拿缓存列表或旧快照放行。</li>
+      <li><b>待答快照防竞态</b>：「结束待答」携带打开时的列表快照，服务端发现列表已变化即拒绝并要求刷新，防止误结束新到达的消息。</li>
+    </ul>
+  </section>
+
+  <section class="panel" aria-label="自检示意">
+    <h2 class="section">自检（栏目示意）</h2>
+    <div class="card">
+      <div class="diag-row"><span class="mark ok" aria-hidden="true">✓</span><span class="txt"><b>本机服务</b> <span>正常，接口与用量记录可读写。</span></span></div>
+      <div class="diag-row"><span class="mark ok" aria-hidden="true">✓</span><span class="txt"><b>专用浏览器</b> <span>已连接 Edge，抖音登录有效。</span></span></div>
+      <div class="diag-row"><span class="mark warn" aria-hidden="true">!</span><span class="txt"><b>静默观看窗口</b> <span>当前窗口仍显示，未最小化，可一键重新应用。</span></span></div>
+      <div class="diag-row"><span class="mark ok" aria-hidden="true">✓</span><span class="txt"><b>模型请求额度</b> <span>今日已用 2 / 30 次。</span></span></div>
+      <div class="row" style="margin-top:2px">
+        <button class="btn" type="button">重新运行自检</button>
+        <button class="btn" type="button">应用修复：重新应用静默设置</button>
+        <span class="grow"></span>
+        <button class="btn" type="button">复制报告</button>
+      </div>
+      <details style="margin-top:10px">
+        <summary>诊断详情（原始 JSON，供排查）</summary>
+        <div><pre>{
+  "reportId": "8f2c9a40-1b6e-4d2a-9f31-c0d5e7b8a612",
+  "checks": [
+    { "id": "local-service", "status": "pass", "label": "本机服务" },
+    { "id": "window", "status": "warning", "label": "静默观看窗口", "message": "窗口仍显示" },
+    { "id": "quota", "status": "pass", "label": "模型请求额度" }
+  ],
+  "repairableActions": [ { "id": "reapply_silent", "label": "重新应用静默设置" } ]
+}</pre></div>
+      </details>
+    </div>
+  </section>
+
+  <aside class="accept">
+    <strong style="font-size:13px">验收口径预告（实装阶段按此验收，本样稿不实现）</strong>
+    <ol>
+      <li>七个栏目来回切换：状态无残留、滚动位置合理、待答徽标数实时。</li>
+      <li>首开 / 重开：首开显示「尚未获取到运行状态」；重开立即显示上次内容 + 更新时间，后台刷新。</li>
+      <li>不同窗口宽度：容器宽于内容自然单行；窄于内容自然横向滚动（无换行、无断点）；正文正常换行。</li>
+      <li>待答全流程：自动恢复 → 发送确认（卡片消失、历史 +1）/ 人工结束（快照竞态拒绝与重试）/ 操作失败（提示保留、内容不清空）。</li>
+    </ol>
+  </aside>
+</div>
+
+<!-- ================= 第二套：浅色 · 宿主设置弹窗内嵌 ================= -->
+<div class="divider"><h2>第二套主题 · 浅色（宿主设置弹窗内嵌）</h2><span>模拟 DSH 设置弹窗：遮罩层 + 居中弹窗（max-width 640px，圆角 14px，标题栏 + 关闭 + 内容区滚动），插件面板嵌在弹窗内容区内。</span></div>
+
+<div class="theme theme-light dialog-demo" id="light">
+  <div class="dialog-chrome" role="dialog" aria-label="刷抖音设置">
+    <div class="dialog-head"><strong>刷抖音</strong><span class="muted dim" style="font-size:12px">DSH 设置 · 插件面板</span><button class="x" type="button" aria-label="关闭">×</button></div>
+    <div class="dialog-body">
+      <header class="toprow" style="border-bottom:0;padding-top:0">
+        <h1 style="font-size:17px">大肥鱼抖音助手</h1>
+        <span class="spacer"></span>
+        <button class="btn" type="button">打开抖音</button>
+        <button class="btn" type="button">刷新插件状态</button>
+      </header>
+
+      <div class="statusline">
+        <span class="seg"><span class="dot" aria-hidden="true"></span><span class="num">运行中</span><span class="cap">自动回复</span></span>
+        <span class="sep" aria-hidden="true"></span>
+        <span class="seg"><span class="dot warn" aria-hidden="true"></span><span class="num">3</span><span class="cap">自动恢复中</span></span>
+        <span class="sep" aria-hidden="true"></span>
+        <span class="seg"><span class="dot err" aria-hidden="true"></span><span class="num">2</span><span class="cap">需人工核对</span></span>
+        <span class="time">更新于 14:32:08</span>
+      </div>
+
+      <div class="alertbar"><span class="grow">有 2 条消息需要你核对处理。</span><button class="btn" type="button">查看待答</button></div>
+
+      <nav class="tabs" role="tablist" aria-label="抖音设置分类" tabindex="0">
+        <button class="tab" role="tab" aria-selected="false" type="button">基础设置</button>
+        <button class="tab" role="tab" aria-selected="false" type="button">视频观看</button>
+        <button class="tab" role="tab" aria-selected="true" type="button">好友互动</button>
+        <button class="tab" role="tab" aria-selected="false" type="button">公开评论</button>
+        <button class="tab" role="tab" aria-selected="false" type="button">音频与密钥</button>
+        <button class="tab" role="tab" aria-selected="false" type="button">观看日报</button>
+        <button class="tab" role="tab" aria-selected="false" type="button">自检与用量</button>
+      </nav>
+
+      <div class="panel" style="margin-top:12px">
+        <h2 class="section">好友互动</h2>
+        <div class="card">
+          <p class="muted" style="margin-bottom:8px">许可名单与运行状态 · 总开关开启 · 服务运行中</p>
+          <div class="perm-row"><span class="nm">薄荷抹茶</span><span class="st oktag">● 正常接收</span><span class="grow"></span><span class="muted dim">检查 14:32:05</span></div>
+          <div class="perm-row"><span class="nm">山栀的群</span><span class="st warntag">● 等待身份重新核对</span><span class="grow"></span><span class="muted dim">未通过前不发送</span></div>
+        </div>
+
+        <div class="unanswered-head"><span class="big">待答消息 · 5 条</span><span class="legend"><span><b>3</b> 自动恢复中</span><span><b>2</b> 需人工核对</span></span></div>
+
+        <article class="bcard">
+          <div class="bcard-top"><span class="statechip run"><span class="d" aria-hidden="true"></span>自动补答中</span><span class="who">薄荷抹茶</span><span class="at">14:18</span></div>
+          <div class="bcard-body"><p class="summary-line">「这次的活动到几号结束呀」</p><p class="reason">阶段：生成中 · 最后检查 14:32:05</p></div>
+          <div class="bcard-actions"><button class="btn" type="button">查看进度</button></div>
+        </article>
+
+        <article class="bcard">
+          <div class="bcard-top"><span class="statechip retry"><span class="d" aria-hidden="true"></span>等待重试</span><span class="who">薄荷抹茶</span><span class="at">14:11</span></div>
+          <div class="bcard-body"><p class="summary-line">「周六下午有空一起拼桌吗」</p><p class="reason">上次自动生成失败 · 最后检查 14:30:41</p></div>
+          <div class="bcard-actions"><button class="btn" type="button">安全重新检查</button><button class="btn" type="button">结束待答，不再回复</button></div>
+        </article>
+
+        <article class="bcard">
+          <div class="bcard-top"><span class="statechip retry"><span class="d" aria-hidden="true"></span>等待重试</span><span class="who">薄荷抹茶</span><span class="at">13:47</span></div>
+          <div class="bcard-body"><p class="summary-line">「（分享了一条视频）」</p><p class="reason">等待可核对的会话快照 · 最后检查 14:28:12</p></div>
+          <div class="bcard-actions"><button class="btn" type="button">安全重新检查</button><button class="btn" type="button">结束待答，不再回复</button></div>
+        </article>
+
+        <article class="bcard">
+          <div class="bcard-top"><span class="statechip missing"><span class="d" aria-hidden="true"></span>无法自动补答</span><span class="who">薄荷抹茶</span><span class="at">11:02</span></div>
+          <div class="bcard-body"><p class="summary-line">「（引用了更早的一条消息）这里排版是不是换过了」</p><p class="reason">缺少「确实未发送」的完整证据，系统不会自动补发。</p></div>
+          <div class="bcard-actions"><button class="btn primary" type="button">打开原会话核对</button></div>
+        </article>
+
+        <article class="bcard">
+          <div class="bcard-top"><span class="statechip uncertain"><span class="d" aria-hidden="true"></span>发送结果不明</span><span class="who">薄荷抹茶</span><span class="at">10:55</span></div>
+          <div class="bcard-body"><p class="summary-line">「行，那就先这么办」</p><p class="reason">回复已尝试发送但未取得平台确认。</p></div>
+          <div class="bcard-actions"><button class="btn primary" type="button">打开原会话核对</button></div>
+        </article>
+
+        <details><summary>处理历史 · 今天已自动补答 1 条（不计入待处理）</summary><div><p class="muted dim">历史只保留结果与核对方式。</p></div></details>
+
+        <div class="stub">回复与分享设置（总开关 / 群聊响应昵称 / 分享收据）沿用现有设置行。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

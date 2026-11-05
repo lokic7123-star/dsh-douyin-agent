@@ -1,0 +1,197 @@
+[
+  {
+    "width": 1100,
+    "viewport": 1100,
+    "tabCount": 7,
+    "tabRows": 1,
+    "tabTops": [
+      266
+    ],
+    "tabWidths": [
+      "基础设置=69",
+      "视频观看=69",
+      "自检与用量=83",
+      "好友互动=69",
+      "公开评论=69",
+      "音频与密钥=83",
+      "观看日报=69"
+    ],
+    "tablistWidth": 900,
+    "tablistScroll": 900,
+    "flexWrap": "wrap",
+    "overflowX": "visible",
+    "documentScrollW": 1100,
+    "documentClientW": 1100,
+    "pageHasHScrollbar": false,
+    "overflowChain": []
+  },
+  {
+    "width": 900,
+    "viewport": 900,
+    "tabCount": 7,
+    "tabRows": 1,
+    "tabTops": [
+      266
+    ],
+    "tabWidths": [
+      "基础设置=69",
+      "视频观看=69",
+      "自检与用量=83",
+      "好友互动=69",
+      "公开评论=69",
+      "音频与密钥=83",
+      "观看日报=69"
+    ],
+    "tablistWidth": 836,
+    "tablistScroll": 836,
+    "flexWrap": "wrap",
+    "overflowX": "visible",
+    "documentScrollW": 900,
+    "documentClientW": 900,
+    "pageHasHScrollbar": false,
+    "overflowChain": []
+  },
+  {
+    "width": 720,
+    "viewport": 720,
+    "tabCount": 7,
+    "tabRows": 1,
+    "tabTops": [
+      266
+    ],
+    "tabWidths": [
+      "基础设置=69",
+      "视频观看=69",
+      "自检与用量=83",
+      "好友互动=69",
+      "公开评论=69",
+      "音频与密钥=83",
+      "观看日报=69"
+    ],
+    "tablistWidth": 656,
+    "tablistScroll": 656,
+    "flexWrap": "wrap",
+    "overflowX": "visible",
+    "documentScrollW": 720,
+    "documentClientW": 720,
+    "pageHasHScrollbar": false,
+    "overflowChain": []
+  },
+  {
+    "width": 560,
+    "viewport": 560,
+    "tabCount": 7,
+    "tabRows": 2,
+    "tabTops": [
+      266,
+      297
+    ],
+    "tabWidths": [
+      "基础设置=69",
+      "视频观看=69",
+      "自检与用量=83",
+      "好友互动=69",
+      "公开评论=69",
+      "音频与密钥=83",
+      "观看日报=69"
+    ],
+    "tablistWidth": 496,
+    "tablistScroll": 496,
+    "flexWrap": "wrap",
+    "overflowX": "visible",
+    "documentScrollW": 560,
+    "documentClientW": 560,
+    "pageHasHScrollbar": false,
+    "overflowChain": []
+  },
+  {
+    "width": 440,
+    "viewport": 440,
+    "tabCount": 7,
+    "tabRows": 2,
+    "tabTops": [
+      266,
+      297
+    ],
+    "tabWidths": [
+      "基础设置=69",
+      "视频观看=69",
+      "自检与用量=83",
+      "好友互动=69",
+      "公开评论=69",
+      "音频与密钥=83",
+      "观看日报=69"
+    ],
+    "tablistWidth": 376,
+    "tablistScroll": 376,
+    "flexWrap": "wrap",
+    "overflowX": "visible",
+    "documentScrollW": 440,
+    "documentClientW": 440,
+    "pageHasHScrollbar": false,
+    "overflowChain": []
+  },
+  {
+    "width": 720,
+    "probe": "nowrap+overflow-x 探针",
+    "before": {
+      "rows": 1,
+      "width": 656
+    },
+    "squeezed": {
+      "rows": 1,
+      "hScroll": false,
+      "scroll": 656,
+      "client": 656
+    },
+    "noSqueeze": {
+      "rows": 1,
+      "hScroll": false,
+      "scroll": 656,
+      "client": 656
+    },
+    "naturalContentWidth": 656
+  },
+  {
+    "width": 560,
+    "probe": "nowrap+overflow-x 探针",
+    "before": {
+      "rows": 2,
+      "width": 496
+    },
+    "squeezed": {
+      "rows": 1,
+      "hScroll": false,
+      "scroll": 496,
+      "client": 496
+    },
+    "noSqueeze": {
+      "rows": 1,
+      "hScroll": true,
+      "scroll": 560,
+      "client": 496
+    },
+    "naturalContentWidth": 560
+  },
+  {
+    "width": 440,
+    "probe": "nowrap+overflow-x 探针",
+    "before": {
+      "rows": 2,
+      "width": 376
+    },
+    "squeezed": {
+      "rows": 2,
+      "hScroll": false,
+      "scroll": 376,
+      "client": 376
+    },
+    "noSqueeze": {
+      "rows": 1,
+      "hScroll": true,
+      "scroll": 560,
+      "client": 376
+    },
+    "naturalContentWidth": 560
+  }
+]

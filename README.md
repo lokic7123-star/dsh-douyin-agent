@@ -1,5 +1,7 @@
 # DSH 抖音助手
 
+> **项目声明**：本项目基于 [LockyBee/dsh-douyin-agent](https://github.com/LockyBee/dsh-douyin-agent)，由 LoKi 独立维护。独立发布、独立验收：本仓库的版本、发布包与验证结论均以本仓库为准，不与上游或其他发布渠道互相代替。按需吸收上游与第三方改进（吸收范围与许可核对见 [docs/reuse.md](docs/reuse.md)、[desktop/UPSTREAM.md](desktop/UPSTREAM.md)）；原创代码保留版权并按 [MIT](LICENSE) 授权，第三方组件的版权与许可声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，继续随分发保留。
+
 1.4.6 使用说明。插件与独立软件共用人格、兴趣、观看用量和许可名单；独立软件另外提供任务对话。本文的固定安装入口对应 1.4.6，包是否已可下载以 GitHub 和 npm 页面为准。
 
 在本机专用 Microsoft Edge 中浏览抖音电脑版，采样真实画面交给模型，按人格和实际观看行为更新兴趣。这是第三方适配，不是 DeepSeek 官方发行版。
