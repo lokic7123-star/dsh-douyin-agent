@@ -190,7 +190,11 @@ export class ChatAgent {
       const text = normalizeChatReplyText(output.text);
       if (this.config.apiKey && text.includes(this.config.apiKey) || /我是(?:用户本人|真人)|我不是\s*(?:AI|人工智能)|(?:我|我们|这边).{0,8}(?:会|马上|立即|帮你|给你|替你).{0,8}(?:购买|下单|付款|付钱|转账|打款)/i.test(text)) throw new Error('私信回复触发身份、凭据或现实承诺限制，未发送。');
       return { text, ...(output.stickerId?{stickerId:output.stickerId}:{}), usage: { promptTokens: result?.usage?.promptTokens ?? result?.usage?.prompt_tokens ?? null, completionTokens: result?.usage?.completionTokens ?? result?.usage?.completion_tokens ?? null } };
-    } catch (error) { throw new Error(redact(error.message || String(error), [this.config.apiKey]), { cause: error }); }
+    } catch (error) {
+      // provider 失败时已产生的部分用量也要入账一次（截断/超长/未完成），与 182 行 API 通道失败分支对齐；abort 无用量不入账。
+      if (error?.usage && Number.isFinite(error.usage.total_tokens) || error?.usage && Number.isFinite(error.usage.inputTokens)) this.usageLedger?.record({ source: this.source || 'api', kind: usageKind, model: this.config.model, usage: error.usage });
+      throw new Error(redact(error.message || String(error), [this.config.apiKey]), { cause: error });
+    }
     finally { clearTimeout(timer); combined.removeEventListener('abort', abortHandler); }
   }
 }
