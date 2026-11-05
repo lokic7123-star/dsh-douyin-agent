@@ -39,17 +39,33 @@ export function createNativeChatReply({ llm, attachments, agent, maxTokens = BUD
       converted.push({ id: randomUUID(), role: message.role, content: blocks, source: { kind: 'plugin', plugin: 'douyin-browser', form: 'snapshot', sections: [] } });
     }
     let text = '', finish, usage = {}; const deltaIndexes = new Set();
-    for await (const chunk of llm.stream({ provider, model, messages: converted, system, maxTokens, ...shortReplyControls, signal, sessionId: agent.session.id })) {
-      signal?.throwIfAborted();
-      if (chunk.type === 'text-delta') {
-        deltaIndexes.add(chunk.index);
-        text += chunk.text;
+    // 取消时 chat-agent 的 race 会同步采纳 signal.reason（取消拒绝值），晚到的 provider catch 挂载来不及——
+    // 每个 usage chunk 处理后就同步把当前用量桥接到 abort 拒绝值上，保证部分消耗不随异常丢失。
+    const bridgeCurrent = () => { const reason = signal?.reason; if (reason && typeof reason === 'object' && reason.usage === undefined) reason.usage = usage; };
+    if (signal) { try { signal.addEventListener('abort', bridgeCurrent, { once: true }); } catch { /* 只读 signal 不支持监听时跳过桥接 */ } }
+    try {
+      for await (const chunk of llm.stream({ provider, model, messages: converted, system, maxTokens, ...shortReplyControls, signal, sessionId: agent.session.id })) {
+        signal?.throwIfAborted();
+        if (chunk.type === 'text-delta') {
+          deltaIndexes.add(chunk.index);
+          text += chunk.text;
+          if (text.length > 12_000) throw Object.assign(new Error('聊天回复超过长度上限，未发送。'), { code: 'CHAT_REPLY_OVERLONG', usage });
+        }
+        if (chunk.type === 'block-end' && chunk.block?.type === 'text' && !deltaIndexes.has(chunk.index)) text += chunk.block.text;
         if (text.length > 12_000) throw Object.assign(new Error('聊天回复超过长度上限，未发送。'), { code: 'CHAT_REPLY_OVERLONG', usage });
+        if (chunk.type === 'usage') { usage = { ...chunk.usage, prompt_tokens: chunk.usage.inputTokens ?? null, completion_tokens: chunk.usage.outputTokens ?? null, total_tokens: chunk.usage.totalTokens ?? (Number.isSafeInteger(chunk.usage.inputTokens) && Number.isSafeInteger(chunk.usage.outputTokens) ? chunk.usage.inputTokens + chunk.usage.outputTokens : null) }; bridgeCurrent(); }
+        if (chunk.type === 'finish') finish = chunk.reason;
       }
-      if (chunk.type === 'block-end' && chunk.block?.type === 'text' && !deltaIndexes.has(chunk.index)) text += chunk.block.text;
-      if (text.length > 12_000) throw Object.assign(new Error('聊天回复超过长度上限，未发送。'), { code: 'CHAT_REPLY_OVERLONG', usage });
-      if (chunk.type === 'usage') usage = { ...chunk.usage, prompt_tokens: chunk.usage.inputTokens ?? null, completion_tokens: chunk.usage.outputTokens ?? null, total_tokens: chunk.usage.totalTokens ?? (Number.isSafeInteger(chunk.usage.inputTokens) && Number.isSafeInteger(chunk.usage.outputTokens) ? chunk.usage.inputTokens + chunk.usage.outputTokens : null) };
-      if (chunk.type === 'finish') finish = chunk.reason;
+    } catch (error) {
+      // llm.stream 中途抛错（服务失败/取消）时，已报告的部分用量真实发生，附加到错误上供 ChatAgent 失败路径入账；
+      // 原样重抛，不包装不替换；无用量（含无用量取消）不伪造消耗；循环内 OVERLONG 自带 usage 的不被覆盖。
+      const hasUsage = Number.isFinite(usage?.inputTokens) || Number.isFinite(usage?.total_tokens);
+      if (hasUsage) {
+        if (error?.usage === undefined) error.usage = usage;
+        const reason = signal?.reason;
+        if (reason && reason !== error && typeof reason === 'object' && reason.usage === undefined) reason.usage = usage;
+      }
+      throw error;
     }
     // 真实 DSH 契约用连字符 'max-tokens'（native-watch-decision 同源）；'max_tokens'/'length' 为兼容保留，三种都按截断处理。
     if (finish?.kind === 'max-tokens' || finish?.kind === 'max_tokens' || finish?.kind === 'length') throw Object.assign(new Error('聊天回复超出输出预算被截断，未当作完整回复发送。'), { code: 'CHAT_REPLY_TRUNCATED', usage });

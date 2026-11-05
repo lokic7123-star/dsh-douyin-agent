@@ -192,7 +192,9 @@ export class ChatAgent {
       return { text, ...(output.stickerId?{stickerId:output.stickerId}:{}), usage: { promptTokens: result?.usage?.promptTokens ?? result?.usage?.prompt_tokens ?? null, completionTokens: result?.usage?.completionTokens ?? result?.usage?.completion_tokens ?? null } };
     } catch (error) {
       // provider 失败时已产生的部分用量也要入账一次（截断/超长/未完成），与 182 行 API 通道失败分支对齐；abort 无用量不入账。
-      if (error?.usage && Number.isFinite(error.usage.total_tokens) || error?.usage && Number.isFinite(error.usage.inputTokens)) this.usageLedger?.record({ source: this.source || 'api', kind: usageKind, model: this.config.model, usage: error.usage });
+      // abort 时 race 可能采纳取消拒绝，provider 附加的用量落在 cause 上——两者任一命中即入账，不重复计。
+      const partial = error?.usage ?? error?.cause?.usage;
+      if (partial && (Number.isFinite(partial.total_tokens) || Number.isFinite(partial.inputTokens))) this.usageLedger?.record({ source: this.source || 'api', kind: usageKind, model: this.config.model, usage: partial });
       throw new Error(redact(error.message || String(error), [this.config.apiKey]), { cause: error });
     }
     finally { clearTimeout(timer); combined.removeEventListener('abort', abortHandler); }
