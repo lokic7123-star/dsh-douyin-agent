@@ -770,7 +770,8 @@ export class ChatService {
     return this.targetStatesOf(record).some(item => textIds.includes(item.messageId) && ['reserved', 'uncertain'].includes(item.state));
   }
   // P1-1：混合记录文字目标的读回核对（needs-manual 状态下也不中断）：按 targetStates 的文字目标在当前窗口找
-  // 已发出的同文 outgoing（identitySource=dom-message-id），命中即文字子状态转 confirmed；找不到保持 uncertain 等待。
+  // 已发出的同文 outgoing（identitySource=dom-message-id）。P1-2：reserved 与 uncertain 都要求正文与
+  // expectedText 严格一致才转 confirmed——绝不把无关消息（人工另发等）当发送成功；正文不一致保持原态等待。
   readbackMixedRecordText(record, mark, messages) {
     for (const item of this.targetStatesOf(record)) {
       if (!['reserved', 'uncertain'].includes(item.state)) continue;
@@ -779,8 +780,9 @@ export class ChatService {
       const known = new Set(record.recoveryEvidence?.expectedContent?.map(entry => entry.id) ?? []);
       const candidates = messages.filter(row => row.sender === 'outgoing' && row.identitySource === 'dom-message-id' && !known.has(row.id) && row.failed !== true && row.pending !== true);
       const expectedText = item.text ?? record.autoAttempt?.text ?? record.generatedText ?? '';
-      const match = item.state === 'uncertain' ? candidates.find(row => row.text?.trim() === String(expectedText).trim()) : candidates.at(-1);
+      const match = candidates.find(row => row.text?.trim() === String(expectedText).trim());
       if (match) { this.setTargetState(record, item.messageId, 'confirmed', { method: 'uncertain-matching-native-outgoing', proofMessageId: match.id }); if (mark) this.recordProgressed(mark); this.log('backlog.text_target_confirmed', { archiveId: record.archiveId, messageId: item.messageId, message: '混合待答的文字发送结果经读回确认，媒体目标仍由人工处理。' }); }
+      else if (item.state === 'reserved') { this.setTargetState(record, item.messageId, 'uncertain'); this.log('backlog.text_target_uncertain', { archiveId: record.archiveId, messageId: item.messageId, message: 'reserved 目标未在当前窗口找到与生成文本一致的已发出消息，降为 uncertain 继续等待读回。' }); }
     }
   }
   qualifyNativeBacklog(contact, mark, snapshot, messages) {
@@ -845,6 +847,12 @@ export class ChatService {
       if (!record || ['reserved', 'uncertain'].includes(record.autoAttempt?.state)) throw new Error('自动补答记录已有未确认输入，未重复输入。');
       const sourceHash = createHash('sha256').update(JSON.stringify(record.recoveryEvidence?.qualifiedIncoming?.map(item => [item.message?.id, item.fingerprint]))).digest('hex');
       record.autoAttempt = { version: 1, source: 'authorized-unsent-backlog-v1', queueKey: queue.key, sourceHash, targets: queue.targets, state: 'reserved', text: queue.text, at: new Date().toISOString() };
+      // P1-1：可能开始发送前同步把文字目标子状态置 reserved（含 expectedText）并落盘——混合记录任何时刻崩溃后
+      // mixedRecordHasTextInFlight 都为真，读回核对不会因崩溃窗口丢失。
+      for (const target of queue.targets) {
+        const message = record.incoming?.find(entry => entry.id === target.id);
+        if (message && !message.media && (!message.kind || message.kind === 'text')) this.setTargetState(record, target.id, 'reserved', { text: queue.text });
+      }
     }
     queue.state = 'sending'; this.persist();
   }
@@ -965,21 +973,29 @@ export class ChatService {
         // 只拦「纯文本记录指向同批/相邻 needs-manual 媒体」的盲答。
         const manualMediaRecords = mark.unanswered?.filter(entry => entry.needsManual === true && entry.needsManualReason === 'media-unobservable' && !ready.some(item => item.record.archiveId === entry.archiveId)) ?? [];
         const manualMediaMessageIds = new Set(manualMediaRecords.flatMap(entry => (entry.incoming ?? []).map(message => message.id)));
-        const textFollowsManualMedia = manualMediaMessageIds.size > 0 && targets.some(target => {
+        // P2-1 连坐收窄：判定按目标粒度进行——只有「targets 中命中关联判定」的记录跟随转人工，无关记录照常推进；
+        // 一条记录的多个 target 部分命中时按该记录整体转人工（记录是不可拆的整体，只完成部分目标再结案会破坏语义）。
+        // 三判据不变：①quote 引用文本一致；②时间相邻（双向 ≤1 条 incoming）；③同批归档记录。
+        const targetFollowsMedia = target => {
           if (typeof target.message.reference?.text === 'string' && target.message.reference.text.trim() && manualMediaRecords.some(entry => (entry.incoming ?? []).some(message => message.media && typeof message.reference?.text === 'string' && message.reference.text === target.message.reference.text))) return true;
           const mediaIndex = messages.findIndex(message => message.id && manualMediaMessageIds.has(message.id));
           if (mediaIndex < 0) return false;
-          // 时间相邻（双向）：媒体与文本之间最多隔 1 条 incoming——追问可能在媒体之前或之后发出，归档同批即关联。
+          // 时间相邻（双向）：媒体与文本直接相邻（中间无其他 incoming）——紧邻追问才关联；
+          // 隔 1 条以上 incoming 的独立问题不关联（P2-1 连坐收窄：远处独立问题照常推进）。
           const betweenAfter = target.index > mediaIndex ? messages.slice(mediaIndex + 1, target.index).filter(message => message.sender === 'incoming').length : 0;
           const betweenBefore = target.index < mediaIndex ? messages.slice(target.index + 1, mediaIndex).filter(message => message.sender === 'incoming').length : 0;
-          return betweenAfter <= 1 && betweenBefore <= 1;
-        });
-        if (textFollowsManualMedia) {
-          for (const item of ready) { this.markNeedsManual(item.record, 'media-unobservable'); this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: item.record.archiveId, message: '该待答的文本指向已转人工的媒体内容（时间相邻、同批或引用关联），跟随转人工，不脱离媒体盲答。' }); }
+          return betweenAfter === 0 && betweenBefore === 0;
+        };
+        const followItems = ready.filter(item => item.mapped.targets.some(targetFollowsMedia));
+        if (followItems.length) {
+          ready = ready.filter(item => !followItems.includes(item));
+          for (const hit of followItems) {
+            this.markNeedsManual(hit.record, 'media-unobservable');
+            this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: hit.record.archiveId, message: '该待答的文本指向已转人工的媒体内容（时间相邻、同批或引用关联），跟随转人工，不脱离媒体盲答。' });
+          }
           this.persist();
-          this.backlogPause(mark, 'waiting-media-manual');
-          return;
         }
+        if (!ready.length && manualMediaMessageIds.size > 0) { this.backlogPause(mark, 'waiting-media-manual'); return; }
         const chosen = new Set([...targets.map(item => item.message.id), ...eligibleContext.slice(-(12 - targets.length)).map(item => item.id)]);
         const context = eligibleContext.filter(message => chosen.has(message.id)).map(message => structuredClone(message));
         if (context.length > 12 || targets.some(item => !context.some(message => message.id === item.message.id))) { this.backlogPause(mark, 'waiting-target-context-capacity'); return; }

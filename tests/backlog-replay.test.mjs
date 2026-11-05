@@ -275,3 +275,65 @@ test('回放（P2）：失败→成功→新任务失败，新任务应能再次
   assert.equal(f.mark().autoBacklogEscalated,true,'新任务失败后应再次升级，不被旧标记压制');
 });
 
+
+test('回放（P1-1）：reserve 落盘后立即崩溃重启，混合记录 inFlight=true、autoDue=true、读回继续',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'reserve-crash-',targetIds:['text-target','video-1']})]});
+  // 发送确认失败（uncertain 路径）确保 reserved 落盘
+  f.service.browser.sendMessage=async(id,text,args)=>{args.authorize({recipientId:id,phase:'prepare'});args.authorize({recipientId:id,phase:'before-click'});args.authorize.beginDispatch();return{confirmed:false,deliveryUncertain:true};};
+  f.due();await f.service.poll();
+  // 模拟崩溃重启：只保留磁盘状态（targetStates 与 autoAttempt 已在 reserve/uncertain 时持久化）
+  const disk=JSON.parse(fs.readFileSync(path.join(f.service.stateDir,'chat-watermarks.json'),'utf8'));
+  f.service.watermarks=disk;
+  const record=f.record('reserve-crash-');
+  assert.equal(f.service.mixedRecordHasTextInFlight(record),true,'reserve/uncertain 子状态落盘后崩溃，读回流程应在');
+  f.due();
+  assert.equal(f.service.autoDue(f.mark()),true,'autoDue 应让读回继续（到期后）');
+  // 读回继续：正文匹配的 outgoing 出现 → confirmed
+  messages.push({...textIncoming('sent-echo','合成回放回复 1。'),sender:'outgoing',direction:'outgoing'});
+  f.due();await f.service.poll();
+  const textAfter=f.record('reserve-crash-').targetStates?.find(item=>item.messageId==='text-target');
+  assert.equal(textAfter?.state,'confirmed','读回核对在崩溃重启后继续并结案文字目标');
+  assert.equal(f.record('reserve-crash-').autoHandled,undefined,'混合记录仍不整条结案');
+});
+
+test('回放（P1-2）：reserved 目标后出现无关 outgoing 消息，不得误匹配转 confirmed',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'reserved-noise-',targetIds:['text-target','video-1']})]});
+  f.service.browser.sendMessage=async(id,text,args)=>{args.authorize({recipientId:id,phase:'prepare'});args.authorize({recipientId:id,phase:'before-click'});args.authorize.beginDispatch();return{confirmed:false,deliveryUncertain:true};};
+  f.due();await f.service.poll();
+  const record=f.record('reserved-noise-');
+  const before=structuredClone(record.targetStates);
+  // 人工发一条无关 outgoing 消息（正文与 expectedText 不同）
+  messages.push({...textIncoming('human-echo','（合成改写）这是人工另发的一条无关消息'),sender:'outgoing',direction:'outgoing'});
+  f.due();await f.service.poll();
+  const after=f.record('reserved-noise-').targetStates?.find(item=>item.messageId==='text-target');
+  assert.equal(after?.state,'uncertain','无关消息不得当作发送成功，目标保持等待读回');
+  assert.equal(f.record('reserved-noise-').autoHandled,undefined);
+});
+
+test('回放（P2-1）：紧邻追问与远处独立问题同批，只有追问记录转人工，独立问题照常发送',async t=>{
+  // 布局：base-a, base-b, video-1(媒体), ask(紧邻追问), far-question(远处独立问题)
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),videoIncoming('video-1'),textIncoming('ask','（合成改写）刚才那个视频讲的是什么'),textIncoming('far-question','（合成改写）帮我推荐一部新番动漫吧')];
+  let sendCalls=0;
+  const f=await replay(t,{messages,records:[
+    archiveRecord(authorized,messages,{id:'p21-far-',targetIds:['far-question']}),
+    archiveRecord(authorized,messages,{id:'p21-ask-',targetIds:['ask']}),
+    archiveRecord(authorized,messages,{id:'p21-media-',targetIds:['video-1']}),
+  ]});
+  f.service.browser.sendMessage=async()=>{sendCalls++;return{confirmed:true,messageId:'s'};};
+  f.due();await f.service.poll();
+  assert.equal(f.record('p21-ask-').needsManual,true,'紧邻追问应跟随转人工');
+  assert.equal(f.record('p21-far-').needsManual,undefined,'远处独立问题不关联媒体，照常推进');
+  assert.equal(f.record('p21-far-').autoHandled,true,'独立问题照常生成发送结案');
+  assert.equal(sendCalls,1,'只发送独立问题的回复');
+});
+
+test('回放（P2-2）：记忆读取器抛错时 state=read-error 优先于 not-connected',async t=>{
+  // getMemoryStore 返回无 recallForChat 的 store（not-connected 形态）但 recall 阶段抛错——按 catch 里 readError 标志优先判 read-error。
+  // 直接对 ChatAgent 单测：memoryStore.recallForChat 抛错 → reply 返回 memoryEvidence.state='read-error'
+  const {ChatAgent}=await import('../chat-agent.mjs');
+  const agent=new ChatAgent({config:{apiKey:'k',baseUrl:'https://s.invalid',model:'m'},memoryStore:{recallForChat(){throw new Error('合成读取故障');}},replyProvider:async()=>({text:'回复',usage:{promptTokens:10,completionTokens:5}}),replyTokens:512});
+  const result=await agent.reply({messages:[{id:'m1',sender:'incoming',text:'你好'}],conversation:{displayName:'联系人A',isGroup:false}});
+  assert.equal(result.memoryEvidence.state,'read-error','抛错必须是 read-error 而非 not-connected');
+});
