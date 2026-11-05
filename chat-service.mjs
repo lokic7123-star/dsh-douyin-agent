@@ -778,7 +778,8 @@ export class ChatService {
       const message = record.incoming?.find(entry => entry.id === item.messageId);
       if (!message || message.media || (message.kind && message.kind !== 'text')) continue;
       const known = new Set(record.recoveryEvidence?.expectedContent?.map(entry => entry.id) ?? []);
-      const candidates = messages.filter(row => row.sender === 'outgoing' && row.identitySource === 'dom-message-id' && !known.has(row.id) && row.failed !== true && row.pending !== true);
+      // 三审 P2：sent=false 的 outgoing 是「未发出」的状态矛盾候选，正文再匹配也不得用于确认（与 restoreBacklogReceipt 路径核对对齐）。
+      const candidates = messages.filter(row => row.sender === 'outgoing' && row.identitySource === 'dom-message-id' && !known.has(row.id) && row.failed !== true && row.pending !== true && row.sent !== false);
       const expectedText = item.text ?? record.autoAttempt?.text ?? record.generatedText ?? '';
       const match = candidates.find(row => row.text?.trim() === String(expectedText).trim());
       if (match) { this.setTargetState(record, item.messageId, 'confirmed', { method: 'uncertain-matching-native-outgoing', proofMessageId: match.id }); if (mark) this.recordProgressed(mark); this.log('backlog.text_target_confirmed', { archiveId: record.archiveId, messageId: item.messageId, message: '混合待答的文字发送结果经读回确认，媒体目标仍由人工处理。' }); }
@@ -939,10 +940,10 @@ export class ChatService {
     if (manualMedia.size && !textReady.length) { this.backlogPause(mark, 'waiting-media-manual'); return; }
     ready = textReady;
     if (!ready.length) { this.backlogPause(mark, 'waiting-backlog-evidence-or-outgoing'); return; }
-    const archiveIds = ready.map(item => item.record.archiveId);
+    let archiveIds = ready.map(item => item.record.archiveId);
     if (archiveIds.some(id => typeof id !== 'string' || !id) || new Set(archiveIds).size !== archiveIds.length) { this.backlogPause(mark, 'waiting-archive-identity'); return; }
-    const targets = [...new Map(ready.flatMap(item => item.mapped.targets).map(item => [item.message.id, item])).values()].sort((left, right) => left.index - right.index);
-    const key = createHash('sha256').update(JSON.stringify([contact.id, archiveIds.slice().sort(), targets.map(item => [item.message.id, item.fingerprint])])).digest('hex');
+    let targets = [...new Map(ready.flatMap(item => item.mapped.targets).map(item => [item.message.id, item])).values()].sort((left, right) => left.index - right.index);
+    let key = createHash('sha256').update(JSON.stringify([contact.id, archiveIds.slice().sort(), targets.map(item => [item.message.id, item.fingerprint])])).digest('hex');
     let queue = mark.autoBacklog;
     if (queue?.key !== key) queue = mark.autoBacklog = { version: 1, source: 'authorized-unsent-backlog-v1', key, archiveIds, generationAttempts: 0, retryCount: 0 };
     queue.targets = targets.map(item=>({id:item.message.id,fingerprint:item.fingerprint})); queue.authorizationContact = structuredClone(contact);
@@ -993,6 +994,16 @@ export class ChatService {
             this.markNeedsManual(hit.record, 'media-unobservable');
             this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: hit.record.archiveId, message: '该待答的文本指向已转人工的媒体内容（时间相邻、同批或引用关联），跟随转人工，不脱离媒体盲答。' });
           }
+          // 三审 P1：过滤完成后统一重建队列凭据——archiveIds/targets/key/pending.backlogAuthorization 全部以
+          // 剩余 ready 重算，保证回执命中时 restoreBacklogReceipt 不会把已转人工的追问一起 settle。
+          const rebuiltArchiveIds = ready.map(item => item.record.archiveId);
+          if (!rebuiltArchiveIds.length) { this.backlogPause(mark, 'waiting-media-manual'); return; }
+          const rebuiltTargets = [...new Map(ready.flatMap(item => item.mapped.targets).map(item => [item.message.id, item])).values()].sort((left, right) => left.index - right.index);
+          const rebuiltKey = createHash('sha256').update(JSON.stringify([contact.id, rebuiltArchiveIds.slice().sort(), rebuiltTargets.map(item => [item.message.id, item.fingerprint])])).digest('hex');
+          archiveIds = rebuiltArchiveIds; targets = rebuiltTargets; key = rebuiltKey;
+          queue = mark.autoBacklog = { version: 1, source: 'authorized-unsent-backlog-v1', key: rebuiltKey, archiveIds: rebuiltArchiveIds, generationAttempts: 0, retryCount: 0 };
+          queue.targets = rebuiltTargets.map(item => ({ id: item.message.id, fingerprint: item.fingerprint })); queue.authorizationContact = structuredClone(contact);
+          if (mark.pending?.backlogAuthorization) { mark.pending.backlogAuthorization.archiveIds = [...rebuiltArchiveIds]; mark.pending.backlogAuthorization.targets = queue.targets.map(item => ({ ...item })); }
           this.persist();
         }
         if (!ready.length && manualMediaMessageIds.size > 0) { this.backlogPause(mark, 'waiting-media-manual'); return; }

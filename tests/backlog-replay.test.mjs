@@ -337,3 +337,44 @@ test('回放（P2-2）：记忆读取器抛错时 state=read-error 优先于 not
   const result=await agent.reply({messages:[{id:'m1',sender:'incoming',text:'你好'}],conversation:{displayName:'联系人A',isGroup:false}});
   assert.equal(result.memoryEvidence.state,'read-error','抛错必须是 read-error 而非 not-connected');
 });
+
+test('回放（P1）：追问+独立问题同批拆分后，队列凭据四者均不含追问，命中回执只结案独立问题',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),videoIncoming('video-1'),textIncoming('ask','（合成改写）刚才那个视频讲的是什么'),textIncoming('far-question','（合成改写）帮我推荐一部新番动漫吧')];
+  let sendCalls=0;
+  const f=await replay(t,{messages,records:[
+    archiveRecord(authorized,messages,{id:'p1-far-',targetIds:['far-question']}),
+    archiveRecord(authorized,messages,{id:'p1-ask-',targetIds:['ask']}),
+    archiveRecord(authorized,messages,{id:'p1-media-',targetIds:['video-1']}),
+  ]});
+  f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;args.authorize({recipientId:id,phase:'prepare'});args.authorize({recipientId:id,phase:'before-click'});args.authorize.beginDispatch();return{confirmed:true,messageId:'receipt-p1'};};
+  f.due();await f.service.poll();
+  const queue=f.mark().autoBacklog;
+  const queueTargetIds=new Set((queue.targets??[]).map(item=>item.id));
+  assert.equal(queueTargetIds.has('ask'),false,'queue.targets 不得含追问消息 id');
+  assert.equal((queue.archiveIds??[]).includes('p1-ask-'),false,'queue.archiveIds 不得含追问记录');
+  const pending=f.mark().pending;
+  const pendingAuth=pending?.backlogAuthorization;
+  if(pendingAuth){assert.equal(pendingAuth.archiveIds.includes('p1-ask-'),false,'pending.backlogAuthorization.archiveIds 不得含追问记录');assert.equal((pendingAuth.targets??[]).some(item=>item.id==='ask'),false,'pending.backlogAuthorization.targets 不得含追问消息 id');}
+  // 命中回执：只有独立问题记录结案，追问保持 needs-manual
+  assert.equal(f.record('p1-ask-').needsManual,true,'追问保持需人工');
+  assert.equal(f.record('p1-far-').autoHandled,true,'独立问题照常结案');
+  assert.equal(f.record('p1-ask-').autoHandled,undefined,'追问不得被回执连坐结案');
+  // 回执目标身份与覆盖范围：receipt.targets 与重算后 targets 一致（不含 ask）
+  const receipt=queue.receipt;
+  if(receipt){assert.equal((receipt.targets??[]).some(item=>item.id==='ask'),false,'receipt.targets 不得含追问消息 id');assert.equal(receipt.archiveIds.includes('p1-ask-'),false,'receipt.archiveIds 不得含追问记录');}
+});
+
+test('回放（P2）：uncertain 目标 + 正文匹配但 sent=false 的 outgoing 不得转 confirmed；对照 sent=true 同文正常确认',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'sentflag-',targetIds:['text-target','video-1']})]});
+  f.service.browser.sendMessage=async(id,text,args)=>{args.authorize({recipientId:id,phase:'prepare'});args.authorize({recipientId:id,phase:'before-click'});args.authorize.beginDispatch();return{confirmed:false,deliveryUncertain:true};};
+  f.due();await f.service.poll();
+  // 未发出的 outgoing（sent=false）但正文与 expectedText 一致——状态矛盾，不得确认
+  messages.push({...textIncoming('ghost-echo','合成回放回复 1。'),sender:'outgoing',direction:'outgoing',sent:false});
+  f.due();await f.service.poll();
+  assert.equal(f.record('sentflag-').targetStates?.find(item=>item.messageId==='text-target')?.state,'uncertain','sent=false 的同文候选不得当作发送成功');
+  // 对照：真实发出的同文（sent=true）出现后正常确认
+  messages.push({...textIncoming('real-echo','合成回放回复 1。'),sender:'outgoing',direction:'outgoing',sent:true});
+  f.due();await f.service.poll();
+  assert.equal(f.record('sentflag-').targetStates?.find(item=>item.messageId==='text-target')?.state,'confirmed','sent=true 的同文候选正常确认');
+});
