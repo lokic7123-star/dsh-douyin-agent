@@ -677,6 +677,15 @@ export class ChatService {
   }
 
   autoRecords(mark) { return (mark.unanswered || []).filter(isOpenBacklogRecord); }
+  // C3 需人工终态：后台触发原因收敛为一个「需人工」态 + 原因码（mapping-stale=映射失效、media-unobservable=缺媒体观察、identity-unverifiable=身份不可核对）。
+  // 记录保留在待答清单（isOpenBacklogRecord 口径不变，第③步展示与人工结束都从清单来）；状态机扫描跳过它们，退出空转。
+  markNeedsManual(record, reasonCode) {
+    if (record.needsManual) return;
+    record.needsManual = true; record.needsManualReason = reasonCode; record.needsManualAt = new Date().toISOString();
+    if (reasonCode === 'media-unobservable') { record.mediaNeedsManual = true; record.mediaNeedsManualAt ??= record.needsManualAt; }
+    if (reasonCode === 'identity-unverifiable') record.identityUnverifiableAt ??= record.needsManualAt;
+  }
+  needsManualRecords(mark) { return this.autoRecords(mark).filter(record => record.needsManual === true); }
   qualifyNativeBacklog(contact, mark, snapshot, messages) {
     if (!mark || !hasStableConversationIdentity(contact) || !hasStableConversationIdentity(snapshot.contact) || !matchesAuthorizedContact(contact, snapshot.contact) || snapshot.conversation?.id !== contact.id) return;
     const stopRequest = load(this.stopFile, null);
@@ -685,10 +694,13 @@ export class ChatService {
       if (evidence) { record.recoveryEvidence = evidence; mark.autoBacklog = null; this.log('backlog.native_arrival_qualified', { recipientId: contact.id, count: 1 }); }
     }
   }
-  autoDue(mark) { return Boolean(mark && (this.autoRecords(mark).length || ['inflight', 'delivery-uncertain'].includes(mark.status) && mark.pending?.incoming?.length) && Date.now() >= (Date.parse(mark.autoBacklog?.nextRetryAt) || 0)); }
+  autoDue(mark) { return Boolean(mark && (this.autoRecords(mark).some(record => record.needsManual !== true) || ['inflight', 'delivery-uncertain'].includes(mark.status) && mark.pending?.incoming?.length) && Date.now() >= (Date.parse(mark.autoBacklog?.nextRetryAt) || 0)); }
   backlogPause(mark, reason) {
     const queue = mark.autoBacklog ??= { version: 1, source: 'authorized-unsent-backlog-v1', retryCount: 0 };
     queue.retryCount = Math.min(20, (queue.retryCount || 0) + 1); queue.state = 'waiting'; queue.reason = reason;
+    // C3 临时失败升级：连续等待次数跨队列 key 累计（queue key 变化会重置 retryCount），达到阈值后标注「建议人工核对」，不再无限静默。
+    mark.autoBacklogWaits = (mark.autoBacklogWaits || 0) + 1;
+    if (mark.autoBacklogWaits >= 6 && mark.autoBacklogEscalated !== true) { mark.autoBacklogEscalated = true; queue.escalated = true; this.log('backlog.escalated', { reason, waits: mark.autoBacklogWaits, message: '同一联系人的补答连续多次等待，建议人工核对待答清单。' }); }
     queue.nextRetryAt = new Date(Date.now() + Math.min(300_000, 5_000 * 2 ** Math.min(queue.retryCount - 1, 6))).toISOString();
     this.persist();
   }
@@ -740,20 +752,26 @@ export class ChatService {
     if (!hasStableConversationIdentity(contact) || !matchesAuthorizedContact(contact, snapshot.contact) || !hasStableConversationIdentity(snapshot.contact) || snapshot.conversation?.id !== contact.id || evidence.chronology !== 'oldest-first' || evidence.latestEndVerified !== true || !messages.length || messages.some(message => message.latestEndVerified !== true || message.sender === 'unknown')) { this.backlogPause(mark, 'waiting-reliable-conversation'); return; }
     let ready = [], unmappedUncertain = allRecords.some(record=>!records.includes(record)&&(record.legacyUncertain||record.recoveryEvidence?.beforeDispatch===false||['sending','delivery-uncertain'].includes(record.phase)||['reserved','uncertain'].includes(record.autoAttempt?.state))); const uncertainTargets = new Set(), uncertainSources = new Set();
     for (const record of records) {
+      // C3：needs-manual 终态记录退出状态机扫描（保留在待答清单供展示与人工结束），不空转。
+      if (record.needsManual === true) continue;
       const isUncertain = record.legacyUncertain === true || record.recoveryEvidence?.beforeDispatch === false || ['sending', 'delivery-uncertain'].includes(record.phase) || ['reserved', 'uncertain'].includes(record.autoAttempt?.state);
       const savedContact = record.recoveryEvidence?.contact;
-      // 身份凭据无法双向核对的记录不得静默跳过——那是用户不可见的永久卡死（漏答形态之一）。补事件与可见标记，等待人工核对。
+      // 身份凭据无法双向核对的记录不得静默跳过——那是用户不可见的永久卡死（漏答形态之一）。转 needs-manual 终态并补事件。
       if (!matchesAuthorizedContact(savedContact, contact) || !matchesAuthorizedContact(contact, savedContact)) {
         if (isUncertain) unmappedUncertain = true;
-        if (!record.identityUnverifiableAt) {
-          record.identityUnverifiableAt = new Date().toISOString();
-          this.log('backlog.identity_unverifiable', { recipientId: contact.id, archiveId: record.archiveId, phase: record.phase, hasContact: Boolean(savedContact), verifiedAt: savedContact?.verifiedAt ?? null, message: '待答记录的身份凭据无法与当前许可会话双向核对，已标记需人工核对，不再自动推进。' });
-          this.persist();
-        }
+        this.markNeedsManual(record, 'identity-unverifiable');
+        this.log('backlog.identity_unverifiable', { recipientId: contact.id, archiveId: record.archiveId, phase: record.phase, hasContact: Boolean(savedContact), verifiedAt: savedContact?.verifiedAt ?? null, message: '待答记录的身份凭据无法与当前许可会话双向核对，已转需人工终态，不再自动推进。' });
+        this.persist();
         continue;
       }
       if (isUncertain) for (const item of record.recoveryEvidence.qualifiedIncoming || []) uncertainSources.add(item.message?.id + '\0' + item.fingerprint);
-      const mapped = mapBacklogMessages(record, messages); if (!mapped.ready) { if(isUncertain)unmappedUncertain=true;continue; }
+      const mapped = mapBacklogMessages(record, messages);
+      if (!mapped.ready) {
+        // C3：结构性映射失败（目标挤出窗口/资格证据失效）是永久态——转 needs-manual 终态退出空转，不再每 300s 空扫描。
+        if (isUncertain) unmappedUncertain = true;
+        else if (['native-target-unavailable', 'legacy-native-target-unavailable', 'target-context-unavailable', 'qualification-evidence-unavailable', 'complete-context-suffix-unavailable', 'context-evidence-unavailable', 'context-not-unique', 'legacy-adjacency-insufficient', 'legacy-context-incomplete', 'duplicate-target', 'current-direction-or-identity'].includes(mapped.reason)) { this.markNeedsManual(record, 'mapping-stale'); this.log('backlog.mapping_stale', { recipientId: contact.id, archiveId: record.archiveId, reason: mapped.reason, message: '待答记录的映射证据已失效（消息挤出窗口或上下文不可核对），已转需人工终态，保留在待答清单。' }); }
+        continue;
+      }
       if (mapped.uncertain) { mapped.targets.forEach(item => uncertainTargets.add(item.message.id)); for (const item of record.recoveryEvidence.qualifiedIncoming) uncertainSources.add(item.message.id + '\0' + item.fingerprint); }
       if (contact.isGroup) { mapped.targets = mapped.targets.filter(item => groupMessageAddressesFish(item.message,this.policy.groupMentionNames)); if(!mapped.targets.length)continue; if(messages.slice(Math.max(...mapped.targets.map(item=>item.index))+1).some(message=>message.sender==='outgoing'))mapped.canSend=false; }
       let expectedText; try { expectedText = normalizeChatReplyText(record.autoAttempt?.text ?? record.generatedText ?? record.text); } catch {}
@@ -789,10 +807,8 @@ export class ChatService {
     }
     for (const id of manualMedia) {
       const item = ready.find(entry => entry.record.archiveId === id);
-      if (!item.record.mediaNeedsManual) {
-        item.record.mediaNeedsManual = true; item.record.mediaNeedsManualAt = new Date().toISOString();
-        this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: id, targets: item.mapped.targets.map(target => target.message.kind), message: '该待答含媒体目标（媒体观察不持久化，补答无法重采画面），已标记需人工处理，不再阻塞纯文本待答。' });
-      }
+      this.markNeedsManual(item.record, 'media-unobservable');
+      this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: id, targets: item.mapped.targets.map(target => target.message.kind), message: '该待答含媒体目标（媒体观察不持久化，补答无法重采画面），已转需人工终态，不再阻塞纯文本待答。' });
     }
     if (manualMedia.size && !textReady.length) { this.backlogPause(mark, 'waiting-media-manual'); return; }
     ready = textReady;
@@ -853,10 +869,8 @@ export class ChatService {
         const recordMediaTargets = item.record.incoming?.filter(message => message.media || (message.kind && message.kind !== 'text')) ?? [];
         const mediaStillOpen = recordMediaTargets.length > 0;
         if (mediaStillOpen) {
-          if (!item.record.mediaNeedsManual) {
-            item.record.mediaNeedsManual = true; item.record.mediaNeedsManualAt = new Date().toISOString();
-            this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: item.record.archiveId, message: '混合待答的文字目标已随本次回复结案，媒体目标无法自动补答（媒体观察不持久化），保持待答并由人工处理。' });
-          }
+          this.markNeedsManual(item.record, 'media-unobservable');
+          this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: item.record.archiveId, message: '混合待答的文字目标已随本次回复结案，媒体目标无法自动补答（媒体观察不持久化），保持待答并由人工处理。' });
           this.persist();
           continue;
         }

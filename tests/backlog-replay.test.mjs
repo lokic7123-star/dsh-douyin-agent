@@ -33,18 +33,25 @@ async function replay(t,{messages,records}){
 }
 async function runReplayPoll(f){await f.service.poll();}
 
-test('回放基线（C1）：R1 历史映射失效记录每轮扫描都不进队列，停在「缺证据无法补答」',async t=>{
+test('回放（C1）：R1 历史映射失效记录转 needs-manual 终态，退出空转扫描且保留在待答清单',async t=>{
   const messages=[textIncoming('old-a','（合成改写）历史前文一'),textIncoming('old-b','（合成改写）历史前文二')];
   // R1 的目标消息（old-video）不在当前窗口——模拟 11-01 消息被挤出窗口。
   const staleTarget={...videoIncoming('stale-video'),id:'stale-video'};
   const staleWindow=[...messages,structuredClone(staleTarget)];
   const f=await replay(t,{messages,records:[archiveRecord(authorized,staleWindow,{id:'replay-r1-',phase:'superseded',targetIds:['stale-video'],generatedText:'（合成改写）针对视频的历史生成文本'})]});
-  f.due();await f.service.poll();
+  f.due();await f.service.poll();f.due();await f.service.poll();
   const record=f.record('replay-r1-');
   assert.equal(record.autoHandled,undefined);assert.equal(record.autoAttempt,undefined);
+  assert.equal(record.needsManual,true,'结构性映射失效应转需人工终态');
+  assert.equal(record.needsManualReason,'mapping-stale');
   const queue=f.mark().autoBacklog;
   assert.ok(!queue?.archiveIds?.includes(record.archiveId),'映射失败的记录不得进入补答队列');
   assert.equal(record.phase,'superseded');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.mapping_stale'),'终态转出应有事件');
+  // 第二次 poll 后 retryCount 不再增长（终态退出空转扫描）
+  const retryAfterSecond=f.mark().autoBacklog?.retryCount;
+  f.due();await f.service.poll();
+  assert.equal(f.mark().autoBacklog?.retryCount,retryAfterSecond,'终态记录退出空转，不再消耗退避');
 });
 
 test('回放（C2）：混合队列中纯文本解出照常推进，媒体记录拆出标需人工不再连坐',async t=>{
@@ -134,4 +141,23 @@ test('回放（C2 兼容）：旧形状记录（无新字段的历史归档）�
   assert.equal(oldDone.mediaNeedsManual,undefined,'旧记录不被误改');
   assert.equal(record.autoHandled,true,'新 open 记录照常推进');
   assert.equal(sendCalls,1,'发送恰好一次且只在合成 transport');
+});
+
+test('回放（C3）：临时失败有界退避达到升级阈值后标 escalated 并建议人工核对，发送不明语义不变',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问')];
+  // 生成持续失败：每次 poll 一次 bounded-generation-failed，跨队列 key 累计等待计数
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-escalate-',phase:'model',targetIds:['text-target']})]});
+  f.service.agent.reply=async()=>{throw new Error('合成模型故障');};
+  for(let i=0;i<7;i++){f.due();await f.service.poll();}
+  const mark=f.mark();
+  assert.ok(mark.autoBacklogWaits>=6,`连续等待计数应跨 key 累计达到阈值，实际 ${mark.autoBacklogWaits}`);
+  assert.equal(mark.autoBacklogEscalated,true,'达到阈值应升级');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.escalated'),'升级应有事件');
+  assert.equal(f.service.events.filter(event=>event.type==='backlog.escalated').length,1,'升级只标一次，不重复');
+  assert.equal(f.sent?.length??0,0,'升级场景不得发送');
+  // 发送不明语义不变：uncertain 记录只读回核对不重发
+  const f2=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-uncertain-',phase:'sending',beforeDispatch:false,targetIds:['text-target']})]});
+  let sendCalls=0;f2.service.browser.sendMessage=async()=>{sendCalls++;return{confirmed:true,messageId:'sent-x'};};
+  f2.due();await f2.service.poll();
+  assert.equal(sendCalls,0,'发送不明只核对不重发');
 });
