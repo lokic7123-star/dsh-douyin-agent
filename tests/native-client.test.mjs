@@ -159,6 +159,8 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(await page.getByRole('dialog', { name: '遗留待处理消息' }).count(), 0);
   assert.equal(calls.some(item => item.route === '/chat/unanswered/resolve'), false);
   assert.equal(await page.getByRole('tab').count(), 7); assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
+  const tablistBox = await page.getByRole('tablist', { name: '抖音设置分类' }).evaluate(node => { const cs = getComputedStyle(node); return { wrap: cs.flexWrap, overflowX: cs.overflowX, rows: [...new Set([...node.querySelectorAll('[role="tab"]')].map(item => Math.round(item.getBoundingClientRect().top)))].length, shrink: getComputedStyle(node.querySelector('[role="tab"]')).flexShrink }; });
+  assert.equal(tablistBox.wrap, 'nowrap'); assert.equal(tablistBox.overflowX, 'auto'); assert.equal(tablistBox.rows, 1); assert.equal(tablistBox.shrink, '0');
   await persona.fill('合成人格未保存草稿。'); await page.waitForTimeout(250); assert.equal(calls.some(item => item.route === '/persona/configure'), false);
   let releaseState; stateReadGate = { wait: new Promise(resolve => { releaseState = resolve; }) };
   state.persona = { ...state.persona, manualText: '合成外部更新正文。', revision: 'synthetic-v2' }; await persona.press('Tab');
