@@ -754,6 +754,35 @@ export class ChatService {
     if (reasonCode === 'identity-unverifiable') record.identityUnverifiableAt ??= record.needsManualAt;
   }
   needsManualRecords(mark) { return this.autoRecords(mark).filter(record => record.needsManual === true); }
+  // P1-1 目标粒度子状态：持久化文字/媒体目标的处理结果（reserved/uncertain/confirmed），混合记录的读回与恢复按目标核对，
+  // 不因媒体部分转人工而中断文字目标的发送结果核对。persist 落盘，非内存 transient。
+  setTargetState(record, messageId, state, extra = {}) {
+    record.targetStates ??= [];
+    const existing = record.targetStates.find(item => item.messageId === messageId);
+    if (existing) Object.assign(existing, { state, at: new Date().toISOString(), ...extra });
+    else record.targetStates.push({ messageId, state, at: new Date().toISOString(), ...extra });
+  }
+  targetStatesOf(record) { return Array.isArray(record.targetStates) ? record.targetStates : []; }
+  // 混合记录（含媒体目标）中文字目标是否仍在发送/读回流程：reserved/uncertain/未定论的发送都要继续核对。
+  mixedRecordHasTextInFlight(record) {
+    if (!record.incoming?.some(message => message.media || (message.kind && message.kind !== 'text'))) return false;
+    const textIds = record.incoming.filter(message => !message.media && (!message.kind || message.kind === 'text')).map(message => message.id);
+    return this.targetStatesOf(record).some(item => textIds.includes(item.messageId) && ['reserved', 'uncertain'].includes(item.state));
+  }
+  // P1-1：混合记录文字目标的读回核对（needs-manual 状态下也不中断）：按 targetStates 的文字目标在当前窗口找
+  // 已发出的同文 outgoing（identitySource=dom-message-id），命中即文字子状态转 confirmed；找不到保持 uncertain 等待。
+  readbackMixedRecordText(record, mark, messages) {
+    for (const item of this.targetStatesOf(record)) {
+      if (!['reserved', 'uncertain'].includes(item.state)) continue;
+      const message = record.incoming?.find(entry => entry.id === item.messageId);
+      if (!message || message.media || (message.kind && message.kind !== 'text')) continue;
+      const known = new Set(record.recoveryEvidence?.expectedContent?.map(entry => entry.id) ?? []);
+      const candidates = messages.filter(row => row.sender === 'outgoing' && row.identitySource === 'dom-message-id' && !known.has(row.id) && row.failed !== true && row.pending !== true);
+      const expectedText = item.text ?? record.autoAttempt?.text ?? record.generatedText ?? '';
+      const match = item.state === 'uncertain' ? candidates.find(row => row.text?.trim() === String(expectedText).trim()) : candidates.at(-1);
+      if (match) { this.setTargetState(record, item.messageId, 'confirmed', { method: 'uncertain-matching-native-outgoing', proofMessageId: match.id }); if (mark) this.recordProgressed(mark); this.log('backlog.text_target_confirmed', { archiveId: record.archiveId, messageId: item.messageId, message: '混合待答的文字发送结果经读回确认，媒体目标仍由人工处理。' }); }
+    }
+  }
   qualifyNativeBacklog(contact, mark, snapshot, messages) {
     if (!mark || !hasStableConversationIdentity(contact) || !hasStableConversationIdentity(snapshot.contact) || !matchesAuthorizedContact(contact, snapshot.contact) || snapshot.conversation?.id !== contact.id) return;
     const stopRequest = load(this.stopFile, null);
@@ -762,11 +791,12 @@ export class ChatService {
       if (evidence) { record.recoveryEvidence = evidence; mark.autoBacklog = null; this.log('backlog.native_arrival_qualified', { recipientId: contact.id, count: 1 }); }
     }
   }
-  autoDue(mark) { return Boolean(mark && (this.autoRecords(mark).some(record => record.needsManual !== true) || ['inflight', 'delivery-uncertain'].includes(mark.status) && mark.pending?.incoming?.length) && Date.now() >= (Date.parse(mark.autoBacklog?.nextRetryAt) || 0)); }
+  autoDue(mark) { return Boolean(mark && (this.autoRecords(mark).some(record => record.needsManual !== true) || this.autoRecords(mark).some(record => this.mixedRecordHasTextInFlight(record)) || mark.autoBacklog?.receipt?.confirmed === true || ['inflight', 'delivery-uncertain'].includes(mark.status) && mark.pending?.incoming?.length) && Date.now() >= (Date.parse(mark.autoBacklog?.nextRetryAt) || 0)); }
   backlogPause(mark, reason) {
     const queue = mark.autoBacklog ??= { version: 1, source: 'authorized-unsent-backlog-v1', retryCount: 0 };
     queue.retryCount = Math.min(20, (queue.retryCount || 0) + 1); queue.state = 'waiting'; queue.reason = reason;
-    // C3 临时失败升级：连续等待次数跨队列 key 累计（queue key 变化会重置 retryCount），达到阈值后标注「建议人工核对」，不再无限静默。
+    // C3/P2 临时失败升级：连续等待计数按「记录语义批次」累计——所有 open 记录均无进展时递增；
+    // 任一记录推进成功（结案/进入发送）即重置计数并解除升级标记（recordProgressed），新任务失败可再次完整退避并再次升级。
     mark.autoBacklogWaits = (mark.autoBacklogWaits || 0) + 1;
     if (mark.autoBacklogWaits >= 6 && mark.autoBacklogEscalated !== true) { mark.autoBacklogEscalated = true; queue.escalated = true; this.log('backlog.escalated', { reason, waits: mark.autoBacklogWaits, message: '同一联系人的补答连续多次等待，建议人工核对待答清单。' }); }
     queue.nextRetryAt = new Date(Date.now() + Math.min(300_000, 5_000 * 2 ** Math.min(queue.retryCount - 1, 6))).toISOString();
@@ -776,9 +806,15 @@ export class ChatService {
     record.autoHandled = true; record.autoHandledAt = new Date().toISOString(); record.autoHandledBy = 'dafeiyu';
     record.autoHandledProof = { version: 1, source: 'authorized-unsent-backlog-v1', method, messageId, confirmed: true };
     if (record.autoAttempt) record.autoAttempt.state = 'confirmed';
+  }
+  // P2：记录推进成功（结案或文字目标进入发送/确认）即重置等待计数与升级标记——升级语义绑定"当前批次无进展"，
+  // 新任务失败可再次走完整退避并再次升级，不被旧标记压制。
+  recordProgressed(mark) {
+    if (mark.autoBacklogWaits) mark.autoBacklogWaits = 0;
+    if (mark.autoBacklogEscalated) mark.autoBacklogEscalated = false;
   }  restoreBacklogReceipt(contact, mark) {
     const queue = mark.autoBacklog, receipt = queue?.receipt;
-    if (receipt?.confirmed !== true || receipt.key !== queue.key || !Array.isArray(receipt.archiveIds) || !Array.isArray(receipt.targets) || !matchesAuthorizedContact(queue.authorizationContact, contact) || !matchesAuthorizedContact(contact, queue.authorizationContact)) return false;
+    if (receipt?.confirmed !== true || receipt.key !== queue.key || !Array.isArray(receipt.archiveIds) || !Array.isArray(receipt.targets) || !matchesAuthorizedContact(queue.authorizationContact, contact) || !matchesAuthorizedContact(contact, queue.authorizationContact)) { console.error('RESTORE-GATE1 fail:',JSON.stringify({confirmed:receipt?.confirmed,keyMatch:receipt?.key===queue?.key,ids:Array.isArray(receipt?.archiveIds),targets:Array.isArray(receipt?.targets),fwd:receipt?matchesAuthorizedContact(receipt&&queue.authorizationContact,contact):null,bwd:receipt?matchesAuthorizedContact(contact,queue.authorizationContact):null})); return false; }
     const key = createHash('sha256').update(JSON.stringify([contact.id, receipt.archiveIds.slice().sort(), receipt.targets.map(item => [item.id, item.fingerprint])])).digest('hex');
     if (key !== receipt.key || !this.outbound.history(contact.id).some(item => item.confirmed === true && item.kind === 'reply' && item.messageId === receipt.messageId)) return false;
     let settled = false;
@@ -787,9 +823,19 @@ export class ChatService {
       const source = record?.recoveryEvidence?.qualifiedIncoming;
       if (!Array.isArray(source) || !source.length || source.some(item => !validBacklogQualification(record, item))) continue;
       const sourceHash = createHash('sha256').update(JSON.stringify(source.map(item => [item.message.id, item.fingerprint]))).digest('hex');
-      if (record.autoAttempt?.queueKey === key && record.autoAttempt.sourceHash === sourceHash && JSON.stringify(record.autoAttempt.targets) === JSON.stringify(receipt.targets) && matchesAuthorizedContact(record.recoveryEvidence.contact, contact) && matchesAuthorizedContact(contact, record.recoveryEvidence.contact)) { this.settleBacklog(record, receipt.messageId, 'persisted-platform-and-outbound-receipt'); settled = true; }
+      if (record.autoAttempt?.queueKey === key && record.autoAttempt.sourceHash === sourceHash && JSON.stringify(record.autoAttempt.targets) === JSON.stringify(receipt.targets) && matchesAuthorizedContact(record.recoveryEvidence.contact, contact) && matchesAuthorizedContact(contact, record.recoveryEvidence.contact)) {
+        // P1-1：恢复路径同样受「混合记录不整条结案」约束——含媒体目标的记录只把本次回执覆盖的文字目标标 confirmed，
+        // 媒体目标保持 open + needs-manual；纯文字记录才整条结案。
+        const hasMediaTarget = record.incoming?.some(message => message.media || (message.kind && message.kind !== 'text'));
+        if (hasMediaTarget) {
+          const receiptTextIds = new Set(receipt.targets.map(item => item.id).filter(targetId => { const message = record.incoming.find(entry => entry.id === targetId); return message && !message.media && (!message.kind || message.kind === 'text'); }));
+          for (const targetId of receiptTextIds) this.setTargetState(record, targetId, 'confirmed', { method: 'persisted-platform-and-outbound-receipt', proofMessageId: receipt.messageId });
+          if (record.needsManual !== true) this.markNeedsManual(record, 'media-unobservable');
+          settled = true;
+        } else { this.settleBacklog(record, receipt.messageId, 'persisted-platform-and-outbound-receipt'); settled = true; }
+      }
     }
-    if (settled) this.persist(); return settled;
+    if (settled) { this.recordProgressed(mark); this.persist(); } return settled;
   }
   reserveBacklogDispatch(mark) {
     const queue = mark.autoBacklog;
@@ -821,7 +867,11 @@ export class ChatService {
     let ready = [], unmappedUncertain = allRecords.some(record=>!records.includes(record)&&(record.legacyUncertain||record.recoveryEvidence?.beforeDispatch===false||['sending','delivery-uncertain'].includes(record.phase)||['reserved','uncertain'].includes(record.autoAttempt?.state))); const uncertainTargets = new Set(), uncertainSources = new Set();
     for (const record of records) {
       // C3：needs-manual 终态记录退出状态机扫描（保留在待答清单供展示与人工结束），不空转。
-      if (record.needsManual === true) continue;
+      // P1-1 例外：混合记录的文字目标已进入发送/读回流程（targetStates 有 reserved/uncertain）时，读回核对不能因媒体部分转人工而中断。
+      if (record.needsManual === true) {
+        if (this.mixedRecordHasTextInFlight(record)) { this.readbackMixedRecordText(record, mark, messages); }
+        continue;
+      }
       const isUncertain = record.legacyUncertain === true || record.recoveryEvidence?.beforeDispatch === false || ['sending', 'delivery-uncertain'].includes(record.phase) || ['reserved', 'uncertain'].includes(record.autoAttempt?.state);
       const savedContact = record.recoveryEvidence?.contact;
       // 身份凭据无法双向核对的记录不得静默跳过——那是用户不可见的永久卡死（漏答形态之一）。转 needs-manual 终态并补事件。
@@ -906,6 +956,30 @@ export class ChatService {
         const currentTail = eligibleContext.at(-1);
         // C2 后此处 targets 已不含媒体目标（媒体记录在上方拆出）；媒体条件保留为不变量守护，命中即防御性等待而非连坐。
         if (targets.length > 6 || !currentTail || currentTail.sender !== 'incoming' || contact.isGroup && !groupMessageAddressesFish(currentTail, this.policy.groupMentionNames) || targets.some(item => item.message.media || item.message.kind !== 'text' || !item.message.text?.trim())) { this.backlogPause(mark, 'waiting-bounded-generation-evidence'); return; }
+        // P1-2 无引用框媒体追问跟随：有界生成上下文不含媒体（eligibleContext 已滤掉媒体），若文本目标与被标
+        // needs-manual(media-unobservable) 的媒体记录存在语义关联（引用 / 时间相邻 / 同批归档），跟随转人工，
+        // 不脱离媒体盲答。宁可多转人工不可盲答；误判代价是文本被转人工（可见、可人工结束），盲答代价是虚构媒体内容。
+        // 判定规则：①文本带 quote 引用且引用文本与 needs-manual 媒体记录的 incoming 相同；②文本与媒体消息在窗口中
+        // 时间相邻（媒体消息之后的下一条 incoming 即该文本，或间隔 ≤1 条）；③同批归档（本批 manualMedia 中）。
+        // 混合记录的文字子集是 C2 审核允许的目标粒度推进（不脱离媒体——媒体目标仍在该记录上由人工处理），不适用本判定；
+        // 只拦「纯文本记录指向同批/相邻 needs-manual 媒体」的盲答。
+        const manualMediaRecords = mark.unanswered?.filter(entry => entry.needsManual === true && entry.needsManualReason === 'media-unobservable' && !ready.some(item => item.record.archiveId === entry.archiveId)) ?? [];
+        const manualMediaMessageIds = new Set(manualMediaRecords.flatMap(entry => (entry.incoming ?? []).map(message => message.id)));
+        const textFollowsManualMedia = manualMediaMessageIds.size > 0 && targets.some(target => {
+          if (typeof target.message.reference?.text === 'string' && target.message.reference.text.trim() && manualMediaRecords.some(entry => (entry.incoming ?? []).some(message => message.media && typeof message.reference?.text === 'string' && message.reference.text === target.message.reference.text))) return true;
+          const mediaIndex = messages.findIndex(message => message.id && manualMediaMessageIds.has(message.id));
+          if (mediaIndex < 0) return false;
+          // 时间相邻（双向）：媒体与文本之间最多隔 1 条 incoming——追问可能在媒体之前或之后发出，归档同批即关联。
+          const betweenAfter = target.index > mediaIndex ? messages.slice(mediaIndex + 1, target.index).filter(message => message.sender === 'incoming').length : 0;
+          const betweenBefore = target.index < mediaIndex ? messages.slice(target.index + 1, mediaIndex).filter(message => message.sender === 'incoming').length : 0;
+          return betweenAfter <= 1 && betweenBefore <= 1;
+        });
+        if (textFollowsManualMedia) {
+          for (const item of ready) { this.markNeedsManual(item.record, 'media-unobservable'); this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: item.record.archiveId, message: '该待答的文本指向已转人工的媒体内容（时间相邻、同批或引用关联），跟随转人工，不脱离媒体盲答。' }); }
+          this.persist();
+          this.backlogPause(mark, 'waiting-media-manual');
+          return;
+        }
         const chosen = new Set([...targets.map(item => item.message.id), ...eligibleContext.slice(-(12 - targets.length)).map(item => item.id)]);
         const context = eligibleContext.filter(message => chosen.has(message.id)).map(message => structuredClone(message));
         if (context.length > 12 || targets.some(item => !context.some(message => message.id === item.message.id))) { this.backlogPause(mark, 'waiting-target-context-capacity'); return; }
@@ -930,12 +1004,14 @@ export class ChatService {
     try { delivery = await this.deliverReply(contact, mark, { text: queue.text, usage: queue.usage }, messages, signal, snapshot, { backlog: true }); }
     catch (error) { if (signal.aborted) throw error; delivery = { confirmed: false, deliveryUncertain: ready.some(item => ['reserved', 'uncertain'].includes(item.record.autoAttempt?.state)) }; }
     if (delivery?.confirmed === true && delivery.messageId) {
-      queue.receipt = { confirmed: true, messageId: delivery.messageId, key, at: new Date().toISOString(), archiveIds, targets: targets.map(item => ({ id: item.message.id, fingerprint: item.fingerprint })) }; this.persist();
+      queue.receipt = { confirmed: true, messageId: delivery.messageId, key, at: new Date().toISOString(), archiveIds, targets: targets.map(item => ({ id: item.message.id, fingerprint: item.fingerprint })) }; this.recordProgressed(mark); this.persist();
       // C2：混合记录（targets 含媒体，媒体部分已拆给人工）的文字目标随本次发送结案时，只按本次队列实际覆盖的
       // 文字目标粒度结案；若记录还有媒体目标未处理，不得整条结案——标记媒体需人工并保持 open。
+      // P1-1：文字目标的发送结果持久化到 targetStates（混合记录读回与恢复都按目标粒度核对）。
       for (const item of ready) {
         const recordMediaTargets = item.record.incoming?.filter(message => message.media || (message.kind && message.kind !== 'text')) ?? [];
         const mediaStillOpen = recordMediaTargets.length > 0;
+        for (const target of item.mapped.targets) this.setTargetState(item.record, target.message.id, 'confirmed', { method: 'confirmed-platform-reply', messageId: delivery.messageId });
         if (mediaStillOpen) {
           this.markNeedsManual(item.record, 'media-unobservable');
           this.log('backlog.media_needs_manual', { recipientId: contact.id, archiveId: item.record.archiveId, message: '混合待答的文字目标已随本次回复结案，媒体目标无法自动补答（媒体观察不持久化），保持待答并由人工处理。' });
@@ -946,7 +1022,11 @@ export class ChatService {
       }
       queue.state = 'complete'; queue.nextRetryAt = null; queue.retryCount = 0;
     } else {
-      for (const item of ready) if (item.record.autoAttempt || delivery?.deliveryUncertain === true) item.record.autoAttempt = { ...(item.record.autoAttempt || { version: 1, source: 'authorized-unsent-backlog-v1', text: queue.text, at: new Date().toISOString() }), state: delivery?.deliveryUncertain === true ? 'uncertain' : 'zero-click' };
+      for (const item of ready) {
+        // P1-1：发送不明/未点击——文字目标子状态持久化（uncertain=发送不明，zero-click=未发送可重试），恢复流程按此继续核对文字。
+        if (item.record.autoAttempt || delivery?.deliveryUncertain === true) item.record.autoAttempt = { ...(item.record.autoAttempt || { version: 1, source: 'authorized-unsent-backlog-v1', text: queue.text, at: new Date().toISOString() }), state: delivery?.deliveryUncertain === true ? 'uncertain' : 'zero-click' };
+        for (const target of item.mapped.targets) this.setTargetState(item.record, target.message.id, delivery?.deliveryUncertain === true ? 'uncertain' : 'zero-click', { text: queue.text });
+      }
       this.backlogPause(mark, delivery?.deliveryUncertain === true ? 'waiting-native-outgoing-readback' : 'waiting-zero-click-retry');
     }
     if (mark.pending?.backlogAuthorization) delete mark.pending;
@@ -1008,7 +1088,8 @@ export class ChatService {
     }
     mark.status = 'ready'; mark.reason = ''; mark.context.push(imageDelivered ? { id: delivery.messageId, sender: 'outgoing', text: '', kind: 'image', media: { type: 'image', label: imageAsset.remark, understandingScope: 'confirmed-outgoing-public-sticker' } } : { id: delivery.messageId, sender: 'outgoing', text: reply.text }); mark.context = mark.context.slice(-12);
     mark.seen.push(delivery.messageId); delete mark.pending; this.persist();
-    this.log('reply.sent', { recipientId: contact.id, text: imageDelivered ? '' : reply.text, ...(imageDelivered?{mediaType:'image'}:{}), messageId: delivery.messageId, usage: reply.usage }); return delivery;
+    this.recordProgressed(mark);
+      this.log('reply.sent', { recipientId: contact.id, text: imageDelivered ? '' : reply.text, ...(imageDelivered?{mediaType:'image'}:{}), messageId: delivery.messageId, usage: reply.usage }); return delivery;
   }
   async poll() {
     if (!this.running) return;
@@ -1088,6 +1169,8 @@ export class ChatService {
           const restoredIds=new Set(restored.map(item=>item.id));const fresh=[...new Map([...restored,...retried,...discovered.filter(item=>!oldHistory.includes(item)&&!restoredIds.has(item.id))].map(item=>[item.id,item])).values()];
           if (fresh.some((item) => item.sender === 'unknown')) { mark.pending = { phase: 'unclassified', incoming: fresh.map((item) => ({ id: item.id, sender: item.sender, text: item.text || '' })), at: new Date().toISOString() }; throw new Error('新消息方向未确认，联系人已暂停，消息未计入已处理水位。'); }
           mark.seen = [...seen, ...discovered.map((item) => item.id)].slice(-2000); mark.lastCheckedAt = new Date().toISOString(); this.persist();
+          // P1-1：needs-manual 记录的文字目标在途时，即使本轮有新消息（含新 outgoing）也要继续读回核对，不能被 fresh 阻塞。
+          for (const record of this.autoRecords(mark)) if (record.needsManual === true && this.mixedRecordHasTextInFlight(record)) this.readbackMixedRecordText(record, mark, messages);
           if (oldHistory.length) this.log('message.old_history_skipped', { recipientId: contact.id, messageIds: oldHistory.map((item) => item.id), message: '已知旧窗口或加载的历史行只更新水位，不回复。' });
           if (!fresh.length) {await this.processAutoBacklog(contact,mark,snapshot,messages,signal);continue;}
           const supported=isReplyableMessage;
