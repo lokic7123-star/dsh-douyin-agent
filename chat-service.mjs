@@ -1089,7 +1089,7 @@ export class ChatService {
     mark.status = 'ready'; mark.reason = ''; mark.context.push(imageDelivered ? { id: delivery.messageId, sender: 'outgoing', text: '', kind: 'image', media: { type: 'image', label: imageAsset.remark, understandingScope: 'confirmed-outgoing-public-sticker' } } : { id: delivery.messageId, sender: 'outgoing', text: reply.text }); mark.context = mark.context.slice(-12);
     mark.seen.push(delivery.messageId); delete mark.pending; this.persist();
     this.recordProgressed(mark);
-      this.log('reply.sent', { recipientId: contact.id, text: imageDelivered ? '' : reply.text, ...(imageDelivered?{mediaType:'image'}:{}), messageId: delivery.messageId, usage: reply.usage }); return delivery;
+      this.log('reply.sent', { recipientId: contact.id, text: imageDelivered ? '' : reply.text, ...(imageDelivered?{mediaType:'image'}:{}), messageId: delivery.messageId, usage: reply.usage, ...(reply.memoryEvidence?{memoryEvidence:reply.memoryEvidence}:{}) }); return delivery;
   }
   async poll() {
     if (!this.running) return;
