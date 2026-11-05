@@ -25,7 +25,7 @@ export class ScheduledWatch {
   configure(value,{explicit=false}={}){if(!explicit)throw new Error('允许观看需要本人明确保存。');const policy=policyOf(value);this.control(()=>{
     const previous=load(this.policyFile,defaultPolicy),videoFile=path.join(this.stateDir,'video-policy.json'),video=load(videoFile,null),legacy=previous.maxRequests??value.maxRequests;
     if(video&&video.dailyRequests===undefined&&legacy!==undefined){if(legacy!==null&&(!Number.isSafeInteger(legacy)||legacy<1))throw new Error('旧每日请求设置损坏，未覆盖。');write(videoFile,{...video,dailyRequests:legacy});}
-    write(this.policyFile,policy);if(policy.enabled){const ledger=this.ledger();for(const item of ledger.runs)if(item.status==='failed')item.status='acknowledged';ledger.lastError='';write(this.ledgerFile,ledger);this.error='';}
+    write(this.policyFile,policy);if(policy.enabled){const ledger=this.ledger();for(const item of ledger.runs)if(['failed','occupied'].includes(item.status))item.status='acknowledged';ledger.lastError='';write(this.ledgerFile,ledger);this.error='';}
   });if(!policy.enabled)this.abort?.abort(new Error('已关闭允许观看。'));return this.state();}
   start(){if(!this.timer){this.timer=setInterval(()=>{void this.tick();},this.intervalMs);this.timer.unref?.();void this.tick();}return this;}
   tick(){if(this.closed||this.pending)return this.pending||Promise.resolve(this.state());this.pending=this.perform().catch(error=>{if(error.code!=='SCHEDULE_BUSY'){this.error=explain(error);try{this.control(()=>{const ledger=this.ledger();ledger.lastError=this.error;write(this.ledgerFile,ledger);});}catch{}}}).finally(()=>{this.pending=null;});return this.pending;}
@@ -35,16 +35,21 @@ export class ScheduledWatch {
     if(manual){if(!Number.isSafeInteger(manual.pid)||manual.pid<1||typeof manual.token!=='string')throw new Error('手动视频操作锁无法核对，未启动自主观看。');try{process.kill(manual.pid,0);return;}catch(error){if(error.code==='EPERM')return;if(error.code!=='ESRCH')throw error;}}
     const watch=await this.getWatchState();if(watch?.running||watch?.busy||watch?.pendingRequests>0)return;
     let operation;this.control(()=>{if(!this.policy().enabled)return;const ledger=this.ledger(),last=ledger.runs.at(-1);
+      if(ledger.runs.some(item=>item.key===slot.key&&item.status==='occupied'&&item.requiresUser===true)){
+        // needs_user（登录/验证等需人工处理）停止本时段永不自动重试，仍等人工处理；
+        // 只有本人显式重新开启允许观看（configure 翻成 acknowledged）后才能再次开始。
+        // 聊天采样等临时占用（WATCH_MANUAL_OCCUPIED，无 requiresUser 标记）释放后按既有契约自动继续。
+        return;
+      }
       if(ledger.runs.some(item=>item.key===slot.key&&item.status==='failed')){
-        // 同一时段失败后不永久趴窝：退避后允许再试，当天至多三次；
-        // needs_user（登录/验证/人工占用）不重试，仍等人工处理。
+        // 普通失败同时段不永久趴窝：15 分钟退避后再试，此时段至多三次。
         const failedAt=Date.parse(ledger.runs.filter(item=>item.key===slot.key&&item.status==='failed').at(-1)?.completedAt||'');
         if(Number.isSafeInteger(failedAt)&&this.now()-failedAt<15*60_000)return;
         const attempts=ledger.runs.filter(item=>item.key===slot.key&&['failed','acknowledged'].includes(item.status)).length;
         if(attempts>=3)return;
       }
       if(last?.key===slot.key&&last.status==='starting')return;
-      if(last?.key===slot.key&&last.status==='started'&&['failed','needs_user'].includes(watch?.status)){last.status='failed';last.completedAt=new Date(this.now()).toISOString();last.error=explain(watch.lastError||'自主观看异常停止，请处理后重新开启允许观看。');ledger.lastError=last.error;write(this.ledgerFile,ledger);this.error=last.error;return;}
+      if(last?.key===slot.key&&last.status==='started'&&['failed','needs_user'].includes(watch?.status)){const needsUser=watch?.status==='needs_user';last.status=needsUser?'occupied':'failed';if(needsUser)last.requiresUser=true;last.completedAt=new Date(this.now()).toISOString();last.error=explain(watch.lastError||(needsUser?'自主观看等待人工处理，请处理后重新开启允许观看。':'自主观看异常停止，请处理后重新开启允许观看。'));ledger.lastError=last.error;write(this.ledgerFile,ledger);this.error=last.error;return;}
       operation={...slot,id:randomUUID(),source:this.source,pid:process.pid,startedAt:new Date(this.now()).toISOString(),status:'starting'};ledger.runs.push(operation);write(this.ledgerFile,ledger);
     });if(!operation)return;this.abort=new AbortController();
     try{if(!this.policy().enabled)throw new Error('允许观看已关闭');const result=await this.startRound({signal:this.abort.signal});this.finish(operation.id,'started',result?.sessionId||null);this.error='';}

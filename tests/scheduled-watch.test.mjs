@@ -45,3 +45,22 @@ test('自动观看失败理由跨软件插件与重构实例可回读，重新�
 test('启动后watch异步失败会持久显示原因，保持失败回执且不在每tick重复开新运行',async t=>{
  const f=fixture(t);let watch={running:false,status:'stopped'};const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>watch});schedule.configure({enabled:true},{explicit:true});await schedule.tick();assert.equal(f.starts(),1);watch={running:false,status:'failed',lastError:'合成同一入口锁超时'};await schedule.tick();await schedule.tick();assert.equal(f.starts(),1);const other=new ScheduledWatch({...f.options,source:'dsh'});assert.equal(other.state().last.status,'failed');assert.equal(other.state().lastError,'合成同一入口锁超时');
 });
+test('needs_user停止后本时段永不自动重试，多次tick保持一次启动',async t=>{
+ const f=fixture(t);let watch={running:false,status:'stopped'};const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>watch});schedule.configure({enabled:true},{explicit:true});await schedule.tick();assert.equal(f.starts(),1);
+ watch={running:false,status:'needs_user',lastError:'合成登录需要人工处理'};
+ // 推进越过 15 分钟退避窗口并多次检查，启动次数不得从 1 变 2。
+ f.setTime('2026-10-23T01:25:00Z');await schedule.tick();await schedule.tick();f.setTime('2026-10-23T02:30:00Z');await schedule.tick();
+ assert.equal(f.starts(),1);assert.equal(schedule.state().last.status,'occupied');assert.doesNotMatch(JSON.stringify(schedule.state().runs??schedule.state()),/"status":"failed"/);
+});
+test('本人显式重新开启允许观看后，同一时段可以再次启动',async t=>{
+ const f=fixture(t);let watch={running:false,status:'stopped'};const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>watch});schedule.configure({enabled:true},{explicit:true});await schedule.tick();assert.equal(f.starts(),1);
+ watch={running:false,status:'needs_user',lastError:'合成登录需要人工处理'};f.setTime('2026-10-23T01:25:00Z');await schedule.tick();assert.equal(f.starts(),1);assert.equal(schedule.state().last.status,'occupied');
+ watch={running:false,status:'stopped'};schedule.configure({enabled:true},{explicit:true});assert.equal(schedule.state().last.status,'acknowledged');
+ await schedule.tick();assert.equal(f.starts(),2);assert.equal(schedule.state().last.status,'started');
+});
+test('普通failed退避重试不回归：15分钟内不重试，越过退避后同一天至多三次',async t=>{
+ const f=fixture(t);let watch={running:false,status:'stopped'};const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>watch});schedule.configure({enabled:true},{explicit:true});await schedule.tick();assert.equal(f.starts(),1);
+ watch={running:false,status:'failed',lastError:'合成异常停止'};f.setTime('2026-10-23T01:10:00Z');await schedule.tick();assert.equal(f.starts(),1,'退避窗口内不重试');
+ f.setTime('2026-10-23T01:25:00Z');await schedule.tick();assert.equal(f.starts(),2,'越过退避后重试');assert.equal(schedule.state().last.status,'started');
+ watch={running:false,status:'failed'};f.setTime('2026-10-23T02:40:00Z');await schedule.tick();assert.equal(f.starts(),2);f.setTime('2026-10-23T03:55:00Z');await schedule.tick();assert.equal(f.starts(),3,'同一天至多三次');f.setTime('2026-10-23T05:10:00Z');await schedule.tick();assert.equal(f.starts(),3,'第三次失败后当日不再重试');
+});
