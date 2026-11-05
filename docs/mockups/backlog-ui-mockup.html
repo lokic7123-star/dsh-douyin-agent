@@ -175,14 +175,14 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
   <div class="statusline" role="status" aria-label="运行状态">
     <span class="seg"><span class="dot" aria-hidden="true"></span><span class="num">运行中</span><span class="cap">自动回复</span></span>
     <span class="sep" aria-hidden="true"></span>
-    <span class="seg"><span class="dot warn" aria-hidden="true"></span><span class="num">3</span><span class="cap">自动恢复中（无需人工）</span></span>
+    <span class="seg"><span class="dot warn" aria-hidden="true"></span><span class="num">2</span><span class="cap">自动恢复中（无需人工）</span></span>
     <span class="sep" aria-hidden="true"></span>
-    <span class="seg"><span class="dot err" aria-hidden="true"></span><span class="num">2</span><span class="cap">需人工核对</span></span>
+    <span class="seg"><span class="dot err" aria-hidden="true"></span><span class="num">3</span><span class="cap">已转人工，需要判断</span></span>
     <span class="time">数据更新于 14:32:08 · 每 2.5 秒自动刷新</span>
   </div>
 
   <div class="alertbar" role="alert">
-    <span class="grow">有 2 条消息需要你核对处理。</span>
+    <span class="grow">有 3 条消息已转人工处理，需要你判断是否还要回复。</span>
     <button class="btn" type="button" onclick="document.getElementById('unanswered').scrollIntoView({behavior:'smooth',block:'start'})">查看待答</button>
   </div>
 
@@ -224,9 +224,9 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
     <section id="unanswered" aria-label="待答消息">
       <div class="unanswered-head">
         <span class="big">待答消息 · 5 条</span>
-        <span class="legend"><span><b>3</b> 条自动恢复中</span><span><b>2</b> 条需人工核对</span></span>
+        <span class="legend"><span><b>2</b> 条自动恢复中</span><span><b>3</b> 条已转人工，需要你判断</span></span>
       </div>
-      <p class="muted">补答只处理已核实「确实没有发出」的消息，不会重复发送。卡片默认只显示摘要、原因和可做的操作；细节收在「详情」里。</p>
+      <p class="muted">补答只处理已核实「确实没有发出」的消息，不会重复发送。临时故障按退避自动重试；结构性缺证据直接转人工，不无限空转。卡片默认只显示摘要、原因和可做的操作；细节收在「详情」里。</p>
 
       <!-- 态 a：自动补答进行中 -->
       <article class="bcard">
@@ -248,7 +248,7 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
             <div class="detail-list">
               <span class="msg"><span class="k">14:18</span><span>这次的活动到几号结束呀</span></span>
             </div>
-            <p class="field-note">说明：回复文本已生成，等待读回确认后再判定送达；确认前不会重复输入。系统将持续自动重试，直到可核对新证据或你手动结束。</p>
+            <p class="field-note">说明：当前阶段为「生成中」（与卡片状态一致）。此阶段不会重新发送任何消息；发送前的安全读回核对照常进行，不会因此停止。</p>
             <p class="field-note">记录字段：phase=generating · 最后检查 14:32:05 · 最近核对 3 秒前</p>
           </div>
         </details>
@@ -263,7 +263,7 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
         </div>
         <div class="bcard-body">
           <p class="summary-line">「周六下午有空一起拼桌吗」（另有一条 14:12 的补充）</p>
-          <p class="reason">上次自动生成失败（服务超时）· 最后检查 14:30:41</p>
+          <p class="reason">上次自动生成失败（服务超时）· 下次自动尝试 14:36 · 最后检查 14:30:41</p>
         </div>
         <div class="bcard-actions">
           <button class="btn" type="button">安全重新检查</button>
@@ -276,25 +276,25 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
               <span class="msg"><span class="k">14:11</span><span>周六下午有空一起拼桌吗</span></span>
               <span class="msg"><span class="k">14:12</span><span>提前一天提醒我一声</span></span>
             </div>
-            <p class="field-note">说明：系统将持续自动重试，直到可核对新证据或你手动结束；重试间隔按节奏自动放宽。</p>
+            <p class="field-note">说明：临时故障，按退避节奏自动重试，下次尝试 14:36；多次尝试后仍无进展会升级为「建议人工核对」，不会无限空转。</p>
             <p class="field-note">记录字段：phase=model · reason=bounded-generation-failed · 最后检查 14:30:41</p>
           </div>
         </details>
       </article>
 
-      <!-- 态 b2：等待重试（视频分享） -->
+      <!-- 态 c2：缺证据（视频分享，缺媒体观察） -->
       <article class="bcard">
         <div class="bcard-top">
-          <span class="statechip retry"><span class="d" aria-hidden="true"></span>等待重试</span>
+          <span class="statechip missing"><span class="d" aria-hidden="true"></span>已转人工处理</span>
           <span class="who">薄荷抹茶</span>
           <span class="at">13:47 到达</span>
         </div>
         <div class="bcard-body">
           <p class="summary-line">「（分享了一条视频）」</p>
-          <p class="reason">等待可核对的会话快照 · 最后检查 14:28:12</p>
+          <p class="reason">已转人工处理，需要你判断：缺少媒体观察，自动补答无法为视频内容生成回复。</p>
         </div>
         <div class="bcard-actions">
-          <button class="btn" type="button">安全重新检查</button>
+          <button class="btn primary" type="button">打开原会话核对</button>
           <button class="btn" type="button">结束待答，不再回复</button>
         </div>
         <details style="margin:0 15px 13px">
@@ -303,8 +303,8 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
             <div class="detail-list">
               <span class="msg unclear"><span class="k">13:47</span><span>（视频卡片 · 封面已存本地预览，标题未识别）</span></span>
             </div>
-            <p class="field-note">说明：分享类消息按原视频预算单独采样理解；系统将持续自动重试，直到可核对新证据或你手动结束；「结束待答，不再回复」不会发送任何消息。</p>
-            <p class="field-note">记录字段：phase=observing · reason=waiting-reliable-conversation · 最后检查 14:28:12</p>
+            <p class="field-note">说明：结构性缺证据——媒体观察不能持久化，补答阶段无法重新采样画面；「结束待答，不再回复」不会发送任何消息，也不停止其他会话的安全读回核对。</p>
+            <p class="field-note">记录字段：phase=observing · reason=缺少媒体观察（waiting-reliable-conversation）· 最后检查 14:28:12</p>
           </div>
         </details>
       </article>
@@ -318,7 +318,7 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
         </div>
         <div class="bcard-body">
           <p class="summary-line">「（引用了更早的一条消息）这里排版是不是换过了」</p>
-          <p class="reason">缺少「确实未发送」的完整证据，无法排除已经发出，系统不会自动补发。</p>
+          <p class="reason">已转人工处理，需要你判断：目标消息已不在当前窗口，自动补答无法继续。</p>
         </div>
         <div class="bcard-actions">
           <button class="btn primary" type="button">打开原会话核对</button>
@@ -329,8 +329,8 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
             <div class="detail-list">
               <span class="msg"><span class="k">11:02</span><span>（引用了更早的一条消息）这里排版是不是换过了</span></span>
             </div>
-            <p class="field-note">说明：本次重启发生在发送建立之前，待答缺少可双向核对的完整证据；按「宁可不发也不重复发」的边界保留为人工核对。</p>
-            <p class="field-note">记录字段：phase=stopped-before-send · reason=重启时缺少完整未发送与消息资格证据 · 最后检查 14:25:03</p>
+            <p class="field-note">说明：结构性缺证据——恢复核对时目标消息已不在当前可核对窗口，系统不会自动补发，也不再自动空转重试；是否还要回复由你判断。</p>
+            <p class="field-note">记录字段：phase=stopped-before-send · reason=目标消息已不在当前窗口（native-target-unavailable）· 最后检查 14:25:03</p>
           </div>
         </details>
       </article>
@@ -444,13 +444,13 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
       <div class="statusline">
         <span class="seg"><span class="dot" aria-hidden="true"></span><span class="num">运行中</span><span class="cap">自动回复</span></span>
         <span class="sep" aria-hidden="true"></span>
-        <span class="seg"><span class="dot warn" aria-hidden="true"></span><span class="num">3</span><span class="cap">自动恢复中</span></span>
+        <span class="seg"><span class="dot warn" aria-hidden="true"></span><span class="num">2</span><span class="cap">自动恢复中</span></span>
         <span class="sep" aria-hidden="true"></span>
-        <span class="seg"><span class="dot err" aria-hidden="true"></span><span class="num">2</span><span class="cap">需人工核对</span></span>
+        <span class="seg"><span class="dot err" aria-hidden="true"></span><span class="num">3</span><span class="cap">已转人工，需要判断</span></span>
         <span class="time">更新于 14:32:08</span>
       </div>
 
-      <div class="alertbar"><span class="grow">有 2 条消息需要你核对处理。</span><button class="btn" type="button">查看待答</button></div>
+      <div class="alertbar"><span class="grow">有 3 条消息已转人工处理，需要你判断是否还要回复。</span><button class="btn" type="button">查看待答</button></div>
 
       <nav class="tabs" role="tablist" aria-label="抖音设置分类" tabindex="0">
         <button class="tab" role="tab" aria-selected="false" type="button">基础设置</button>
@@ -470,7 +470,7 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
           <div class="perm-row"><span class="nm">山栀的群</span><span class="st warntag">● 等待身份重新核对</span><span class="grow"></span><span class="muted dim">未通过前不发送</span></div>
         </div>
 
-        <div class="unanswered-head"><span class="big">待答消息 · 5 条</span><span class="legend"><span><b>3</b> 自动恢复中</span><span><b>2</b> 需人工核对</span></span></div>
+        <div class="unanswered-head"><span class="big">待答消息 · 5 条</span><span class="legend"><span><b>2</b> 自动恢复中</span><span><b>3</b> 已转人工，需要判断</span></span></div>
 
         <article class="bcard">
           <div class="bcard-top"><span class="statechip run"><span class="d" aria-hidden="true"></span>自动补答中</span><span class="who">薄荷抹茶</span><span class="at">14:18</span></div>
@@ -480,19 +480,19 @@ pre{margin:8px 0 0;padding:11px 13px;background:var(--bg-layer-1);border:1px sol
 
         <article class="bcard">
           <div class="bcard-top"><span class="statechip retry"><span class="d" aria-hidden="true"></span>等待重试</span><span class="who">薄荷抹茶</span><span class="at">14:11</span></div>
-          <div class="bcard-body"><p class="summary-line">「周六下午有空一起拼桌吗」</p><p class="reason">上次自动生成失败 · 最后检查 14:30:41</p></div>
+          <div class="bcard-body"><p class="summary-line">「周六下午有空一起拼桌吗」</p><p class="reason">上次自动生成失败 · 下次自动尝试 14:36 · 最后检查 14:30:41</p></div>
           <div class="bcard-actions"><button class="btn" type="button">安全重新检查</button><button class="btn" type="button">结束待答，不再回复</button></div>
         </article>
 
         <article class="bcard">
-          <div class="bcard-top"><span class="statechip retry"><span class="d" aria-hidden="true"></span>等待重试</span><span class="who">薄荷抹茶</span><span class="at">13:47</span></div>
-          <div class="bcard-body"><p class="summary-line">「（分享了一条视频）」</p><p class="reason">等待可核对的会话快照 · 最后检查 14:28:12</p></div>
-          <div class="bcard-actions"><button class="btn" type="button">安全重新检查</button><button class="btn" type="button">结束待答，不再回复</button></div>
+          <div class="bcard-top"><span class="statechip missing"><span class="d" aria-hidden="true"></span>已转人工处理</span><span class="who">薄荷抹茶</span><span class="at">13:47</span></div>
+          <div class="bcard-body"><p class="summary-line">「（分享了一条视频）」</p><p class="reason">已转人工处理，需要你判断：缺少媒体观察，自动补答无法为视频内容生成回复。</p></div>
+          <div class="bcard-actions"><button class="btn primary" type="button">打开原会话核对</button><button class="btn" type="button">结束待答，不再回复</button></div>
         </article>
 
         <article class="bcard">
-          <div class="bcard-top"><span class="statechip missing"><span class="d" aria-hidden="true"></span>无法自动补答</span><span class="who">薄荷抹茶</span><span class="at">11:02</span></div>
-          <div class="bcard-body"><p class="summary-line">「（引用了更早的一条消息）这里排版是不是换过了」</p><p class="reason">缺少「确实未发送」的完整证据，系统不会自动补发。</p></div>
+          <div class="bcard-top"><span class="statechip missing"><span class="d" aria-hidden="true"></span>已转人工处理</span><span class="who">薄荷抹茶</span><span class="at">11:02</span></div>
+          <div class="bcard-body"><p class="summary-line">「（引用了更早的一条消息）这里排版是不是换过了」</p><p class="reason">已转人工处理，需要你判断：目标消息已不在当前窗口，自动补答无法继续。</p></div>
           <div class="bcard-actions"><button class="btn primary" type="button">打开原会话核对</button></div>
         </article>
 
