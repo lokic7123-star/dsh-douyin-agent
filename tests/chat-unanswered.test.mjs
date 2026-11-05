@@ -35,7 +35,7 @@ const storedMark = (f) => JSON.parse(fs.readFileSync(path.join(f.directory, 'cha
 
 test('ready 联系人的两条遗留记录可列出，含稳定标识、会话、时间、原因、类型和本地预览', t => {
   const f = fixture(t), list = f.service.unanswered();
-  assert.equal(list.protocol, 'chat-unanswered-v1'); assert.equal(list.count, 2);
+  assert.equal(list.protocol, 'chat-unanswered-v2'); assert.equal(list.count, 2); assert.ok(list.groups && Number.isSafeInteger(list.groups.autoRecovering), 'v2 应带五态分组计数'); assert.ok(list.items.every(item => ['replying','retrying','needs-manual','uncertain','resolved'].includes(item.backlogState)), 'items 应带服务端派生五态');
   assert.equal(list.items.length, 2); assert.equal(new Set(list.items.map(item => item.recordId)).size, 2);
   assert.ok(list.items.every(item => /^[a-f0-9]{64}$/.test(item.recordId)));
   assert.equal(list.items[0].contactName, '合成许可好友'); assert.equal(list.items[0].phase, 'unqualified');
