@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
     const { createElement: h, useEffect, useRef, useState } = React;
     const Button = primitives.Button, Input = primitives.Input || 'input';
     const PREFIX = '/api/douyin-browser';
-    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/media/configure', '/media/credentials', '/reports/generate']);
+    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
     // 导航行与通用 row 解耦：单行自然溢出滚动（内容自然宽约 559px，见 docs/mockups/nav-measurement.md），不折行不硬编码断点。
@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
       '/bootstrap': '连接本机服务', '/state': '刷新运行状态', '/interactions/state': '读取好友在线状态', '/interactions/configure': '设置好友互动',
       '/browser/open': '打开抖音', '/watch/state': '读取自主观看状态', '/watch/schedule': '设置自动观看', '/watch/options': '保存观看主题', '/watch/start': '开始自主观看', '/watch/stop': '停止自主观看',
       '/video/status': '读取观看时段与用量', '/video/configure': '保存观看时段与额度', '/video/start': '开始观看', '/video/stop': '结束观看',
-      '/chat/state': '读取自动回复状态', '/chat/contacts': '读取当前会话列表', '/chat/configure': '保存许可名单', '/chat/start': '启动自动回复', '/chat/stop': '停止自动回复', '/chat/prepare': '准备回复通道', '/chat/resolve': '解除会话暂停', '/chat/unanswered': '读取遗留待处理消息', '/chat/unanswered/resolve': '标记遗留待处理消息',
+      '/chat/state': '读取自动回复状态', '/chat/contacts': '读取当前会话列表', '/chat/configure': '保存许可名单', '/chat/start': '启动自动回复', '/chat/stop': '停止自动回复', '/chat/prepare': '准备回复通道', '/chat/resolve': '解除会话暂停', '/chat/unanswered': '读取遗留待处理消息', '/chat/unanswered/resolve': '标记遗留待处理消息', '/chat/unanswered/end': '结束待答，不再回复', '/chat/unanswered/retry': '安全重新检查',
       '/share/state': '读取分享状态', '/share/configure': '设置自主分享', '/share/resolve': '核对分享结果', '/comments/state': '读取评论状态', '/comments/configure': '保存评论设置', '/comments/resolve': '核对评论结果',
       '/mode/state': '读取静默观看设置', '/mode/configure': '保存静默观看设置', '/media/state': '读取音频设置', '/media/configure': '保存音频设置', '/media/credentials': '保存音频密钥',
       '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
@@ -183,33 +183,56 @@ window.__ModuleLoader__.load({
       }
       const friendEnabled = state?.interactions?.policy?.enabled === true, watchEnabled = state?.schedule?.policy?.enabled === true;
       const presence = ready ? state?.interactions?.presence : null, replyPresence = presence?.reply || presence, watchState = presence?.watch, presenceLabel = replyPresence?.label || '状态待核实', presenceReason = replyPresence?.reason || '正在读取好友回复服务状态。', watchLabel = watchState?.active ? watchState.label : '';
-      const PHASE_LABELS = { unqualified: '新消息资格未核实', 'unsupported-media': '附件类型未支持', 'not-sent': '发送前检查未通过', 'stopped-before-send': '停止前未发送', 'delivery-uncertain': '发送结果未确认', model: '回复尚未发送', observing: '回复尚未发送', superseded: '生成期间有新消息' };
+      // 待答五态（与后端 deriveBacklogState 对齐；两入口共用同一套文案，desktop/ui-api 侧实现保持同构）。
+      const STATE_LABELS = { replying: '自动补答中', retrying: '等待自动恢复', 'needs-manual': '已转人工处理', uncertain: '发送结果不明', resolved: '已结束' };
+      const STATE_CHIP = { replying: 'run', retrying: 'retry', 'needs-manual': 'missing', uncertain: 'uncertain' };
       const chatActive = Boolean(active(state?.chat));
       const [unanswered, setUnanswered] = useState(null), [unansweredError, setUnansweredError] = useState('');
       useEffect(() => {
         if (!ready) return; let aliveView = true;
-        void api.request('/chat/unanswered').then(value => { if (aliveView && value?.protocol === 'chat-unanswered-v1') { setUnanswered(value); setUnansweredError(''); } }).catch(failure => { if (aliveView) setUnansweredError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
+        void api.request('/chat/unanswered').then(value => { if (aliveView && value?.protocol === 'chat-unanswered-v2') { setUnanswered(value); setUnansweredError(''); } }).catch(failure => { if (aliveView) setUnansweredError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
         return () => { aliveView = false; };
       }, [api, ready, state?.chat?.unansweredCount, chatActive]);
       const workerActive = chatActive;
-      const markHandled = (recordId, snapshot) => perform(`unanswered:${recordId.slice(0, 8)}`, async () => {
-        const value = await api.request('/chat/unanswered/resolve', { recordIds: [recordId], snapshot }); setUnanswered(value.unanswered || null); setUnansweredError(''); return value;
+      const cardKey = recordId => `unanswered:${recordId.slice(0, 8)}`;
+      const endUnanswered = (recordId, snapshot) => perform(cardKey(recordId), async () => {
+        const value = await api.request('/chat/unanswered/end', { recordIds: [recordId], snapshot }); setUnanswered(value.unanswered || null); setUnansweredError(''); return value;
       });
+      const retryUnanswered = recordId => perform(`recheck:${recordId.slice(0, 8)}`, async () => {
+        const value = await api.request('/chat/unanswered/retry', { recordIds: [recordId] }); setUnanswered(value.unanswered || null); setUnansweredError(''); return value;
+      });
+      // 五态卡片：chip + 一行摘要 + 一句原因 + 按态按钮（availableActions 由服务端裁剪）；细节收进「详情」。
+      const unansweredCard = item => {
+        const key = cardKey(item.recordId), state = item.backlogState || 'retrying', done = busy.has(key);
+        const summary = item.preview ? `「${item.preview.slice(0, 40)}」` : item.previewNote || '（没有可显示的文字正文）';
+        const when = item.at ? new Date(item.at).toLocaleString('zh-CN', { hour12: false }) : '';
+        const chipText = done ? '正在处理' : STATE_LABELS[state] || '等待自动恢复';
+        const escalate = item.escalated === true;
+        const reason = item.progressNote || item.reason || '';
+        const actions = Array.isArray(item.availableActions) ? item.availableActions : ['open-chat'];
+        return h('div', { key: item.recordId, style: { ...column, padding: '9px 0', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
+          h('div', { style: { ...row, flexWrap: 'nowrap' } }, h('strong', { style: { whiteSpace: 'nowrap' } }, chipText), h('span', { style: muted }, `${item.contactName}${when ? ` · ${when}` : ''}${item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}`)),
+          h('p', { style: { ...muted, color: 'var(--dsw-alias-label-primary)', margin: 0, overflowWrap: 'anywhere' } }, summary),
+          h('p', { style: { ...muted, ...(escalate || state === 'needs-manual' ? { color: 'var(--dsw-alias-label-primary)' } : {}), margin: 0, overflowWrap: 'anywhere' } }, escalate && state === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason),
+          h('div', { style: row },
+            actions.includes('open-chat') && h('span', { style: muted }, '打开原会话核对'), // 原会话入口由抖音侧承担，面板只给提示文案；如需直达链接由后端补 href。
+            actions.includes('retry-now') && button('安全重新检查', `recheck:${item.recordId.slice(0, 8)}`, () => { void retryUnanswered(item.recordId); }, workerActive),
+            actions.includes('end') && !done && button('结束待答，不再回复', key, () => { void endUnanswered(item.recordId, unanswered.snapshot); }, workerActive || item.canResolve === false),
+            done && note('正在结束待答…'),
+            state === 'uncertain' && h('span', { style: muted }, '只读回核对；在原会话核实前不重发。')),
+          (item.attempts > 0 || item.retryCount > 0 || item.blockerCode) && h('details', null, h('summary', null, '详情'), h('div', null, note(`记录字段：backlogState=${state} · blockerCode=${item.blockerCode || '无'} · attempts=${item.attempts ?? 0} · retryCount=${item.retryCount ?? 0}${escalate ? ' · escalated=true' : ''}`), item.reason && item.reason !== reason && note(item.reason), note('本地保留的文字预览仅用于核对；不会自动补发。'))));
+      };
+      const groups = unanswered?.groups;
       const unansweredView = !unanswered ? (unansweredError ? [h('p', { role: 'alert', style: muted }, unansweredError)] : []) : [
-        unanswered.count > 0 && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-label-primary)' } }, `有 ${unanswered.count} 条好友消息漏答未处理；确认后不会补发。`),
-        ...unanswered.items.map(item => h('div', { key: item.recordId, style: { ...column, padding: '8px 0', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
-          note(`${item.contactName} · ${PHASE_LABELS[item.phase] || '原因待核对'}${item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false })}` : ''}${item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}`),
-          note(item.preview ? `内容预览：${item.preview}` : item.previewNote || ''),
-          note(item.reason || ''),
-          (submitted.current.has(`unanswered:${item.recordId}`) || busy.has(`unanswered:${item.recordId.slice(0, 8)}`)) && note('核对结果已提交，等待状态回读；不会补发。'),
-          !submitted.current.has(`unanswered:${item.recordId}`) && button('已处理，不再补答', `unanswered:${item.recordId.slice(0, 8)}`, () => { submitted.current.add(`unanswered:${item.recordId}`); setReviews(new Set(submitted.current)); markHandled(item.recordId, unanswered.snapshot).catch(() => { submitted.current.delete(`unanswered:${item.recordId}`); setReviews(new Set(submitted.current)); }); }, workerActive || item.canResolve === false))),
+        unanswered.count > 0 && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-label-primary)' } }, `待答 ${unanswered.count} 条：自动恢复中 ${groups?.autoRecovering ?? 0} · 需人工核对 ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。`),
+        ...unanswered.items.map(unansweredCard),
       ].filter(Boolean);
       const summary = (() => {
         if (!ready) return null;
         if (state?.model?.configured !== true) return { label: '模型未配置', detail: '还没有选择 DSH 提供商和模型，自动能力都不会运行。', tab: '基础设置' };
         if (state?.video?.allowed === false && state.video.reason) return { label: '不在允许观看时段', detail: state.video.reason, tab: '视频观看' };
         if (state?.watch?.lastError) return { label: '上次自主观看中断', detail: state.watch.lastError, tab: '视频观看' };
-        if (Number.isSafeInteger(state?.chat?.unansweredCount) && state.chat.unansweredCount > 0) return { label: `${state.chat.unansweredCount} 条好友消息待处理`, detail: '这些消息没有完成自动回复，已保留待核对；不会自动补发。', tab: '好友互动' };
+        if (Number.isSafeInteger(state?.chat?.unansweredCount) && state.chat.unansweredCount > 0) { const g = state.chat.unansweredGroups || {}, manual = (g.needsManual ?? 0) + (g.uncertain ?? 0), auto = g.autoRecovering ?? (state.chat.unansweredCount - manual); return { label: manual > 0 ? `${manual} 条待答已转人工` : `${auto} 条待答自动恢复中`, detail: manual > 0 ? `另有 ${auto} 条在自动恢复；转人工的条目需要你判断是否还要回复，不会自动补发。` : '这些消息在自动恢复流程中，无需人工操作；不会自动补发。', tab: '好友互动' }; }
         if (replyPresence?.status === 'attention') return { label: '回复服务异常', detail: presenceReason, tab: '好友互动' };
         return { label: '一切正常', detail: [replyPresence?.label, watchState?.active ? watchState.label : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。' };
       })();
@@ -217,7 +240,7 @@ window.__ModuleLoader__.load({
         h('h2', null, '大肥鱼抖音助手'), !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
         ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', style: row }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
         h('div', { role: 'status', 'aria-live': 'polite', style: { ...row, position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)', padding: '8px 0' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') }, h('span', { 'aria-label': '好友互动状态', title: presenceReason, style: { border: '1px solid currentColor', borderRadius: 20, padding: '6px 12px', whiteSpace: 'nowrap' } }, `${replyPresence?.online === true ? '●' : '○'} ${presenceLabel}`), watchState?.active && h('small', { role: 'status', 'aria-label': '自主观看状态', title: watchState.reason, style: muted }, `◉ ${watchLabel}`), (['attention', 'preparing'].includes(replyPresence?.status) || watchState?.active && replyPresence?.online !== true) && h('small', { role: replyPresence?.status === 'attention' ? 'alert' : 'status', style: muted }, presenceReason)),
-        summary && h('div', { role: 'status', 'aria-label': '当前状态摘要', style: { ...row, padding: '10px 12px', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)' }, title: summary.detail }, h('span', { 'aria-hidden': 'true' }, summary.label === '一切正常' ? '○' : '●'), h('strong', null, summary.label), h('span', { style: muted }, summary.detail), summary.tab && summary.label !== '一切正常' && button('去处理', 'statusGoto', () => setCategory(summary.tab))),
+        summary && h('div', { role: 'status', 'aria-label': '当前状态摘要', style: { ...row, padding: '10px 12px', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)' }, title: summary.detail }, h('span', { 'aria-hidden': 'true' }, summary.label === '一切正常' ? '○' : '●'), h('strong', null, summary.label), h('span', { style: muted }, summary.detail), summary.tab && summary.label !== '一切正常' && button('查看待答', 'statusGoto', () => setCategory(summary.tab))),
         h('div', { style: row }, button('刷新插件状态', 'refresh', () => { void refresh(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
         h('div', { role: 'tablist', 'aria-label': '抖音设置分类', tabIndex: 0, style: tabRow }, ...Object.keys(fallbackCategories).map(name => h(Button, { key: name, role: 'tab', type: 'button', size: 'sm', variant: category === name ? 'primary' : 'outline', 'aria-selected': category === name, style: tab, onClick: () => setCategory(name) }, name))),
         category === '基础设置' && h('div', null,

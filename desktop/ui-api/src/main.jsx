@@ -206,32 +206,49 @@ function FriendInteractionPanel({ state, interactions, share, api, run, busy, co
   </Panel>;
 }
 
-const PHASE_LABELS = { unqualified: '新消息资格未核实', 'unsupported-media': '附件类型未支持', 'not-sent': '发送前检查未通过', 'stopped-before-send': '服务停止前未发送', 'delivery-uncertain': '上次发送结果未确认' };
+// 待答五态（与后端 deriveBacklogState 对齐；与 client.js 的 STATE_LABELS 保持同构，差异：这里走 /api 前缀路由与 run() 包装）。
+const STATE_LABELS = { replying: '自动补答中', retrying: '等待自动恢复', 'needs-manual': '已转人工处理', uncertain: '发送结果不明', resolved: '已结束' };
 function UnansweredSection({ api, run, busy, connected, allowlist, workerActive }) {
   const [list, setList] = useState(null), [error, setError] = useState(''), [marks, setMarks] = useState(new Set());
   useEffect(() => {
     if (!connected) return; let alive = true;
-    void api('/api/chat/unanswered').then(value => { if (alive && value?.protocol === 'chat-unanswered-v1') { setList(value); setError(''); } }).catch(failure => { if (alive) setError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
+    void api('/api/chat/unanswered').then(value => { if (alive && value?.protocol === 'chat-unanswered-v2') { setList(value); setError(''); } }).catch(failure => { if (alive) setError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
     return () => { alive = false; };
   }, [connected, allowlist.length]);
   const count = list?.count ?? 0;
-  async function markHandled(ids, snapshot) {
-    const key = ids.join(',');
-    setMarks(old => new Set([...old, key]));
-    try { const value = await api('/api/chat/unanswered/resolve', { recordIds: ids, snapshot }); setList(value.unanswered || null); setError(''); }
-    catch (failure) { setError(failure.message || '标记未完成，请刷新后重试。'); }
-    finally { setMarks(old => { const next = new Set(old); next.delete(key); return next; }); }
+  async function endUnanswered(recordId, snapshot) {
+    setMarks(old => new Set([...old, recordId]));
+    try { const value = await api('/api/chat/unanswered/end', { recordIds: [recordId], snapshot }); setList(value.unanswered || null); setError(''); }
+    catch (failure) { setError(failure.message || '结束待答未完成，请重试。'); }
+    finally { setMarks(old => { const next = new Set(old); next.delete(recordId); return next; }); }
   }
+  async function retryUnanswered(recordId) {
+    setMarks(old => new Set([...old, recordId]));
+    try { const value = await api('/api/chat/unanswered/retry', { recordIds: [recordId] }); setList(value.unanswered || null); setError(''); }
+    catch (failure) { setError(failure.message || '安全重新检查未完成，请重试。'); }
+    finally { setMarks(old => { const next = new Set(old); next.delete(recordId); return next; }); }
+  }
+  const groups = list?.groups;
+  const state = item => item.backlogState || 'retrying';
   return <section className="unanswered-section" aria-label="遗留待处理消息">
-    {count > 0 && <Note error>有 {count} 条好友消息漏答未处理，原因各不相同；确认后不会补发。</Note>}
-    {(list?.items || []).map(item => <div className="paused-contact" key={item.recordId}>
-      <strong>{item.contactName}</strong>
-      <p>{PHASE_LABELS[item.phase] || '原因待核对'}{item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false })}` : ''}{item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}</p>
-      {item.preview ? <p>内容预览：{item.preview}</p> : <p className="muted">{item.previewNote}</p>}
-      <p className="muted">{item.reason}</p>
-      {marks.has(item.recordId) ? <p role="status">核对结果已提交，等待状态回读；不会补发。</p> : <div className="actions"><Button size="sm" variant="outline" disabled={!connected || workerActive || busy.has(`unanswered-${item.recordId}`)} onClick={() => { void run(`unanswered-${item.recordId}`, () => markHandled([item.recordId], list.snapshot)); }}>已处理，不再补答</Button></div>}
-    </div>)}
-    {count > 1 && <div className="actions"><Button size="sm" variant="outline" disabled={!connected || workerActive || busy.has('unanswered-all')} onClick={() => { void run('unanswered-all', () => markHandled(list.items.map(item => item.recordId), list.snapshot)); }}>全部标记已处理</Button></div>}
+    {count > 0 && <Note error>待答 {count} 条：自动恢复中 {groups?.autoRecovering ?? 0} · 需人工核对 {(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。</Note>}
+    {(list?.items || []).map(item => {
+      const st = state(item), escalate = item.escalated === true, done = marks.has(item.recordId), inFlight = busy.has(`unanswered-${item.recordId}`);
+      const actions = Array.isArray(item.availableActions) ? item.availableActions : ['open-chat'];
+      const reason = item.progressNote || item.reason || '';
+      return <div className="paused-contact" key={item.recordId}>
+        <strong>{done ? '正在处理' : STATE_LABELS[st] || '等待自动恢复'} · {item.contactName}{item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false })}` : ''}{item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}</strong>
+        <p>{item.preview ? `「${item.preview.slice(0, 40)}」` : item.previewNote || '（没有可显示的文字正文）'}</p>
+        <p className={escalate || st === 'needs-manual' ? '' : 'muted'}>{escalate && st === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason}</p>
+        {done || inFlight ? <p role="status">正在处理，请等待结果回读。</p> : <div className="actions">
+          {actions.includes('open-chat') && <span className="muted">打开原会话核对</span>}
+          {actions.includes('retry-now') && <Button size="sm" variant="outline" disabled={!connected || workerActive || busy.has(`recheck-${item.recordId}`)} onClick={() => { void run(`recheck-${item.recordId}`, () => retryUnanswered(item.recordId)); }}>安全重新检查</Button>}
+          {actions.includes('end') && <Button size="sm" variant="outline" disabled={!connected || workerActive || item.canResolve === false} onClick={() => { void run(`unanswered-${item.recordId}`, () => endUnanswered(item.recordId, list.snapshot)); }}>结束待答，不再回复</Button>}
+          {st === 'uncertain' && <span className="muted">只读回核对；在原会话核实前不重发。</span>}
+        </div>}
+        {(item.attempts > 0 || item.retryCount > 0 || item.blockerCode) && <details><summary>详情</summary><p className="muted">记录字段：backlogState={st} · blockerCode={item.blockerCode || '无'} · attempts={item.attempts ?? 0} · retryCount={item.retryCount ?? 0}{escalate ? ' · escalated=true' : ''}</p>{item.reason && item.reason !== reason && <p className="muted">{item.reason}</p>}<p className="muted">本地保留的文字预览仅用于核对；不会自动补发。</p></details>}
+      </div>;
+    })}
     {error && <Note error>{error}</Note>}
     {list && count === 0 && <Note>没有遗留待处理消息。</Note>}
     {!list && !error && <p className="muted">正在读取遗留待处理消息…</p>}

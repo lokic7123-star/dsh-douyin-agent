@@ -8,7 +8,9 @@ const kinds = { watch: '自主观看', task: '手动任务', comment: '评论生
 const watchStates = { running: '运行中', stopping: '正在停止', stopped: '未运行', limited: '已到限制', failed: '运行中断', needs_user: '等待手动操作' };
 
 export function StatusSummary({ connected, configured, watchReady, browser, video, videoTimeEnabled, watch, share, chat, interactions, actions }) {
-  const openBacklog = (chat?.contacts || []).reduce((sum, item) => sum + (item.unanswered || []).filter(entry => !entry.handledByUserAt && entry.autoHandled !== true && !entry.autoHandledAt).length, 0);
+  // 三分口径优先（chat.state.unansweredGroups，与 client.js 同构）；旧字段未带 groups 时按条目回退计算。
+  const groups = chat?.unansweredGroups, manual = groups ? (groups.needsManual ?? 0) + (groups.uncertain ?? 0) : null, autoRecovering = groups ? groups.autoRecovering ?? 0 : null;
+  const openBacklog = groups ? (manual ?? 0) + (autoRecovering ?? 0) : (chat?.contacts || []).reduce((sum, item) => sum + (item.unanswered || []).filter(entry => !entry.handledByUserAt && entry.autoHandled !== true && !entry.autoHandledAt).length, 0);
   const shareReview = share?.needsReview?.length || 0;
   const blockers = [
     !connected && { label: '本机服务未连接', detail: '正在自动重试；数据可能不是最新。' },
@@ -19,8 +21,9 @@ export function StatusSummary({ connected, configured, watchReady, browser, vide
     videoTimeEnabled && video?.allowed === false && { label: '不在允许观看时段', detail: video.reason || '当前时间不在每日允许时段内。' },
     Boolean(watch?.lastError) && { label: '上次自主观看中断', detail: watch.lastError },
     shareReview > 0 && { label: `${shareReview} 条分享收据待核对`, detail: '分享是否送达尚未确认；不会自动重发。', action: '查看分享收据', onClick: actions.openReceipts },
-    openBacklog > 0 && { label: `${openBacklog} 条好友消息待处理`, detail: '这些消息没有完成自动回复，已保留待核对；不会自动补发。', action: '去好友互动', onClick: actions.openFriends },
-    Boolean(interactions?.friend?.lastError) && { label: '回复服务异常', detail: interactions.friend.lastError, action: '去好友互动', onClick: actions.openFriends },
+    manual > 0 && { label: `${manual} 条待答已转人工`, detail: `另有 ${autoRecovering} 条在自动恢复；转人工的条目需要你判断是否还要回复，不会自动补发。`, action: '查看待答', onClick: actions.openFriends },
+    manual === 0 && autoRecovering > 0 && { label: `${autoRecovering} 条待答自动恢复中`, detail: '这些消息在自动恢复流程中，无需人工操作；不会自动补发。', action: '查看待答', onClick: actions.openFriends },
+    Boolean(interactions?.friend?.lastError) && { label: '回复服务异常', detail: interactions.friend.lastError, action: '查看待答', onClick: actions.openFriends },
   ].filter(Boolean);
   const current = blockers[0], presence = interactions?.presence, watching = watchIsActive(watch);
   const detail = current ? current.detail : [presence?.label, watching ? '自主观看运行中' : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。';
@@ -32,7 +35,7 @@ export function StatusSummary({ connected, configured, watchReady, browser, vide
       <p>自主观看：{watch ? watchStates[watch.status] || watch.status || '未知' : '状态未读取'}{watch?.lastError ? ` · ${watch.lastError}` : ''}</p>
       <p>好友回复：{presence ? `${presence.label || '状态待核实'}${presence.reason ? ` · ${presence.reason}` : ''}` : '状态未读取'}</p>
       <p>分享：{share ? [shareReview > 0 ? `${shareReview} 条收据待核对` : '', share.paused ? '已暂停' : '', share.recoveryRequired ? '需要恢复核对' : ''].filter(Boolean).join('、') || '无待核对收据' : '状态未读取'}</p>
-      <p>遗留待答：{openBacklog} 条</p>
+      <p>遗留待答：{openBacklog} 条{groups ? `（自动恢复中 ${autoRecovering} · 需人工核对 ${manual}）` : ''}</p>
     </details>
   </section>;
 }
