@@ -37,9 +37,10 @@ function sharedReplyContext(agent, messages, snapshot) {
   const incoming = messages.filter(message => message.sender === 'incoming').slice(-3);
   const query = incoming.map(message => [message.text || '', message.media?.title || '', message.reference?.text || ''].join(' ')).join(' ').trim().slice(-200);
   let recalled;
+  let memoryStore;
   try {
-    const store = agent.getMemoryStore ? agent.getMemoryStore() : agent.memoryStore;
-    if (store?.recallForChat) recalled = store.recallForChat({ query, limit: 8 });
+    memoryStore = agent.getMemoryStore ? agent.getMemoryStore() : agent.memoryStore;
+    if (memoryStore?.recallForChat) recalled = memoryStore.recallForChat({ query, limit: 8 });
   } catch { recalled = { unavailable: true }; }
   const entries = [], seen = new Set(); let remaining = 7_000;
   for (const item of recalled?.entries || []) {
@@ -57,7 +58,7 @@ function sharedReplyContext(agent, messages, snapshot) {
   const persona = typeof recalled?.sharedPersonaText === 'string' ? redact(recalled.sharedPersonaText.slice(0, 20_000), [agent.config.apiKey]) : '';
   // E-4 三态口径：未接入（无 store/recallForChat）/ 读取失败（recall 抛错）/ 正常检索（含命中数与来源 kind 列表）。
   // 只透传摘要，不透传记忆原文。
-  const store = agent.getMemoryStore ? agent.getMemoryStore() : agent.memoryStore;
+  const store = memoryStore;
   const originKinds = [...new Set(entries.map(item => item.origin))];
   agent.lastMemoryEvidence = !store?.recallForChat ? { state: 'not-connected', recalledCount: 0, originKinds: [] }
     : recalled?.unavailable ? { state: 'read-error', recalledCount: 0, originKinds: [] }

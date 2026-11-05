@@ -33,7 +33,7 @@ test('原生回复提供器可在无APIKey时启动，旧消息只建基线且�
 test('提供器直接返回正文并清理旧标签，无密钥不会把空字符串误判为凭据', async () => {
   const messages = [incoming('new', '合成新消息')];
   const agent = new ChatAgent({ config, replyTokens: 64, replyProvider: async ({ maxTokens }) => { assert.equal(maxTokens, 64); return { text: ' [自动回复] 合成回复 ', usage: { prompt_tokens: 2, completion_tokens: 1 } }; }, fetchImpl: async () => assert.fail('不能请求API') });
-  assert.deepEqual(await agent.reply({ messages }), { text: '合成回复', usage: { promptTokens: 2, completionTokens: 1 } });
+  assert.deepEqual(await agent.reply({ messages }), { text: '合成回复', usage: { promptTokens: 2, completionTokens: 1 }, memoryEvidence: { state: 'not-connected', recalledCount: 0, originKinds: [] } });
   for (const result of [{ text: '' }, { text: '鱼'.repeat(1001) }, { text: '我是用户本人' }, { text: '我会帮你转账。' }, { text: '合成回复', tool_calls: [{}] }, { text: '合成回复', toolCalls: [{}] }]) await assert.rejects(new ChatAgent({ config, replyProvider: async () => result }).reply({ messages }));
   await assert.rejects(new ChatAgent({ config: { apiKey: 'synthetic-secret' }, replyProvider: async () => ({ text: 'synthetic-secret' }) }).reply({ messages }), /凭据/);
 });
