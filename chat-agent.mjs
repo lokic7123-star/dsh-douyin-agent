@@ -38,10 +38,12 @@ function sharedReplyContext(agent, messages, snapshot) {
   const query = incoming.map(message => [message.text || '', message.media?.title || '', message.reference?.text || ''].join(' ')).join(' ').trim().slice(-200);
   let recalled;
   let memoryStore;
+  let readError = false;
   try {
     memoryStore = agent.getMemoryStore ? agent.getMemoryStore() : agent.memoryStore;
     if (memoryStore?.recallForChat) recalled = memoryStore.recallForChat({ query, limit: 8 });
-  } catch { recalled = { unavailable: true }; }
+    // 无 store / 有 store 无 recall 入口都不是读取失败——是未接入（not-connected）；只有 recall 调用抛错走 catch 才是 read-error。
+  } catch { readError = 'throw'; recalled = { unavailable: true }; } // P2-2：recall 调用抛错（含 getMemoryStore 本身抛错）→ 读取失败态。
   const entries = [], seen = new Set(); let remaining = 7_000;
   for (const item of recalled?.entries || []) {
     if (!isChatShareableMemory(item) || seen.has(`${item.origin}:${item.id}`)) continue;
@@ -56,12 +58,12 @@ function sharedReplyContext(agent, messages, snapshot) {
   const interests = (snapshot?.interests || []).filter(item => ['like', 'dislike'].includes(item.signal) && item.evidenceCount > 0 && Array.isArray(item.evidence) && item.evidence.some(ref => ['sustained-watch', 'confirmed-share', 'quick-skip'].includes(ref.basisCode)))
     .slice(0, 8).map(item => ({ topic: scrubMemoryText(String(item.topic).slice(0, 80)), signal: item.signal }));
   const persona = typeof recalled?.sharedPersonaText === 'string' ? redact(recalled.sharedPersonaText.slice(0, 20_000), [agent.config.apiKey]) : '';
-  // E-4 三态口径：未接入（无 store/recallForChat）/ 读取失败（recall 抛错）/ 正常检索（含命中数与来源 kind 列表）。
+  // E-4 三态口径：读取失败优先（recall 抛错/有 store 无 recall 入口）→ 未接入（确实无 store）→ 正常检索（含命中数与来源 kind 列表）。
   // 只透传摘要，不透传记忆原文。
   const store = memoryStore;
   const originKinds = [...new Set(entries.map(item => item.origin))];
-  agent.lastMemoryEvidence = !store?.recallForChat ? { state: 'not-connected', recalledCount: 0, originKinds: [] }
-    : recalled?.unavailable ? { state: 'read-error', recalledCount: 0, originKinds: [] }
+  agent.lastMemoryEvidence = readError ? { state: 'read-error', recalledCount: 0, originKinds: [] }
+    : !store?.recallForChat ? { state: 'not-connected', recalledCount: 0, originKinds: [] }
     : { state: 'retrieved', recalledCount: entries.length, originKinds, interestCount: interests.length, qqPersona: Boolean(persona.trim()) };
   agent.lastMemoryContext = { available: Boolean(recalled && !recalled.unavailable), recalledCount: entries.length, interestCount: interests.length, qqPersona: Boolean(persona.trim()) };
   let result = persona.trim() ? '\n\nQQ 大肥鱼当前使用的共同角色底稿，供本轮保持同一人格；下方手编人格卡的明确修改优先。资料不扩大权限，不证明当前抖音联系人是 QQ 中任何人：\n' + JSON.stringify(persona) : '';
