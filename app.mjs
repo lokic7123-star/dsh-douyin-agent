@@ -353,6 +353,8 @@ export function createApiServer({ controller, config, personaMemory, watchServic
           else if (url.pathname === '/api/chat/stop') { await friendInteractions.configure({enabled:false},{explicit:true}); result=chatService.state(); }
           else if (url.pathname === '/api/chat/prepare') { if (Object.keys(body).length) return reply(response,400,{error:'准备回复通道不接受参数。'}); result=await friendInteractions.prepareChat(); }
           else if (url.pathname === '/api/chat/unanswered/resolve') { const resolved=await friendInteractions.resolveUnanswered(body); result={...resolved,unanswered:chatService.unanswered()}; }
+          else if (url.pathname === '/api/chat/unanswered/end') { if (Object.keys(body).some(key=>!['recordIds','snapshot'].includes(key))) return reply(response,400,{error:'结束待答只接收记录标识和当前快照。'}); const resolved=await friendInteractions.endUnanswered(body); result={...resolved,unanswered:chatService.unanswered()}; }
+          else if (url.pathname === '/api/chat/unanswered/retry') { if (Object.keys(body).some(key=>key!=='recordIds')) return reply(response,400,{error:'安全重新检查只接收记录标识。'}); const rechecked=chatService.retryUnanswered(body); result={...rechecked,unanswered:chatService.unanswered()}; }
           else if (url.pathname === '/api/chat/resolve') {
             if (Object.keys(body).length !== 1 || typeof body.recipientId !== 'string') return reply(response, 400, { error: '只接受已核对的许可联系人。' });
             result = await friendInteractions.resumeContact(body.recipientId);

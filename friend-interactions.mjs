@@ -197,6 +197,13 @@ export class FriendInteractions {
     if (!chat?.state || !chat?.stop) throw fail('回复服务尚未就绪。', 503);
     return this.withChatPaused(service => service.markUnansweredHandled(input), { reason: 'unanswered-review', resume: 'preserve' });
   }
+  async endUnanswered(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail('结束待答请求无效。', 400);
+    const chat = await this.getChat();
+    if (!chat?.state || !chat?.stop || typeof chat.endUnanswered !== 'function') throw fail('回复服务尚未就绪。', 503);
+    // 运行中结束待答必须协调在途任务：暂停→写入→不重建基线恢复（resume:'preserve'）。
+    return this.withChatPaused(service => service.endUnanswered(input), { reason: 'unanswered-end', resume: 'preserve' });
+  }
   queueAutomaticPrepare(error) {
     if (error?.code !== 'CHAT_PAGE_NOT_OPEN' || this.autoPrepareJob || typeof this.chat?.prepareChat !== 'function' || this.closed) return;
     const current = this.inflight;

@@ -94,6 +94,8 @@ export function createNativeSettingsRoute({ getController, getComments, getRepor
         case '/share/resolve': value = await (await getShare()).resolve(input, { explicit: true }); break;
         case '/chat/contacts': empty(input); value = await (await getChat()).listContacts({ signal: AbortSignal.timeout(45_000) }); break;
         case '/chat/unanswered/resolve': { if(!getFriends)throw Object.assign(new Error('好友互动模块尚未加载。'),{status:503});if(Object.keys(input).some(key=>!['recordIds','snapshot'].includes(key)))throw Object.assign(new Error('待处理消息只接收记录标识和当前快照。'),{status:400});const chat=await getChat();value={...await(await getFriends()).resolveUnanswered(input),unanswered:await chat.unanswered()};break; }
+        case '/chat/unanswered/end': { if(!getFriends)throw Object.assign(new Error('好友互动模块尚未加载。'),{status:503});if(Object.keys(input).some(key=>!['recordIds','snapshot'].includes(key)))throw Object.assign(new Error('结束待答只接收记录标识和当前快照。'),{status:400});const chat=await getChat();value={...await(await getFriends()).endUnanswered(input),unanswered:await chat.unanswered()};break; }
+        case '/chat/unanswered/retry': { if(Object.keys(input).some(key=>key!=='recordIds'))throw Object.assign(new Error('安全重新检查只接收记录标识。'),{status:400});const chat=await getChat();value={...chat.retryUnanswered(input),unanswered:await chat.unanswered()};break; }
         case '/chat/configure': {
           if (Object.keys(input).some(key => !['recipientIds', 'dailyReplyLimit', 'allowConversationOnly', 'groupMentionNames'].includes(key))) throw Object.assign(new Error('私信设置只接收许可名单、每日上限、本人会话授权和群聊响应昵称。'), { status: 400 });
           value = getFriends?await(await getFriends()).configureContacts(input):await(await getChat()).configure(input);break;
