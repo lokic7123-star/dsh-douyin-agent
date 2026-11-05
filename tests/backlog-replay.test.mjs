@@ -6,7 +6,7 @@ import {messageFingerprint,messageContent} from '../chat-message.mjs';
 // 全部消息文本为合成改写；id 为合成短 id；不包含任何真实联系人、真实消息原文或真实标识。
 // 驱动真实 processAutoBacklog 状态机，断言逐记录结局；本文件不含任何真实发送路径（发送只发生在合成 transport 上）。
 
-const contact={id:'conv:'+'0'.repeat(64),name:'联系人A',isGroup:false,followed:null,relationshipStatus:'unavailable',identityVersion:2,identityKind:'rendered-user',identityHash:'0'.repeat(64),identityBinding:'binding:'+'1'.repeat(64),identityVerified:true,authorizationKind:'existing-conversation'};
+const contact={id:'conv:'+'0'.repeat(64),name:'联系人A',isGroup:false,followed:null,relationshipStatus:'unavailable',identityVersion:2,identityKind:'rendered-user',identityHash:'0'.repeat(64),identityBinding:'binding:'+'1'.repeat(64),identityVerified:true,authorizationKind:'existing-conversation',verifiedAt:'2026-10-01T00:00:00.000Z'};
 // 与 configure 生成的许可条目同形的确定性身份凭据（含 verifiedAt），供归档记录的 recoveryEvidence.contact 使用。
 const authorized={id:contact.id,name:contact.name,followed:null,isGroup:false,verifiedAt:'2026-10-01T00:00:00.000Z',authorizationKind:'existing-conversation',identityVerified:true,identityBinding:contact.identityBinding,identityVersion:2,identityKind:contact.identityKind,identityHash:contact.identityHash,relationshipStatus:'unavailable',relationshipEvidence:'本人核对稳定会话身份后明确授权；网页未提供关注关系。'};
 const textIncoming=(id,text)=>({id,text,sender:'incoming',direction:'incoming',kind:'text',identitySource:'dom-message-id',eligibleForReply:true,arrivalClassification:'new-tail',latestEndVerified:true,nativeServerMessageBound:true,nativeCreatedAt:new Date(Date.now()-300_000).toISOString(),timestamp:new Date(Date.now()-300_000).toISOString(),dateEvidence:{kind:'absolute'}});
@@ -71,10 +71,11 @@ test('回放（C2）：混合队列中纯文本解出照常推进，媒体记录
     assert.equal(record.autoHandled,undefined,`${id} 保持 open 不整条结案`);
   }
   assert.ok(f.service.events.some(event=>event.type==='backlog.media_needs_manual'),'需人工标记应有事件');
-  // 纯文本记录解出后照常生成发送并结案
+  // P1-2 后行为变化：text-target 与两条媒体消息时间相邻（无引用框的追问），按宁可多转人工原则跟随转人工，不再自动盲答。
   const textRecord=f.record('replay-r2-text-');
-  assert.equal(sendCalls,1,'发送只发生在合成 transport 上，恰好一次');
-  assert.equal(textRecord.autoHandled,true,'纯文本记录照常结案');
+  assert.equal(textRecord.needsManual,true,'相邻媒体已转人工，文本跟随转人工（P1-2）');
+  assert.equal(textRecord.autoHandled,undefined);
+  assert.equal(sendCalls,0,'相邻追问不得脱离媒体盲答');
 });
 
 test('回放（C2）：混合记录（单条 targets 含文字+媒体）文字目标随本次发送结案，媒体目标保持 open 标需人工，整条结案被禁止',async t=>{
@@ -161,3 +162,116 @@ test('回放（C3）：临时失败有界退避达到升级阈值后标 escalate
   f2.due();await f2.service.poll();
   assert.equal(sendCalls,0,'发送不明只核对不重发');
 });
+
+test('回放（P1-1a）：混合记录文字发送结果不明后，恢复流程只核对文字、媒体保持 open 不中断读回',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'mixed-uncertain-',targetIds:['text-target','video-1']})]});
+  let sendCalls=0;
+  f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;return{confirmed:false,deliveryUncertain:true};};
+  f.due();await f.service.poll();
+  const record=f.record('mixed-uncertain-');
+  // 文字目标进入 sending：record 上应有文字子状态而非整条 uncertain
+  assert.equal(sendCalls,1,'文字目标已尝试发送');
+  const textSub=record.targetStates?.find(item=>item.messageId==='text-target');
+  assert.ok(textSub,`文字目标应有持久子状态，实际 ${JSON.stringify(record.targetStates)}`);
+  assert.equal(textSub.state,'uncertain');
+  // 媒体目标已转人工
+  assert.equal(record.needsManualReason,'media-unobservable');
+  // 恢复轮询：文字读回核对不能被 needs-manual 跳过
+  f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;throw new Error('读回核对不得再次发送');};
+  messages.push({...textIncoming('sent-echo','合成回放回复 1。'),sender:'outgoing',direction:'outgoing',sent:true});
+  f.due();await f.service.poll();
+  const after=f.record('mixed-uncertain-');
+  console.error('DEBUG-P11A after.targetStates=',JSON.stringify(after.targetStates),'needsManual=',after.needsManual,'archiveId=',after.archiveId);
+  const textAfter=after.targetStates?.find(item=>item.messageId==='text-target');
+  assert.equal(textAfter?.state,'confirmed','文字目标经读回结案');
+  assert.equal(after.needsManualReason,'media-unobservable','媒体保持 open 需人工');
+  assert.equal(after.autoHandled,undefined,'混合记录不得整条结案');
+});
+
+test('回放（P1-1b）：确认回执后重启（restoreBacklogReceipt 命中）文字结案、媒体保持 open 不被连坐结案',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'mixed-receipt-',targetIds:['text-target','video-1']})]});
+  let sendCalls=0;
+  // 桩需模仿真实浏览器：调用 args.authorize（含 beginDispatch→reserveBacklogDispatch 写 autoAttempt），否则恢复凭据缺失。
+  f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;args.authorize({recipientId:id,phase:'prepare'});args.authorize({recipientId:id,phase:'before-click'});args.authorize.beginDispatch();return{confirmed:true,messageId:'receipt-1'};};
+  f.due();await f.service.poll();
+  const record=f.record('mixed-receipt-');
+  // 模拟结案前崩溃：receipt 已持久化、autoHandled 尚未写盘
+  // 模拟结案前崩溃：autoHandled 系列与 targetStates 未写盘，但 autoAttempt（含 queueKey）与 autoBacklog.receipt 已持久化——恢复凭据。
+  const diskAll=JSON.parse(fs.readFileSync(path.join(f.service.stateDir,'chat-watermarks.json'),'utf8'));
+  const diskRecord=diskAll.contacts[contact.id].unanswered.find(item=>item.archiveId.startsWith('mixed-receipt-'));
+  delete diskRecord.autoHandled;delete diskRecord.autoHandledAt;delete diskRecord.autoHandledBy;delete diskRecord.autoHandledProof;delete diskRecord.targetStates;
+  diskAll.contacts[contact.id].unanswered=diskAll.contacts[contact.id].unanswered.map(item=>item.archiveId.startsWith('mixed-receipt-')?diskRecord:item);
+  fs.writeFileSync(path.join(f.service.stateDir,'chat-watermarks.json'),JSON.stringify(diskAll));
+  f.service.watermarks=JSON.parse(fs.readFileSync(path.join(f.service.stateDir,'chat-watermarks.json'),'utf8'));
+  // 重启后 restoreBacklogReceipt 命中
+  const {createHash}=await import('node:crypto');
+  const q=f.mark().autoBacklog,r=q?.receipt,rec=f.mark().unanswered[0];
+  const key2=createHash('sha256').update(JSON.stringify([contact.id,r.archiveIds.slice().sort(),r.targets.map(item=>[item.id,item.fingerprint])])).digest('hex');
+  console.error('DEBUG-P11B 校验全过。手动调 restore：');
+  const restoredResult=f.service.restoreBacklogReceipt(contact,f.mark());
+  console.error('DEBUG-P11B restored=',restoredResult,'targetStates=',JSON.stringify(f.mark().unanswered[0].targetStates),'needsManual=',f.mark().unanswered[0].needsManual,'reason=',f.mark().unanswered[0].needsManualReason);
+  f.due();await f.service.poll();
+  const after=f.record('mixed-receipt-');
+  assert.equal(sendCalls,1,'不得因恢复而再次发送');
+  const textAfter=after.targetStates?.find(item=>item.messageId==='text-target');
+  assert.equal(textAfter?.state,'confirmed','文字目标经回执结案');
+  assert.equal(after.needsManualReason,'media-unobservable','媒体保持 open 需人工');
+  assert.equal(after.autoHandled,undefined,'混合记录不得整条结案（恢复路径同样受约束）');
+});
+
+test('回放（P1-2）：无引用框的媒体追问（同批）跟随转人工，不脱离媒体盲答',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）刚才那个视频讲的是什么'),videoIncoming('video-1')];
+  let sendCalls=0;
+  const f=await replay(t,{messages,records:[
+    archiveRecord(authorized,messages,{id:'p12-media-',targetIds:['video-1']}),
+    archiveRecord(authorized,messages,{id:'p12-text-',targetIds:['text-target']}),
+  ]});
+  f.service.browser.sendMessage=async()=>{sendCalls++;return{confirmed:true,messageId:'s'};};
+  f.due();await f.service.poll();
+  // 同批媒体记录转人工后，指向性文本（无 quote）不得继续自动生成
+  assert.equal(sendCalls,0,'无引用框但语义指向同批媒体，不得盲答');
+  const textRecord=f.record('p12-text-');
+  assert.equal(textRecord.needsManual,true,'应跟随媒体转人工（宁可多转不可盲答）');
+  assert.ok(f.record('p12-media-').needsManual);
+});
+
+test('回放（P1-2）：跨轮次追问（媒体已转人工、下一轮不在 ready）仍跟随转人工',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）刚才那个视频讲的是什么'),videoIncoming('video-1')];
+  let sendCalls=0;
+  const f=await replay(t,{messages,records:[
+    mark=>archiveRecord(mark,messages,{id:'p12-media-',targetIds:['video-1'],extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString()}}),
+    archiveRecord(authorized,messages,{id:'p12-text-',targetIds:['text-target']}),
+  ]});
+  f.service.browser.sendMessage=async()=>{sendCalls++;return{confirmed:true,messageId:'s'};};
+  f.due();await f.service.poll();
+  assert.equal(sendCalls,0,'媒体已转人工后，指向性追问仍不得脱离媒体盲答');
+  assert.equal(f.record('p12-text-').needsManual,true,'跨轮次关联仍应跟随转人工');
+});
+
+test('回放（P2）：失败→成功→新任务失败，新任务应能再次走完整退避并再次升级，不被旧标记压制',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('first-target','（合成改写）第一条追问')];
+  let failMode=true;
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'escalate-cycle-',targetIds:['first-target']})]});
+  f.service.agent.reply=async()=>{if(failMode)throw new Error('合成模型故障');return{text:'（合成改写）成功的回复。'};};
+  // 阶段一：失败累计到升级
+  for(let i=0;i<7;i++){f.due();await f.service.poll();}
+  assert.equal(f.mark().autoBacklogEscalated,true,'第一次升级成立');
+  assert.ok(f.service.events.filter(event=>event.type==='backlog.escalated').length===1);
+  // 阶段二：模型恢复，记录推进成功 → 等待计数重置、升级标记解除
+  failMode=false;
+  let stage2Send=0;f.service.browser.sendMessage=async(id,text,args)=>{stage2Send++;return{confirmed:true,messageId:'sent-stage2-'+stage2Send};};
+  messages.push(textIncoming('second-target','（合成改写）第二条新追问'));f.due();await f.service.poll();
+  const mark=f.mark();
+  // 阶段二的推进是实时回复成功（second-target 的新消息即时答复）；旧待答记录保持原状。
+  assert.ok(mark.autoBacklogEscalated===false,'成功推进应解除升级标记');
+  assert.equal(mark.autoBacklogWaits,0,'成功推进应重置等待计数');
+  // 阶段三：新任务失败 → 再次完整退避并再次升级
+  failMode=true;
+  const record2=f.mark().unanswered.find(item=>item.archiveId?.startsWith('escalate-cycle-')&&item.incoming?.[0]?.id==='second-target')??f.mark().unanswered.at(-1);
+  f.due();await f.service.poll();
+  for(let i=0;i<6;i++){f.due();await f.service.poll();}
+  assert.equal(f.mark().autoBacklogEscalated,true,'新任务失败后应再次升级，不被旧标记压制');
+});
+
