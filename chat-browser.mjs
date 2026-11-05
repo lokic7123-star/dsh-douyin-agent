@@ -1145,7 +1145,7 @@ export class ChatBrowser {
       const { avatar, nativeId: _nativeId, identityKey: _identityKey, profileUrl: _profileUrl, identityConflict: _identityConflict, ...publicContact } = contact;
       return { ...flags, conversation: { id: contact.id, displayName: contact.displayName, isGroup: contact.isGroup, conversationType: contact.conversationType }, contact: publicContact,
         messages, pageReadyEvidence,
-        readEvidence: { pageReady: pageReadyEvidence?.pageReady === true, conversationIdentityChecked: true, stableSamplesBeforeRead: pageReadyEvidence?.identitySamples ?? 0, clickSkipped: pageReadyEvidence?.clickSkipped ?? null, readAttempts: 1, observedAt: raw.observedAt, messageCount: messages.length, nativeIdCount: messages.filter(item => item.nativeId).length, latestEndVerified: raw.latestEndVerified, chronology: raw.chronology, chronologySource: raw.chronologySource, readAt: new Date().toISOString() },
+        readEvidence: { pageReady: pageReadyEvidence?.pageReady === true, conversationIdentityChecked: true, stableSamplesBeforeRead: pageReadyEvidence?.identitySamples ?? 0, clickSkipped: pageReadyEvidence?.clickSkipped ?? null, readAttempts: 1, observedAt: raw.observedAt, messageCount: messages.length, nativeIdCount: raw.messages.filter(item => item.nativeId).length, latestEndVerified: raw.latestEndVerified, chronology: raw.chronology, chronologySource: raw.chronologySource, readAt: new Date().toISOString() },
         dayEvidence: { observedAt: raw.observedAt, latestEndVerified: raw.latestEndVerified, chronology: raw.chronology, historyStartVerified: raw.historyStartVerified, emptyTodayVerified: raw.emptyTodayVerified } };
     }, { signal, launch: !backgroundOnly, create: !backgroundOnly });
   }

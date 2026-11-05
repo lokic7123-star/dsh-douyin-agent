@@ -1629,3 +1629,15 @@ test('群发送范围：填写期间或最终许可后稳定群ID变化仍拒绝
     } finally { await f.chat.close(); }
   }
 });
+
+test('read_evidence 的 nativeIdCount 在剥离前统计，真实反映 DOM 消息行的 native 行数', async () => {
+  const f = await fixture();
+  try {
+    const contact = (await f.chat.listContacts()).contacts[0];
+    // 给既有合成消息行加 data-message-id（nativeId 来源），再读会话核对 readEvidence
+    await f.page.evaluate(() => { document.querySelector('.messageMessageBoxmessageBox').setAttribute('data-message-id', '123456789012346'); });
+    const read = await f.chat.readConversation(contact.id, { allowed: true });
+    assert.equal(read.readEvidence.nativeIdCount, 1, '剥离前 raw 行的 nativeId 应被真实统计');
+    assert.equal(read.messages[0].nativeId, undefined, '公开 messages 中 nativeId 已被剥离（隐私边界不变）');
+  } finally { await f.chat.close(); }
+});
