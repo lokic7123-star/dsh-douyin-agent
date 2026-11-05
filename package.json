@@ -61,6 +61,7 @@
     "chat-agent.mjs",
     "chat-browser.mjs",
     "chat-message.mjs",
+    "chat-native-reply.mjs",
     "chat-service.mjs",
     "contact-authorization.mjs",
     "friend-interactions.mjs",
