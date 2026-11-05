@@ -25,10 +25,10 @@ test('正常完成：完整回复与用量透传，模型路由、预算与消�
   assert.equal(f.requests[0].tools, undefined);
 });
 
-test('截断按失败处理：finish=length/max_tokens 不得当作完整回复，错误码与文案独立于观看决策', async () => {
-  for (const kind of ['length', 'max_tokens']) {
+test('截断按失败处理：真实契约 max-tokens 与兼容 length/max_tokens 都归 TRUNCATED，不得当作完整回复', async () => {
+  for (const kind of ['max-tokens', 'length', 'max_tokens']) {
     const f = fixture({ async *stream() { yield { type: 'text-delta', index: 0, text: '合成半截回复，后面被截断的' }; yield { type: 'finish', reason: { kind } }; } });
-    await assert.rejects(f.provider({ system: 's', messages }), error => { assert.equal(error.code, 'CHAT_REPLY_TRUNCATED'); assert.doesNotMatch(error.message, /自主观看/); assert.match(error.message, /截断/); return true; });
+    await assert.rejects(f.provider({ system: 's', messages }), error => { assert.equal(error.code, 'CHAT_REPLY_TRUNCATED', kind); assert.doesNotMatch(error.message, /自主观看/); assert.match(error.message, /截断/); return true; });
   }
   // 截断错误仍带真实用量，供入账
   const f = fixture({ async *stream() { yield { type: 'text-delta', index: 0, text: '合成半截' }; yield { type: 'usage', usage: { inputTokens: 300, outputTokens: 512, totalTokens: 812 } }; yield { type: 'finish', reason: { kind: 'length' } }; } });
@@ -68,6 +68,37 @@ test('接入 ChatAgent：用量照常入账不漏记，预算 1000 不被 replyT
   const p = fixture();
   await p.provider({ system: 's', messages, maxTokens: 512 });
   assert.equal(p.requests[0].maxTokens, 1000);
+});
+test('账本断言：截断带用量入账一次、正常完成入账一次、abort 无用量不入账', async t => {
+  const { UsageLedger } = await import('../usage-ledger.mjs');
+  const fs = await import('node:fs'), os = await import('node:os'), nodePath = await import('node:path');
+  const stateDir = fs.default.mkdtempSync(nodePath.default.join(os.default.tmpdir(), 'chat-reply-ledger-'));
+  t.after(() => fs.default.rmSync(stateDir, { recursive: true, force: true }));
+  const ledger = new UsageLedger({ stateDir, now: () => Date.parse('2026-11-06T00:00:00Z') });
+  let mode = 'ok', abortSignal = undefined;
+  // usageLedger 按真实装配方式外部赋值（core.mjs:513 / app.mjs:82），不是构造参数。
+  const chatAgent = new ChatAgent({ config: { apiKey: '' }, replyProvider: request => {
+    const streamers = {
+      ok: async function* () { yield { type: 'text-delta', index: 0, text: '合成完整回复。' }; yield { type: 'usage', usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 } }; yield { type: 'finish', reason: { kind: 'stop' } }; },
+      truncate: async function* () { yield { type: 'text-delta', index: 0, text: '合成半截' }; yield { type: 'usage', usage: { inputTokens: 300, outputTokens: 512, totalTokens: 812 } }; yield { type: 'finish', reason: { kind: 'max-tokens' } }; },
+      abort: async function* (input) { yield { type: 'text-delta', index: 0, text: '合成开头，无用量就被取消' }; abortSignal.abort(new Error('合成用户取消')); input.signal.throwIfAborted(); yield { type: 'finish', reason: { kind: 'stop' } }; },
+    };
+    const streamer = streamers[mode];
+    return fixture({ async *stream(input) { yield* streamer(input); } }).provider({ system: request.system, messages: request.messages, signal: request.signal });
+  } });
+  chatAgent.usageLedger = ledger; chatAgent.source = 'dsh';
+  // 1) 正常完成：入账一次
+  await chatAgent.reply({ messages: [{ id: 'm1', sender: 'incoming', text: '（合成改写）普通消息' }], conversation: { displayName: '联系人A', isGroup: false } });
+  // 2) 截断（真实 max-tokens，带用量）：失败路径入账一次
+  mode = 'truncate';
+  await assert.rejects(chatAgent.reply({ messages: [{ id: 'm2', sender: 'incoming', text: '（合成改写）会触发截断的消息' }], conversation: { displayName: '联系人A', isGroup: false } }), /截断/);
+  // 3) abort 无用量：不入账
+  mode = 'abort'; abortSignal = new AbortController();
+  await assert.rejects(chatAgent.reply({ messages: [{ id: 'm3', sender: 'incoming', text: '（合成改写）被取消的消息' }], conversation: { displayName: '联系人A', isGroup: false }, signal: abortSignal.signal }));
+  const usage = ledger.state();
+  assert.equal(usage.total.requests, 2, `应恰好入账两条（正常+截断），实际 ${usage.total.requests}`);
+  assert.equal(usage.total.completionTokens, 552, '40（正常）+512（截断）');
+  assert.deepEqual(usage.groups.map(group => [group.source, group.kind, group.requests]), [['dsh', 'chat', 2]]);
 });
 test('预算参数校验沿用 DSH 1200 上限约定', () => {
   assert.throws(() => createNativeChatReply({ llm: {}, attachments: {}, agent, maxTokens: 1201 }), /1200/);

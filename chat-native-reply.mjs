@@ -51,7 +51,8 @@ export function createNativeChatReply({ llm, attachments, agent, maxTokens = BUD
       if (chunk.type === 'usage') usage = { ...chunk.usage, prompt_tokens: chunk.usage.inputTokens ?? null, completion_tokens: chunk.usage.outputTokens ?? null, total_tokens: chunk.usage.totalTokens ?? (Number.isSafeInteger(chunk.usage.inputTokens) && Number.isSafeInteger(chunk.usage.outputTokens) ? chunk.usage.inputTokens + chunk.usage.outputTokens : null) };
       if (chunk.type === 'finish') finish = chunk.reason;
     }
-    if (finish?.kind === 'length' || finish?.kind === 'max_tokens') throw Object.assign(new Error('聊天回复超出输出预算被截断，未当作完整回复发送。'), { code: 'CHAT_REPLY_TRUNCATED', usage });
+    // 真实 DSH 契约用连字符 'max-tokens'（native-watch-decision 同源）；'max_tokens'/'length' 为兼容保留，三种都按截断处理。
+    if (finish?.kind === 'max-tokens' || finish?.kind === 'max_tokens' || finish?.kind === 'length') throw Object.assign(new Error('聊天回复超出输出预算被截断，未当作完整回复发送。'), { code: 'CHAT_REPLY_TRUNCATED', usage });
     if (finish?.kind !== 'stop' || !text.trim()) throw Object.assign(new Error(`聊天回复未正常完成（${finish?.kind || '缺少完成标记'}），未发送。`), { usage, code: 'CHAT_REPLY_INCOMPLETE' });
     return { text, usage };
   };
