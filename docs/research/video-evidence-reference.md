@@ -64,8 +64,9 @@ lab.py       CLI 编排：doctor/capture/prepare/asr/clip/record 六个子命令
 **（a）引用必须挂真实存在的证据 ID**（evidence.py:15-17）
 每条观察/答案需 `frameIds`（画面帧）或 `audioIds`（转写分段）至少一项；ID 必须是 packet 中真实存在的 `F0001...`/`A0001...`——未知引用直接拒绝（"Unknown frame reference"）。**断言不允许无证据存在**。
 
-**（b）证据类型与断言类型绑定**（evidence.py:14-17）
-画面断言引 frameIds、音频断言引 audioIds——帧 ID 不能当作听过的证据（`packet.json` 的 limitations 明确写 "A transcript does not establish understanding of music, intonation or sound effects"，media.py prepare 内）。
+**（b）类型绑定是文档性约束，不是校验行为**（evidence.py:14-17 与 media.py prepare 内 limitations，两层分开看）
+- **机器校验层（evidence.py:15-17）只做引用归属**：`validate_review` 核对帧 ID 在帧集合、转写 ID 在转写集合——**不检查断言文本是视觉类还是音频类**；「音乐很好听」只挂 frameIds 同样能通过校验。
+- **文档声明层（packet.json limitations，media.py prepare 内）才有类型绑定语义**："A transcript does not establish understanding of music, intonation or sound effects"——这是写进证据包的约束声明，由阅读方（模型与下游）遵守，校验器不强制。
 
 **（c）时间断言有界**（evidence.py:18-23）
 带 start/end 的断言必须是有限数、`0 ≤ start ≤ end ≤ packet.duration`——断言时间不能超出视频时长（"Claim time outside video"）。
@@ -151,10 +152,11 @@ limit 截断时允许只看前 N 秒但 `partial=true` 显式标记；无 limit 
 
 该模块自己就暴露了这个洞：`uncertainties` 是自由列表，模型填空列表即可通过校验；`evidenceReferencesValid:true` 不校验断言内容与画面一致。若我们照搬字段而不设**实质性校验**，会出现：
 
-1. **引用堆积**：模型给每条断言挂满帧 ID（反正校验只查存在性），看起来严谨实则无信息增量。防法：evidenceRefs 数量上限（如 ≤3 条/断言）+ 断言与引用类型绑定（音频断言不得挂帧）。
+1. **引用堆积**：模型给每条断言挂满帧 ID（反正校验只查存在性），看起来严谨实则无信息增量。防法：evidenceRefs 数量上限（如 ≤3 条/断言）+ 断言与引用类型绑定（音频断言不得挂帧；原模块此项为文档性约束，借鉴时必须做成机器校验）。
 2. **空 uncertainties 形式合规**：必填字段被填成 `[]`。防法：覆盖范围对照——coverage 声称 sampled 6 帧而笔记断言覆盖 30 秒内容时，强制 uncertainties 非空或降级「待核对」。
 3. **正确性幻觉**：`evidenceReferencesValid:true` 被下游读成「内容已核实」。防法：字段命名学它——`evidenceRefsValid` 之外必须有成对的 `understandingVerified:false` 类字段，且 UI/文档明确两者独立（§3.3 冲突点 4）。
-4. **隐私面扩大**：持久引用会把采样画面/时间轴变成可追溯档案——与我们隐私分级冲突，引用须限定在单次观察的生命周期内（TTL 内或随记录落盘的最小摘要）。
+4. **类型绑定只有文档没有校验**：原模块的「音频断言不挂帧」写在 limitations 里，validate_review 不强制——这是它自己的缺口。借鉴该思路若在插件侧实现，类型绑定必须做成机器校验（断言 kind 与引用集合类型不符即拒绝），不能只写成文档约束；否则与「引用堆积」同样退化为装饰。
+5. **隐私面扩大**：持久引用会把采样画面/时间轴变成可追溯档案——与我们隐私分级冲突，引用须限定在单次观察的生命周期内（TTL 内或随记录落盘的最小摘要）。
 
 ---
 
