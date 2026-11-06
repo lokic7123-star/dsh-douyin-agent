@@ -1,5 +1,7 @@
 # 项目交接卡 (HANDOFF)
 
+> **2026-11-06 会话收口（只追加不覆盖）**：**feat: 补全结案历史与最后检查时间，对齐顶栏三段指标与认知诚实性校验**——① **问题/目标**：全景对齐 DSH 吞噬进化标杆与样稿规约：服务端透传结案历史与条目检查时间，前端对齐三段指标与历史折叠，落地认知诚实性校验；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：chat-service 暴露 resolvedHistory 与 lastCheckedAt；client/desktop 增加三段指标、逐条检查时间与历史折叠，消除冗余刷新与非惰性状态；persona-memory 落地 frameIndex 校验与 understandingVerified 标记；④ **结果**：提交 eb7f377 已入库；物理门禁 [node --test tests/backlog-state-api.test.mjs tests/native-client.test.mjs tests/persona-memory.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
+
 > **2026-11-06 会话收口（只追加不覆盖）**：**fix: 闭环待答五态服务端指纹、结案拦截与跨端缓存一致性**——① **问题/目标**：闭环待答五态细粒度指纹、非法结案拦截、防幽灵回弹与样稿文案一致性；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：chat-service 暴露细粒度 unansweredFingerprint 并在 endUnanswered 校验 end 权限；client.js 与 main.jsx 统一锁键 browser、对接指纹与更新 cacheRef；文档样稿对齐打开抖音；④ **结果**：提交 df213f2 已入库；物理门禁 [node --test tests/backlog-state-api.test.mjs tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
 
 > **2026-11-06 会话收口（只追加不覆盖）**：**fix: 修复 chat-service.mjs, main.jsx, unanswered-panel.test.mjs 等 4 个文件 中的逻辑缺陷**——① **问题/目标**：完成 fix: 修复 chat-service.mjs, main.jsx, unanswered-panel.test.mjs 等 4 个文件 中的逻辑缺陷；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：提交 e560b5d（变更 chat-service.mjs, main.jsx, unanswered-panel.test.mjs, backlog-state-api.test.mjs）；④ **结果**：提交 e560b5d 已入库；物理门禁 [node --test tests/backlog-state-api.test.mjs tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
