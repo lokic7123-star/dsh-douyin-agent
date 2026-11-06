@@ -202,7 +202,17 @@ function FriendInteractionPanel({ state, interactions, share, api, run, busy, co
     {(state?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => <div className="paused-contact" key={item.id}><strong>{contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id))}</strong><p>{item.reason || '该会话暂缓处理，状态会继续更新。'}</p>{item.identityReviewRequired === true && <p>请重新读取联系人并确认许可名单；身份未通过前不会发送。</p>}{!(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0) && !(state?.running || state?.starting || state?.busy || state?.worker?.alive) && <div className="actions"><Button size="sm" variant="outline" disabled={!connected || busy.has('chatResolve')} onClick={() => { void run('chatResolve', async () => { const value = await api('/api/chat/resolve', { recipientId: item.id }); setChat(value); }); }}>{busy.has('chatResolve') ? '正在解除…' : '已人工核对，解除暂停'}</Button></div>}</div>)}
     <UnansweredSection api={api} run={run} busy={busy} connected={connected} allowlist={state?.policy?.allowlist || []} workerActive={state?.running === true || state?.starting === true || state?.busy === true || state?.worker?.alive === true} onOpenDouyin={onOpenDouyin} unansweredFingerprint={state?.unansweredFingerprint} />
     <div id="share-receipts"><ShareReceipts state={share} api={api} run={run} busy={busy} connected={connected} /></div>
-    <details><summary>回复处理记录</summary><Data value={{ recovery: state?.recovery, contacts: (state?.contacts || []).map(item => ({ recovery: item.recovery, reason: item.reason, name: contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id)), status: item.status, pending: Boolean(item.pending), unanswered: item.unanswered?.length || 0 })), events: state?.events || [] }} /></details>
+    {/* 回复处理记录：结构化人话行（替代原 JSON 代码墙）；原始数据只保留「复制」入口供排查。 */}
+    <details className="dy-details"><summary>回复处理记录</summary><div className="dy-panel">
+      {state?.recovery && <p className="dy-kv"><span className="k">恢复队列</span><span>自动恢复中 {state.recovery.autoPendingCount || 0} · 等待人工 {state.recovery.pendingManualCount || 0} · 可自动恢复 {state.recovery.recoverableCount || 0}{state.recovery.requiresUserAction ? ' · 有会话需要你处理' : ''}</span></p>}
+      {(state?.contacts || []).slice(0, 12).map(item => <p className="dy-kv" key={item.id}><span className="k">{contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id))}</span><span>{({ ready: '正常接收', paused: '已暂停', 'delivery-uncertain': '发送结果待核对' }[item.status]) || item.status || '状态未知'} · 待答 {item.unanswered?.length || 0} 条{item.lastCheckedAt ? ` · 检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}{item.reason ? ` · ${item.reason}` : ''}</span></p>)}
+      {(state?.events || []).slice(-12).reverse().map((event, index) => <p className="dy-rowline" key={event.revision ?? index}><span className="k">{event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false }) : ''}</span><span>{event.message || event.type || '运行事件'}</span></p>)}
+      {!(state?.contacts || []).length && !(state?.events || []).length && <p className="dy-reason">暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。</p>}
+      <details className="dy-details"><summary>复制原始数据（排查用，界面不展示）</summary><div>
+        <p className="dy-reason">点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。</p>
+        <div className="dy-actions"><Button size="sm" variant="outline" onClick={() => { void navigator.clipboard?.writeText(JSON.stringify({ recovery: state?.recovery, contacts: state?.contacts, events: state?.events }, null, 2)).catch(() => {}); }}>复制原始数据</Button></div>
+      </div></details>
+    </div></details>
   </Panel>;
 }
 
@@ -238,30 +248,41 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
   }
   const groups = list?.groups;
   const state = item => item.backlogState || 'retrying';
-  return <section className="unanswered-section" aria-label="遗留待处理消息">
-    {count > 0 && <Note error>待答 {count} 条：自动恢复中 {groups?.autoRecovering ?? 0} · 需人工核对 {(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。{checkedAt ? ` 数据更新于 ${checkedAt}。` : ''}</Note>}
+  const STATE_CHIP = { replying: 'run', retrying: 'retry', 'needs-manual': 'missing', uncertain: 'uncertain' };
+  return <section className="unanswered-section dy-panel" aria-label="遗留待处理消息">
+    {count > 0 && <div className="dy-card-top" role="alert"><span className="dy-num" style={{ fontSize: 15 }}>待答消息 · {count} 条</span><span className="dy-cap">{groups?.autoRecovering ?? 0} 条自动恢复中 · {(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)} 条已转人工，需要你判断</span><span className="dy-grow" /><span className="dy-at">{checkedAt ? `更新于 ${checkedAt}` : ''}</span></div>}
     {stale && <Note>显示的是 {checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。</Note>}
     {error && <Note error>{error}</Note>}
     {(list?.items || []).map(item => {
       const st = state(item), escalate = item.escalated === true, done = marks.has(item.recordId) || busy.has(`unanswered-${item.recordId}`);
       const actions = Array.isArray(item.availableActions) ? item.availableActions : ['open-chat'];
       const reason = item.progressNote || item.reason || '';
-      return <div className="paused-contact" key={item.recordId}>
-        <strong>{done ? '正在处理' : STATE_LABELS[st] || '等待自动恢复'} · {item.contactName}{item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false })}` : ''}{item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}</strong>
-        <p>{item.preview ? `「${item.preview.slice(0, 40)}」` : item.previewNote || '（没有可显示的文字正文）'}</p>
-        <p className={escalate || st === 'needs-manual' ? '' : 'muted'}>{escalate && st === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason}</p>
-        {done ? <p role="status">正在处理，请等待结果回读。</p> : <div className="actions">
-          {actions.includes('open-chat') && (onOpenDouyin ? <Button size="sm" variant="outline" disabled={busy.has('browserOpen')} onClick={onOpenDouyin}>打开抖音</Button> : <span className="muted">打开抖音核对</span>)}
-          {actions.includes('open-chat') && <span className="muted">（打开抖音后请手动查找原会话核对）</span>}
+      const when = item.at ? new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+      return <div className="dy-card" key={item.recordId}>
+        <div className="dy-card-top">
+          <span className={`dy-chip dy-chip--${STATE_CHIP[st] || 'retry'}`}><span className="d" aria-hidden="true" />{done ? '正在处理' : STATE_LABELS[st] || '等待自动恢复'}</span>
+          <span className="dy-grow" />
+          <span className="dy-cap">{item.contactName}{item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}</span>
+          {when && <span className="dy-at">{when} 到达</span>}
+        </div>
+        <p className="dy-summary">{item.preview ? `「${item.preview.slice(0, 40)}」` : item.previewNote || '（没有可显示的文字正文）'}</p>
+        <p className={escalate || st === 'needs-manual' ? 'dy-reason dy-reason--strong' : 'dy-reason'}>{escalate && st === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason}</p>
+        {done ? <p role="status" className="dy-cap">正在处理，请等待结果回读。</p> : <div className="dy-actions">
+          {actions.includes('open-chat') && (onOpenDouyin ? <Button size="sm" variant="outline" disabled={busy.has('browserOpen')} onClick={onOpenDouyin}>打开抖音</Button> : <span className="dy-cap">打开抖音核对</span>)}
+          {actions.includes('open-chat') && <span className="dy-cap">（打开抖音后请手动查找原会话核对）</span>}
           {actions.includes('retry-now') && <Button size="sm" variant="outline" disabled={!connected || workerActive || busy.has(`recheck-${item.recordId}`)} onClick={() => { void run(`recheck-${item.recordId}`, () => retryUnanswered(item.recordId)); }}>安全重新检查</Button>}
           {/* 结束待答不在服务运行时禁用：后端有 withChatPaused 协调；保护裁剪只在服务端 availableActions（uncertain 无 end），前端跟随。 */}
           {actions.includes('end') && <Button size="sm" variant="outline" disabled={!connected || item.canResolve === false} onClick={() => { void run(`unanswered-${item.recordId}`, () => endUnanswered(item.recordId, list.snapshot)); }}>结束待答，不再回复</Button>}
-          {st === 'uncertain' && <span className="muted">只读回核对；在原会话核实前不重发。</span>}
+          {st === 'uncertain' && <span className="dy-cap">只读回核对；在原会话核实前不重发。</span>}
         </div>}
-        {(item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && <details><summary>详情</summary><p className="muted">记录字段：backlogState={st} · blockerCode={item.blockerCode || '无'} · attempts={item.attempts ?? 0} · retryCount={item.retryCount ?? 0}{escalate ? ' · escalated=true' : ''}{item.lastCheckedAt ? ` · 最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}</p>{item.reason && item.reason !== reason && <p className="muted">{item.reason}</p>}<p className="muted">本地保留的文字预览仅用于核对；不会自动补发。</p></details>}
+        {(item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && <details className="dy-details"><summary>详情</summary><div>
+          {item.lastCheckedAt && <p className="dy-rowline"><span className="k">最后检查 {new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}</span><span /></p>}
+          {item.reason && item.reason !== reason && <p className="dy-reason">{item.reason}</p>}
+          <p className="dy-reason">本地保留的文字预览仅用于核对；不会自动补发。</p>
+        </div></details>}
       </div>;
     })}
-    {list?.resolvedHistory && (list.resolvedHistory.todayAutoResolved > 0 || list.resolvedHistory.todayManualEnded > 0) && <details className="history-details"><summary>处理历史 · 今天已自动补答 {list.resolvedHistory.todayAutoResolved} 条，人工结束 {list.resolvedHistory.todayManualEnded} 条（不计入待处理）</summary><div>{list.resolvedHistory.items?.map(entry => <p key={entry.recordId} className="muted"><span style={{ marginRight: 8, fontVariantNumeric: 'tabular-nums' }}>{entry.timeStr}</span><span>{entry.summary}</span></p>)}<p className="muted dim">历史只保留结果与核对方式，不重复展示正文。</p></div></details>}
+    {list?.resolvedHistory && (list.resolvedHistory.todayAutoResolved > 0 || list.resolvedHistory.todayManualEnded > 0) && <details className="dy-details"><summary>处理历史 · 今天已自动补答 {list.resolvedHistory.todayAutoResolved} 条，人工结束 {list.resolvedHistory.todayManualEnded} 条（不计入待处理）</summary><div>{list.resolvedHistory.items?.map(entry => <p key={entry.recordId} className="dy-rowline"><span className="k">{entry.timeStr}</span><span>{entry.summary}</span></p>)}<p className="dy-reason" style={{ opacity: 0.7, marginTop: 6 }}>历史只保留结果与核对方式，不重复展示正文。</p></div></details>}
     {list && count === 0 && <Note>没有遗留待处理消息。</Note>}
     {!list && !error && <p className="muted">正在读取遗留待处理消息…</p>}
   </section>;

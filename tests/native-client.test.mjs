@@ -160,8 +160,8 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   const persona = page.getByRole('textbox', { name: '大肥鱼人格正文', exact: true }); await persona.waitFor();
   assert.equal(await persona.inputValue(), '合成人格初始正文。'); assert.equal(calls.some(item => item.method === 'POST'), false);
-  assert.match(await page.getByLabel('好友互动状态', { exact: true }).innerText(), /○ 回复已关闭/);
-  assert.match(await page.getByLabel('自主观看状态').innerText(), /◉ 正在挑选视频/);
+  assert.match(await page.getByLabel('好友互动状态', { exact: true }).innerText(), /回复已关闭/);
+  assert.match(await page.getByLabel('自主观看状态').innerText(), /正在挑选视频/);
   assert.equal(await page.getByLabel('待核对事项').count(), 0);
   assert.equal(await page.getByRole('button', { name: '查看遗留待处理消息', exact: true }).count(), 0);
   assert.equal(await page.getByRole('button', { name: '查看好友互动状态', exact: true }).count(), 0);
@@ -216,8 +216,8 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   state.share.recent = [{ operationId: 'synthetic-share-failure', videoId: '11111', status: 'not-sent', failure: { code: 'SHARE_PANEL_UNAVAILABLE', stage: 'open-panel', message: '合成分享面板未显示。' } }, { operationId: 'synthetic-share-legacy', videoId: '22222', status: 'not-sent' }];
   await page.getByRole('button', { name: '刷新插件状态', exact: true }).click();
   await page.getByText('最近分享记录', { exact: true }).click();
-  await page.getByText('原因：合成分享面板未显示。', { exact: true }).waitFor();
-  await page.getByText('原因：旧记录没有保存详细失败原因。', { exact: true }).waitFor();
+  await page.getByText('原因：合成分享面板未显示。', { exact: false }).first().waitFor();
+  await page.getByText('原因：旧记录没有保存详细失败原因。', { exact: false }).first().waitFor();
 
   assert.equal(await page.getByRole('spinbutton').count(), 0); assert.equal(await page.getByRole('button', { name: /启用|停止|保存|问候/ }).count(), 0);
   const beforeListSave = calls.filter(item => item.route === '/chat/configure').length;
@@ -305,7 +305,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByLabel('当前状态摘要').filter({ hasText: '3 条待答已转人工' }).waitFor();
   state.video.allowed = false; state.video.reason = '请先开始新一轮。';  await page.getByRole('tab', { name: '好友互动', exact: true }).click();
   // 五态卡片断言：四种 backlogState 各一例（resolved 不进列表），chip 文案与按态按钮裁剪
-  await page.getByText('待答 5 条：自动恢复中 2 · 需人工核对 3', { exact: false }).waitFor();
+  await page.getByText('待答消息 · 5 条', { exact: false }).waitFor();
   await page.getByText('自动补答中', { exact: true }).waitFor();
   await page.getByText('等待自动恢复', { exact: true }).first().waitFor();
   await page.getByText('已转人工处理', { exact: true }).first().waitFor();
@@ -313,6 +313,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByText('（已连续多次等待，建议人工核对）', { exact: false }).waitFor();
   assert.ok(await page.getByRole('button', { name: '打开抖音', exact: true }).count() > 0, '卡片使用「打开抖音」而非「打开原会话」');
   assert.ok(await page.getByText('打开抖音后请手动查找原会话核对', { exact: false }).count() > 0, '附手动查找原会话核对说明');
+  assert.ok(await page.getByText('2 条自动恢复中 · 3 条已转人工', { exact: false }).count() > 0, '待答头部行带分类计数');
   const endButtons = page.getByRole('button', { name: '结束待答，不再回复', exact: true });
   assert.equal(await endButtons.count(), 2, '结束待答按钮只出现在 needs-manual 态（两条 needs-manual 记录）');
   assert.equal(await page.getByRole('button', { name: '安全重新检查', exact: true }).count(), 1, '安全重新检查只出现在 retrying 态');
@@ -326,7 +327,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   // 结束待答成功路径：服务端回读确认后从列表移除
   await endButtons.first().click(); await page.waitForTimeout(150);
   assert.ok(calls.some(item => item.route === '/chat/unanswered/end'), '结束待答走新服务端入口');
-  await page.getByText('待答 4 条：自动恢复中 2 · 需人工核对 2', { exact: false }).waitFor();
+  await page.getByText('待答消息 · 4 条', { exact: false }).waitFor();
   // 结束待答失败路径：服务端 500 时卡片保留原态、按钮恢复
   await page.evaluate(() => { window.__failEnd = true; });
   failEndGate = true;
@@ -361,7 +362,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByRole('tab', { name: '好友互动', exact: true }).click();
   // 后台未响应时已先显示缓存与 stale 说明
   await page.getByText('显示的是', { exact: false }).first().waitFor();
-  await page.getByText('确认后不会补发', { exact: false }).first().waitFor();
+  await page.getByText('已转人工处理', { exact: true }).first().waitFor();
   assert.equal(await page.getByText('没有遗留待处理消息').count(), 0, '延迟响应时先显示缓存，不显示空态文案');
   // 放行后台响应，刷新完成后 stale 提示撤下
   releaseUnanswered();
@@ -376,8 +377,9 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByRole('alert').filter({ hasText: '合成待答刷新失败服务忙' }).waitFor();
   // 已有列表重新标为旧数据（stale 状态文案重新出现）
   await page.getByText('显示的是', { exact: false }).first().waitFor();
-  // 卡片内容保留，不退回空态
-  assert.ok(await page.getByText('确认后不会补发', { exact: false }).count() > 0, '刷新失败后旧数据卡片保留');
+  // 卡片内容保留，不退回空态（此前两条 needs-manual 已结案，现存卡片为补答中/等待恢复/结果不明；chip 文本与圆点同层用 includes 判定）
+  const panelText = await page.locator('body').innerText();
+  assert.ok(panelText.includes('自动补答中') && panelText.includes('合成插件预览一'), '刷新失败后旧数据卡片保留');
   failUnanswered = false;
   state.chat.unansweredCount = 5;
   await page.getByRole('tab', { name: '基础设置', exact: true }).click();

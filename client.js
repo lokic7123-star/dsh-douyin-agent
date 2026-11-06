@@ -16,6 +16,66 @@ window.__ModuleLoader__.load({
     const formControl = { font: 'inherit', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 9, maxWidth: '100%', width: '100%', boxSizing: 'border-box' };
     const videoPolicyKey = policy => policy && JSON.stringify([Array.isArray(policy.windows) ? [...new Set(policy.windows)] : null, policy.weekendWindows || null, policy.sessionMinutes]);
     const fallbackCategories = { '基础设置': ['人格与兴趣', 'DSH 模型'], '视频观看': ['观看主题', '视频时间与自主观看'], '自检与用量': ['自检与用量'], '好友互动': ['好友互动'], '公开评论': ['自主公开视频评论'], '音频与密钥': ['可选音频'], '观看日报': ['观看日报'] };
+    // 面板样式：class 体系 + 单 <style> 注入（与 dsh-plugin-wallpaper-engine / dsh-qq-tts 同模式）。
+    // 令牌只用 dsw-alias 原生变量（暗亮主题自动切换），回退值仅在宿主缺失令牌时兜底。
+    const PANEL_CSS = `
+.dy-panel{display:flex;flex-direction:column;gap:10px;min-width:0}
+.dy-card{border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:6px;min-width:0}
+.dy-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-grow{flex:1;min-width:0}
+.dy-at{color:var(--dsw-alias-label-dimmed);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dy-cap{color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}
+.dy-chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;white-space:nowrap;border:1px solid color-mix(in srgb,currentColor 30%,transparent);background:color-mix(in srgb,currentColor 10%,transparent);color:var(--dsw-alias-label-secondary)}
+.dy-chip .d{width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px;flex:none}
+.dy-chip--run{color:var(--dsw-alias-state-business-primary,#3b82f6)}
+.dy-chip--retry{color:var(--dsw-alias-state-warn-primary,#b45309)}
+.dy-chip--missing{color:var(--dsw-alias-state-error-primary,#b91c1c)}
+.dy-chip--uncertain{color:#7c3aed}
+.dy-chip--ok{color:var(--dsw-alias-state-success-primary,#15803d)}
+.dy-summary{font-size:13.5px;color:var(--dsw-alias-label-primary);margin:0;overflow-wrap:anywhere}
+.dy-reason{font-size:12.5px;color:var(--dsw-alias-label-secondary);margin:0;overflow-wrap:anywhere}
+.dy-reason--strong{color:var(--dsw-alias-label-primary)}
+.dy-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0}
+.dy-statusline{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 2px;min-width:0}
+.dy-seg{display:flex;align-items:center;gap:7px;min-width:0}
+.dy-dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-success-primary,#22c55e);flex:none}
+.dy-dot.warn{background:var(--dsw-alias-state-warn-primary,#f7ad31)}
+.dy-dot.err{background:var(--dsw-alias-state-error-primary,#f87171)}
+.dy-dot.idle{background:var(--dsw-alias-label-dimmed)}
+.dy-num{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dy-sep{width:1px;height:16px;background:var(--dsw-alias-border-l2);flex:none}
+.dy-alert{display:flex;align-items:center;gap:10px;padding:9px 13px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f7ad31) 35%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f7ad31) 10%,transparent);border-radius:10px;font-size:13px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
+.dy-kv{display:flex;gap:8px;font-size:12.5px;color:var(--dsw-alias-label-secondary);margin:2px 0;flex-wrap:wrap;overflow-wrap:anywhere}
+.dy-kv .k{color:var(--dsw-alias-label-dimmed);flex:none}
+.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:13px;color:var(--dsw-alias-label-secondary);margin:2px 0;overflow-wrap:anywhere}
+.dy-rowline .k{flex:none;color:var(--dsw-alias-label-dimmed);font-size:11.5px;min-width:52px;font-variant-numeric:tabular-nums}
+.dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1);min-width:0}
+.dy-perm:last-child{border-bottom:0}
+.dy-perm .nm{font-weight:500;font-size:13.5px;min-width:0;overflow-wrap:anywhere}
+.dy-details summary{cursor:pointer;color:var(--dsw-alias-label-tertiary);font-size:12.5px}
+.dy-details>div{padding:6px 2px 2px}
+.dy-mark{flex:none;width:16px;text-align:center;font-weight:600;font-size:13px}
+.dy-mark.ok{color:var(--dsw-alias-state-success-primary,#15803d)}
+.dy-mark.warn{color:var(--dsw-alias-state-warn-primary,#b45309)}
+.dy-mark.err{color:var(--dsw-alias-state-error-primary,#b91c1c)}
+.dy-head3{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary);margin:0}
+`;
+    function injectStyles() {
+      if (typeof document === 'undefined') return;
+      const tag = 'dsh-douyin-browser-local/panel.css';
+      if (document.querySelector(`style[data-plugin-css="${tag}"]`)) return;
+      const node = document.createElement('style');
+      node.dataset.plugin = 'dsh-douyin-browser-local';
+      node.dataset.pluginCss = tag;
+      node.textContent = PANEL_CSS;
+      document.head.appendChild(node);
+    }
+    // 面板通用积木：卡片、状态胶囊、kv 行、事件行（对应预览稿 dy-* 规格）。dyCard 只接 children；带 key 的用法直接写 h('div', {className:'dy-card', key}) 。
+    const dyCard = (...children) => h('div', { className: 'dy-card' }, ...children);
+    const dyChip = (kind, text) => h('span', { className: `dy-chip dy-chip--${kind}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), text);
+    const dyKv = (key, value) => h('p', { className: 'dy-kv' }, h('span', { className: 'k' }, key), h('span', null, value));
+    const dyRow = (time, text) => h('p', { className: 'dy-rowline' }, h('span', { className: 'k' }, time), h('span', null, text));
+    const copyData = (build) => { try { void navigator.clipboard?.writeText(build()); } catch {} };
 
     const OPERATIONS = {
       '/bootstrap': '连接本机服务', '/state': '刷新运行状态', '/interactions/state': '读取好友在线状态', '/interactions/configure': '设置好友互动',
@@ -214,43 +274,50 @@ window.__ModuleLoader__.load({
       const retryUnanswered = recordId => perform(`recheck:${recordId.slice(0, 8)}`, async () => {
         const value = await api.request('/chat/unanswered/retry', { recordIds: [recordId] }); setUnanswered(value.unanswered || null); setUnansweredError(''); setStale(false); writeCache(value.unanswered || null); return value;
       });
-      // 五态卡片：chip + 一行摘要 + 一句原因 + 按态按钮（availableActions 由服务端裁剪）；细节收进「详情」。
+      // 五态卡片：dy-card 容器 + 彩色状态胶囊 + 一行摘要 + 一句原因 + 按态按钮（availableActions 由服务端裁剪）；细节收进「详情」。
       const unansweredCard = item => {
         const key = cardKey(item.recordId), state = item.backlogState || 'retrying', done = busy.has(key);
         const summary = item.preview ? `「${item.preview.slice(0, 40)}」` : item.previewNote || '（没有可显示的文字正文）';
-        const when = item.at ? new Date(item.at).toLocaleString('zh-CN', { hour12: false }) : '';
+        const when = item.at ? new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false }) : '';
         const chipText = done ? '正在处理' : STATE_LABELS[state] || '等待自动恢复';
         const escalate = item.escalated === true;
         const reason = item.progressNote || item.reason || '';
         const actions = Array.isArray(item.availableActions) ? item.availableActions : ['open-chat'];
-        return h('div', { key: item.recordId, style: { ...column, padding: '9px 0', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
-          h('div', { style: { ...row, flexWrap: 'nowrap' } }, h('strong', { style: { whiteSpace: 'nowrap' } }, chipText), h('span', { style: muted }, `${item.contactName}${when ? ` · ${when}` : ''}${item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}`)),
-          h('p', { style: { ...muted, color: 'var(--dsw-alias-label-primary)', margin: 0, overflowWrap: 'anywhere' } }, summary),
-          h('p', { style: { ...muted, ...(escalate || state === 'needs-manual' ? { color: 'var(--dsw-alias-label-primary)' } : {}), margin: 0, overflowWrap: 'anywhere' } }, escalate && state === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason),
-          h('div', { style: row },
+        return h('div', { key: item.recordId, className: 'dy-card' },
+          h('div', { className: 'dy-card-top' },
+            dyChip(STATE_CHIP[state] || 'retry', chipText),
+            h('span', { className: 'dy-grow' }),
+            h('span', { className: 'dy-cap' }, `${item.contactName}${item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}`),
+            when && h('span', { className: 'dy-at' }, `${when} 到达`)),
+          h('p', { className: 'dy-summary' }, summary),
+          h('p', { className: escalate || state === 'needs-manual' ? 'dy-reason dy-reason--strong' : 'dy-reason' }, escalate && state === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason),
+          h('div', { className: 'dy-actions' },
             actions.includes('open-chat') && button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false),
-            actions.includes('open-chat') && h('span', { style: muted }, '（打开抖音后请手动查找原会话核对）'),
+            actions.includes('open-chat') && h('span', { className: 'dy-cap' }, '（打开抖音后请手动查找原会话核对）'),
             actions.includes('retry-now') && button('安全重新检查', `recheck:${item.recordId.slice(0, 8)}`, () => { void retryUnanswered(item.recordId); }, workerActive),
             // 结束待答不在运行时禁用：后端 endUnanswered 有 withChatPaused(resume:'preserve') 协调运行中写入；
             // 保留的保护裁剪只在服务端 availableActions（uncertain 态无 end、混合记录文字目标未核对完不给 end），前端跟随不再造禁用。
             actions.includes('end') && !done && button('结束待答，不再回复', key, () => { void endUnanswered(item.recordId, unanswered.snapshot); }, item.canResolve === false),
-            done && note('正在结束待答…'),
-            state === 'uncertain' && h('span', { style: muted }, '只读回核对；在原会话核实前不重发。')),
-          (item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && h('details', null, h('summary', null, '详情'), h('div', null, note(`记录字段：backlogState=${state} · blockerCode=${item.blockerCode || '无'} · attempts=${item.attempts ?? 0} · retryCount=${item.retryCount ?? 0}${escalate ? ' · escalated=true' : ''}${item.lastCheckedAt ? ` · 最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}`), item.reason && item.reason !== reason && note(item.reason), note('本地保留的文字预览仅用于核对；不会自动补发。'))));
+            done && h('span', { className: 'dy-cap' }, '正在结束待答…'),
+            state === 'uncertain' && h('span', { className: 'dy-cap' }, '只读回核对；在原会话核实前不重发。')),
+          (item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && h('details', { className: 'dy-details' }, h('summary', null, '详情'), h('div', null,
+            item.lastCheckedAt && dyRow(`最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}`, reason ? '' : '状态在后台持续更新'),
+            item.reason && item.reason !== reason && h('p', { className: 'dy-reason' }, item.reason),
+            h('p', { className: 'dy-reason' }, '本地保留的文字预览仅用于核对；不会自动补发。'))));
       };
       const groups = unanswered?.groups;
       const checkedAt = unanswered?.checkedAt ? new Date(unanswered.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
       const staleNotice = `显示的是 ${checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。`;
       const history = unanswered?.resolvedHistory;
-      const historyView = history && (history.todayAutoResolved > 0 || history.todayManualEnded > 0) ? h('details', null,
+      const historyView = history && (history.todayAutoResolved > 0 || history.todayManualEnded > 0) ? h('details', { className: 'dy-details' },
         h('summary', null, `处理历史 · 今天已自动补答 ${history.todayAutoResolved} 条，人工结束 ${history.todayManualEnded} 条（不计入待处理）`),
         h('div', null,
-          ...(history.items || []).map(entry => h('p', { key: entry.recordId, style: { ...muted, margin: '4px 0' } }, h('span', { style: { marginRight: 8, fontVariantNumeric: 'tabular-nums' } }, entry.timeStr), h('span', null, entry.summary))),
-          h('p', { style: { ...muted, opacity: 0.7, margin: '6px 0 0' } }, '历史只保留结果与核对方式，不重复展示正文。')
+          ...(history.items || []).map(entry => dyRow(entry.timeStr, entry.summary)),
+          h('p', { className: 'dy-reason', style: { opacity: 0.7, margin: '6px 0 0' } }, '历史只保留结果与核对方式，不重复展示正文。')
         )
       ) : null;
       const unansweredView = !unanswered ? (unansweredError ? [h('p', { role: 'alert', style: muted }, unansweredError)] : []) : [
-        unanswered.count > 0 && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-label-primary)' } }, `待答 ${unanswered.count} 条：自动恢复中 ${groups?.autoRecovering ?? 0} · 需人工核对 ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。`),
+        unanswered.count > 0 && h('div', { role: 'alert', className: 'dy-card-top' }, h('span', { className: 'dy-num', style: { fontSize: 15 } }, `待答消息 · ${unanswered.count} 条`), h('span', { className: 'dy-cap' }, `${groups?.autoRecovering ?? 0} 条自动恢复中 · ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)} 条已转人工，需要你判断`), h('span', { className: 'dy-grow' }), h('span', { className: 'dy-at' }, checkedAt ? `更新于 ${checkedAt}` : '')),
         stale && h('p', { role: 'status', style: muted }, staleNotice),
         unansweredError && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-signal-danger, #d93025)' } }, unansweredError),
         ...unanswered.items.map(unansweredCard),
@@ -265,16 +332,25 @@ window.__ModuleLoader__.load({
         if (replyPresence?.status === 'attention') return { label: '回复服务异常', detail: presenceReason, tab: '好友互动' };
         return { label: '一切正常', detail: [replyPresence?.label, watchState?.active ? watchState.label : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。' };
       })();
-      return h('div', { style: { ...column, maxWidth: 900, paddingBottom: 32 } },
+      return h('div', { className: 'dy-panel', style: { maxWidth: 900, paddingBottom: 32 } },
+        injectStyles(),
         h('h2', null, '大肥鱼抖音助手'), !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
-        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', style: row }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
-        h('div', { role: 'status', 'aria-live': 'polite', style: { ...row, position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)', padding: '8px 0' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
-          h('span', { 'aria-label': '好友互动状态', title: presenceReason, style: { border: '1px solid currentColor', borderRadius: 20, padding: '6px 12px', whiteSpace: 'nowrap' } }, `${replyPresence?.online === true ? '●' : '○'} ${presenceLabel}`),
-          (state?.chat?.unansweredGroups?.autoRecovering > 0) && h('span', { style: { ...muted, border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 16, padding: '4px 10px', whiteSpace: 'nowrap' } }, `○ ${state.chat.unansweredGroups.autoRecovering} 自动恢复中`),
-          (((state?.chat?.unansweredGroups?.needsManual ?? 0) + (state?.chat?.unansweredGroups?.uncertain ?? 0)) > 0) && h('span', { style: { ...muted, color: 'var(--dsw-alias-signal-danger, #d93025)', border: '1px solid currentColor', borderRadius: 16, padding: '4px 10px', whiteSpace: 'nowrap' } }, `▲ ${(state.chat.unansweredGroups.needsManual ?? 0) + (state.chat.unansweredGroups.uncertain ?? 0)} 已转人工`),
-          watchState?.active && h('small', { role: 'status', 'aria-label': '自主观看状态', title: watchState.reason, style: muted }, `◉ ${watchLabel}`),
-          (['attention', 'preparing'].includes(replyPresence?.status) || watchState?.active && replyPresence?.online !== true) && h('small', { role: replyPresence?.status === 'attention' ? 'alert' : 'status', style: muted }, presenceReason)),
-        summary && h('div', { role: 'status', 'aria-label': '当前状态摘要', style: { ...row, padding: '10px 12px', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)' }, title: summary.detail }, h('span', { 'aria-hidden': 'true' }, summary.label === '一切正常' ? '○' : '●'), h('strong', null, summary.label), h('span', { style: muted }, summary.detail), summary.tab && summary.label !== '一切正常' && button('查看待答', 'statusGoto', () => setCategory(summary.tab))),
+        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-card-top' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
+        h('div', { role: 'status', 'aria-live': 'polite', className: 'dy-statusline', style: { position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
+          h('span', { className: 'dy-seg', 'aria-label': '好友互动状态', title: presenceReason },
+            h('span', { className: `dy-dot ${replyPresence?.online === true ? '' : 'idle'}`, 'aria-hidden': 'true' }),
+            h('span', { className: 'dy-num' }, presenceLabel)),
+          (state?.chat?.unansweredGroups?.autoRecovering > 0) && h('span', { className: 'dy-seg' }, h('span', { className: 'dy-dot warn', 'aria-hidden': 'true' }), h('span', { className: 'dy-num' }, String(state.chat.unansweredGroups.autoRecovering)), h('span', { className: 'dy-cap' }, '自动恢复中')),
+          (((state?.chat?.unansweredGroups?.needsManual ?? 0) + (state?.chat?.unansweredGroups?.uncertain ?? 0)) > 0) && h('span', { className: 'dy-seg' }, h('span', { className: 'dy-dot err', 'aria-hidden': 'true' }), h('span', { className: 'dy-num' }, String((state.chat.unansweredGroups.needsManual ?? 0) + (state.chat.unansweredGroups.uncertain ?? 0))), h('span', { className: 'dy-cap' }, '已转人工')),
+          watchState?.active && h('span', { className: 'dy-seg', role: 'status', 'aria-label': '自主观看状态', title: watchState.reason }, h('span', { className: 'dy-dot', 'aria-hidden': 'true' }), h('span', { className: 'dy-cap' }, `◉ ${watchLabel}`)),
+          (['attention', 'preparing'].includes(replyPresence?.status) || watchState?.active && replyPresence?.online !== true) && h('small', { role: replyPresence?.status === 'attention' ? 'alert' : 'status', className: 'dy-cap', style: { whiteSpace: 'normal' } }, presenceReason)),
+        summary && h('div', { role: 'status', 'aria-label': '当前状态摘要', className: 'dy-card', title: summary.detail },
+          h('div', { className: 'dy-card-top' },
+            h('span', { className: `dy-dot ${summary.label === '一切正常' ? '' : 'warn'}`, 'aria-hidden': 'true' }),
+            h('span', { className: 'dy-num' }, summary.label),
+            h('span', { className: 'dy-grow' }),
+            summary.tab && summary.label !== '一切正常' && button('查看待答', 'statusGoto', () => setCategory(summary.tab))),
+          h('p', { className: 'dy-reason' }, summary.detail)),
         h('div', { style: row }, button('刷新插件状态', 'refresh', () => { void refresh(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
         h('div', { role: 'tablist', 'aria-label': '抖音设置分类', tabIndex: 0, style: tabRow }, ...Object.keys(fallbackCategories).map(name => h(Button, { key: name, role: 'tab', type: 'button', size: 'sm', variant: category === name ? 'primary' : 'outline', 'aria-selected': category === name, style: tab, onClick: () => setCategory(name) }, name))),
         category === '基础设置' && h('div', null,
@@ -295,11 +371,35 @@ window.__ModuleLoader__.load({
           note('读取范围是抖音网页版当前会话，不代表全部关注好友或所有群。要授权群聊，请先让群会话出现在抖音消息列表，再刷新。'), contacts && note(`本次读取：个人 ${contacts.filter(item => item.isGroup === false).length} 个 · 群聊 ${contacts.filter(item => item.isGroup === true).length} 个。${discovery?.scannedToEnd === false ? ` 当前列表尚未完整读取。${discovery.reason || ''}` : ''}`),
           contacts?.some(item => item.relationshipStatus === 'unavailable' || item.isGroup === true || typeof item.isGroup !== 'boolean') && toggle('授权已核对的现有会话', chat.draft.allowConversationOnly, value => { existingAuthorization.current = value; chat.edit({ allowConversationOnly: value, ...(!value ? { recipientIds: chat.draft.recipientIds.filter(id => shownContacts.some(item => item.id === id && item.followed === true && item.isGroup === false)) } : {}) }, value ? { blurOnly: true } : { immediate: true }); }),
           ...[false, true, null].flatMap(kind => { const items = shownContacts.filter(item => item.isGroup === kind || kind === null && typeof item.isGroup !== 'boolean'); return items.length ? [note(kind === false ? '个人会话' : kind === true ? '群聊（仅被 @ 或叫到响应昵称时回复）' : '旧记录类型待核对（暂不可选）'), ...items.map(item => h('label', { key: item.id, style: row }, h('input', { type: 'checkbox', 'aria-label': `许可联系人 ${item.name || item.displayName || '联系人'}`, checked: chat.draft.recipientIds.includes(item.id), disabled: !ready || !chat.draft.recipientIds.includes(item.id) && (item.notListed || !(item.followed === true && item.isGroup === false || chat.draft.allowConversationOnly === true && typeof item.isGroup === 'boolean')), onChange: event => chat.edit({ recipientIds: event.target.checked ? [...chat.draft.recipientIds, item.id] : chat.draft.recipientIds.filter(id => id !== item.id) }, { immediate: true }) }), item.name || item.displayName || '许可会话'))] : []; }),
-          area('群聊响应昵称（逗号或换行分隔）', chat, 'groupMentionNamesText', 2, true), status(chat), note(`今日回复模型请求 ${state?.chat?.daily?.requests || 0} 次 · 今日分享 ${state?.share?.daily?.attempts || 0} 次。未确认发送会暂停，不自动重发。`), ...unansweredView, ...(state?.chat?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => h('div', { key: item.id }, note(item.reason || '该会话暂缓处理，状态会继续更新。'), item.identityReviewRequired === true && note('请重新读取联系人并确认许可名单；身份未通过前不会发送。'))), ...(state?.share?.unavailableRecipients || []).map(item => note(`暂不能自主分享：${item.name || '许可会话'} · ${item.reason}`)), ...reviewList('share'), h('details', null, h('summary', null, '回复处理记录'), h('pre', { style: { whiteSpace: 'pre-wrap' } }, JSON.stringify({ recovery: state?.chat?.recovery, contacts: (state?.chat?.contacts || []).map(item => ({ id: item.id, status: item.status, reason: item.reason, recovery: item.recovery, pending: Boolean(item.pending), unanswered: item.unanswered?.length || 0 })), events: state?.chat?.events || [] }, null, 2))), h('details', null, h('summary', null, '最近分享记录'), ...(state?.share?.recent || []).slice().reverse().map(item => h('div', { key: item.operationId }, note(`作品 ${item.videoId} · ${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}`), shareFailureMessage(item) && note(`原因：${shareFailureMessage(item)}`))))),
+          area('群聊响应昵称（逗号或换行分隔）', chat, 'groupMentionNamesText', 2, true), status(chat), note(`今日回复模型请求 ${state?.chat?.daily?.requests || 0} 次 · 今日分享 ${state?.share?.daily?.attempts || 0} 次。未确认发送会暂停，不自动重发。`), ...unansweredView, ...(state?.chat?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => h('div', { key: item.id }, note(item.reason || '该会话暂缓处理，状态会继续更新。'), item.identityReviewRequired === true && note('请重新读取联系人并确认许可名单；身份未通过前不会发送。'))), ...(state?.share?.unavailableRecipients || []).map(item => note(`暂不能自主分享：${item.name || '许可会话'} · ${item.reason}`)), ...reviewList('share'),
+          // 回复处理记录：结构化人话行（替代原 JSON 代码墙）；原始数据只保留「复制」入口供排查。
+          h('details', { className: 'dy-details' }, h('summary', null, '回复处理记录'), h('div', { className: 'dy-panel' },
+            (() => { const r = state?.chat?.recovery; if (!r) return null; return dyKv('恢复队列', `自动恢复中 ${r.autoPendingCount || 0} · 等待人工 ${r.pendingManualCount || 0} · 可自动恢复 ${r.recoverableCount || 0}${r.requiresUserAction ? ' · 有会话需要你处理' : ''}`); })(),
+            ...(state?.chat?.contacts || []).slice(0, 12).map(item => dyKv(item.name || state?.chat?.policy?.allowlist?.find(c => c.id === item.id)?.name || '许可会话', `${({ ready: '正常接收', paused: '已暂停', 'delivery-uncertain': '发送结果待核对' }[item.status]) || item.status || '状态未知'} · 待答 ${(item.unanswered?.length) || 0} 条${item.lastCheckedAt ? ` · 检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}${item.reason ? ` · ${item.reason}` : ''}`)),
+            ...(state?.chat?.events || []).slice(-12).reverse().map((event, index) => dyRow(event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false }) : '', event.message || event.type || '运行事件')),
+            !(state?.chat?.contacts || []).length && !(state?.chat?.events || []).length && h('p', { className: 'dy-reason' }, '暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。'),
+            h('details', { className: 'dy-details' }, h('summary', null, '复制原始数据（排查用，界面不展示）'), h('div', null,
+              h('p', { className: 'dy-reason' }, '点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。'),
+              h('div', { className: 'dy-actions' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); })))))),
+          h('details', { className: 'dy-details' }, h('summary', null, '最近分享记录'), ...(state?.share?.recent || []).slice().reverse().map(item => dyRow(item.videoId ? `作品 ${item.videoId}` : '消息', `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}${shareFailureMessage(item) ? ` · 原因：${shareFailureMessage(item)}` : ''}`)))),
         category === '公开评论' && section('自主公开视频评论', toggle('允许自主发布评论', comments.draft.enabled, value => comments.edit({ enabled: value }, { immediate: true })), field('评论每日尝试上限', comments, 'dailyLimit', { type: 'number', min: 1 }), field('评论每次观看尝试上限', comments, 'perSessionLimit', { type: 'number', min: 1 }), status(comments), note(`今日已尝试 ${state?.comments?.daily?.attempts || 0} 次。`), ...reviewList('comments')),
         category === '音频与密钥' && section('可选音频', toggle('读取视频声音', media.draft.enabled, value => media.edit({ enabled: value }, { immediate: true })), select('音频后端', media.draft.backend, [['local-whisper', '本机 Whisper'], ['mimo', 'MiMo'], ['minimax', 'MiniMax']], value => media.edit({ backend: value }, { immediate: true })), status(media), note('Key 离开输入框后保存；保存 Key 不会开启音频或下载模型。'), credentialForm('mimo', 'MiMo'), credentialForm('minimax', 'MiniMax')),
         category === '观看日报' && section('观看日报', note(state?.reports?.folder), button('生成今天日报', 'reportGenerate', () => { void perform('reportGenerate', async () => { const value = await api.request('/reports/generate', {}); setReport(value); return value; }); }), h('label', { style: column }, '日报日期', h('input', { type: 'date', 'aria-label': '日报日期', style: formControl, value: reportDate, onChange: event => setReportDate(event.target.value) })), button('读取所选日报', 'reportRead', () => { void perform('reportRead', async () => { if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw new Error('请选择有效日期。'); const value = await api.request(`/reports/read?date=${reportDate}`); setReport(value); return value; }); }), report && h('pre', { 'aria-label': '日报内容', style: { whiteSpace: 'pre-wrap' } }, report.markdown || '暂无内容')),
-        category === '自检与用量' && section('自检与用量', button('一键自检', 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics', {}); setDiagnostics(value); setRepairResult(''); return value; }); }), diagnostics && h('div', { style: column }, ...(diagnostics.checks || []).map(item => h('div', { key: item.id }, note(`${({ pass: '通过', warning: '待核对', fail: '未通过' })[item.status]} · ${item.label}：${item.message} [${item.code || ''}]`), ...(item.resolution?.steps || []).map(step => note(step)))), ...(diagnostics.repairableActions || []).map(action => button(`修复：${action.label}`, 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics/repair', { reportId: diagnostics.reportId, action: action.id }); setDiagnostics(value.after); setRepairResult(value.message); return value; }); })), note(repairResult), h('details', null, h('summary', null, '查看或复制诊断报告'), h('textarea', { 'aria-label': '诊断报告', readOnly: true, rows: 12, style: formControl, value: JSON.stringify(diagnostics, null, 2) }))), h('h3', null, '今日用量'), note(`模型响应 ${state?.usage?.today?.requests || 0} 次 · 已报告 ${state?.usage?.today?.totalTokens || 0} Token`), note(`输入 ${state?.usage?.today?.promptTokens || 0} · 输出 ${state?.usage?.today?.completionTokens || 0} · 缓存命中 ${state?.usage?.today?.cacheReportedRequests ? state.usage.today.cachedTokens : '未报告'} · 用量未知 ${state?.usage?.today?.unknownRequests || 0} 次`), state?.usage?.inFlight > 0 && note(`请求中 ${state.usage.inFlight} 次，Token 等模型返回后记录。`), ...(state?.usage?.groups || []).map(item => note(`${item.model} · ${item.requests} 次响应 · ${item.totalTokens} Token`)), note(state?.usage?.note))
+        category === '自检与用量' && section('自检与用量', button('一键自检', 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics', {}); setDiagnostics(value); setRepairResult(''); return value; }); }), diagnostics && h('div', { className: 'dy-panel' },
+          // 自检结果：逐项卡片（✓/!/× 标记），替代原 JSON 文本框；原始报告保留「复制」入口。
+          ...((diagnostics.checks || []).map(item => h('div', { key: item.id, className: 'dy-card' },
+            h('div', { className: 'dy-card-top' },
+              h('span', { className: `dy-mark ${item.status === 'pass' ? 'ok' : item.status === 'warning' ? 'warn' : 'err'}`, 'aria-hidden': 'true' }, item.status === 'pass' ? '✓' : item.status === 'warning' ? '!' : '×'),
+              h('span', { className: 'dy-num', style: { fontSize: 13 } }, item.label),
+              h('span', { className: 'dy-grow' }),
+              h('span', { className: 'dy-cap' }, ({ pass: '通过', warning: '待核对', fail: '未通过' })[item.status] || item.status)),
+            h('p', { className: 'dy-reason' }, `${item.message}${item.code ? `（${item.code}）` : ''}`),
+            ...(item.resolution?.steps || []).map(step => h('p', { className: 'dy-reason' }, step))))),
+          ...(diagnostics.repairableActions || []).map(action => button(`修复：${action.label}`, 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics/repair', { reportId: diagnostics.reportId, action: action.id }); setDiagnostics(value.after); setRepairResult(value.message); return value; }); })),
+          note(repairResult),
+          diagnostics && h('div', { className: 'dy-actions' }, button('复制完整报告', 'copyDiagnostics', () => { copyData(() => JSON.stringify(diagnostics, null, 2)); }), h('span', { className: 'dy-cap' }, '完整报告（含原始数据）只进剪贴板，不在界面铺开。')),
+          diagnostics?.note && h('p', { className: 'dy-reason' }, diagnostics.note)),
+        h('h3', null, '今日用量'), note(`模型响应 ${state?.usage?.today?.requests || 0} 次 · 已报告 ${state?.usage?.today?.totalTokens || 0} Token`), note(`输入 ${state?.usage?.today?.promptTokens || 0} · 输出 ${state?.usage?.today?.completionTokens || 0} · 缓存命中 ${state?.usage?.today?.cacheReportedRequests ? state.usage.today.cachedTokens : '未报告'} · 用量未知 ${state?.usage?.today?.unknownRequests || 0} 次`), state?.usage?.inFlight > 0 && note(`请求中 ${state.usage.inFlight} 次，Token 等模型返回后记录。`), ...(state?.usage?.groups || []).map(item => dyRow(`${item.model}`, `${item.requests} 次响应 · ${item.totalTokens} Token`)), note(state?.usage?.note))
       );
     }
 

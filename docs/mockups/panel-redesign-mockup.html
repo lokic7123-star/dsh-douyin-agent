@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>预览稿 · 大肥鱼抖音助手 面板重设计（dy-* 体系）</title>
+<style>
+/* ===== 预览说明 =====
+   本页是「设置 → 刷抖音」面板重设计的静态预览，与将写入 client.js / main.jsx 的实现同一套规格：
+   - class 体系 dy-* + 单 <style> 注入（对齐 dsh_douyin_tools / dsh-qq-tts 做法）
+   - 颜色全部走 DSH 原生 dsw-alias 令牌（预览里给固定值模拟），暗亮主题自动适配
+   - 所有 JSON 倾倒改为结构化展示；原始数据只保留「一键复制」入口，默认不展示
+   数据全部为合成素材。 */
+*{box-sizing:border-box}
+body{margin:0;background:#e9eaee;color:#0f1115;font:14px/1.6 var(--font,system-ui,sans-serif);padding:28px 16px 60px}
+.page{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+.note{border:1px dashed #b8bcc4;border-radius:10px;padding:10px 14px;background:#fff;color:#5f6368;font-size:12.5px}
+h2.demo{font-size:15px;margin:0;color:#3c3c3d}
+
+/* ===== 模拟 DSH 设置弹窗（浅色） ===== */
+.dialog{background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);overflow:hidden;border:1px solid rgba(0,0,0,.06)}
+.dialog-head{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid rgba(0,0,0,.06)}
+.dialog-head strong{font-size:15px}
+.dialog-head .x{margin-left:auto;border:0;background:transparent;color:#5f6368;font-size:16px;line-height:1;padding:2px 6px;border-radius:6px}
+.dialog-head .x:hover{background:#ececef}
+.dialog-body{max-height:none;padding:16px 20px 24px}
+
+/* ===== dy-* 面板体系（= 将写入 client.js 的 PANEL_CSS，浅色取值） ===== */
+.dy-panel{display:flex;flex-direction:column;gap:10px;min-width:0}
+.dy-card{border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:10px 12px;background:#f7f8fa;display:flex;flex-direction:column;gap:6px;min-width:0}
+.dy-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-grow{flex:1;min-width:0}
+.dy-at{color:#8a8f96;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dy-cap{color:#5f6368;font-size:12px;white-space:nowrap}
+.dy-chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;white-space:nowrap;border:1px solid color-mix(in srgb,currentColor 30%,transparent);background:color-mix(in srgb,currentColor 10%,transparent);color:#3c3c3d}
+.dy-chip .d{width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px;flex:none}
+.dy-chip--run{color:#1d4ed8}
+.dy-chip--retry{color:#92400e}
+.dy-chip--missing{color:#b91c1c}
+.dy-chip--uncertain{color:#6d28d9}
+.dy-chip--ok{color:#15803d}
+.dy-summary{font-size:13.5px;color:#0f1115;margin:0;overflow-wrap:anywhere}
+.dy-reason{font-size:12.5px;color:#3c3c3d;margin:0;overflow-wrap:anywhere}
+.dy-reason--strong{color:#0f1115}
+.dy-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0}
+.dy-btn{border:1px solid rgba(0,0,0,.12);background:transparent;color:#0f1115;border-radius:999px;padding:5px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.dy-btn:hover{background:rgba(0,0,0,.04)}
+.dy-btn:disabled{color:#a5a9af;border-color:rgba(0,0,0,.06);background:transparent;cursor:default}
+.dy-btn.primary{background:#0f1115;border-color:#0f1115;color:#fff}
+.dy-btn.primary:hover{background:#2c2c2e}
+.dy-statusline{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 2px;min-width:0}
+.dy-seg{display:flex;align-items:center;gap:7px;min-width:0}
+.dy-dot{width:8px;height:8px;border-radius:50%;background:#15803d;flex:none}
+.dy-dot.warn{background:#b45309}
+.dy-dot.err{background:#b91c1c}
+.dy-dot.idle{background:#a5a9af}
+.dy-num{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dy-sep{width:1px;height:16px;background:rgba(0,0,0,.1);flex:none}
+.dy-time{margin-left:auto;color:#8a8f96;font-size:12px;font-variant-numeric:tabular-nums}
+.dy-alert{display:flex;align-items:center;gap:10px;padding:9px 13px;border:1px solid rgba(180,83,9,.35);background:rgba(180,83,9,.08);border-radius:10px;font-size:13px;color:#3c3c3d;flex-wrap:wrap}
+.dy-kv{display:flex;gap:8px;font-size:12.5px;color:#3c3c3d;margin:2px 0;flex-wrap:wrap;overflow-wrap:anywhere}
+.dy-kv .k{color:#8a8f96;flex:none}
+.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:13px;color:#3c3c3d;margin:2px 0;overflow-wrap:anywhere}
+.dy-rowline .k{flex:none;color:#8a8f96;font-size:11.5px;min-width:52px;font-variant-numeric:tabular-nums}
+.dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.05);min-width:0}
+.dy-perm:last-child{border-bottom:0}
+.dy-perm .nm{font-weight:500;font-size:13.5px;min-width:0;overflow-wrap:anywhere}
+.dy-details summary{cursor:pointer;color:#5f6368;font-size:12.5px}
+.dy-details>div{padding:6px 2px 2px}
+.dy-tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:8px;padding:10px 0 2px;scrollbar-width:thin}
+.dy-tab{flex:none;border:1px solid rgba(0,0,0,.12);background:transparent;color:#3c3c3d;border-radius:999px;padding:5px 13px;font-size:12.5px;white-space:nowrap;cursor:pointer}
+.dy-tab:hover{background:rgba(0,0,0,.04)}
+.dy-tab[aria-selected="true"]{background:#0f1115;border-color:#0f1115;color:#fff;font-weight:500}
+.dy-h{font-size:15px;font-weight:600;margin:6px 0 0}
+.dy-h3{font-size:13px;font-weight:600;color:#3c3c3d;margin:0}
+.dy-mark{flex:none;width:16px;text-align:center;font-weight:600}
+.dy-mark.ok{color:#15803d}.dy-mark.warn{color:#92400e}.dy-mark.err{color:#b91c1c}
+
+/* ===== 暗色变体（模拟 DSH 暗色主题下的自动适配） ===== */
+.theme-dark{--bg:#151517;--layer1:#232324;--l2:rgba(255,255,255,.12);--l1:rgba(255,255,255,.06);--p:#f9fafb;--s:#cfd3d6;--t:#adb2b8;--d:#989ea6}
+.theme-dark .dialog{background:var(--bg);border-color:var(--l2)}
+.theme-dark .dialog-head{border-bottom-color:var(--l1)}
+.theme-dark .dialog-head .x{color:var(--t)}
+.theme-dark .dialog-head .x:hover{background:var(--layer1)}
+.theme-dark .dy-card{background:var(--layer1);border-color:var(--l1)}
+.theme-dark .dy-summary{color:var(--p)}
+.theme-dark .dy-reason{color:var(--s)}
+.theme-dark .dy-reason--strong{color:var(--p)}
+.theme-dark .dy-cap{color:var(--t)}
+.theme-dark .dy-at,.theme-dark .dy-time,.theme-dark .dy-rowline .k,.theme-dark .dy-kv .k{color:var(--d)}
+.theme-dark .dy-kv,.theme-dark .dy-rowline{color:var(--s)}
+.theme-dark .dy-chip{color:var(--s)}
+.theme-dark .dy-chip--run{color:#60a5fa}.theme-dark .dy-chip--retry{color:#f7ad31}.theme-dark .dy-chip--missing{color:#f87171}.theme-dark .dy-chip--uncertain{color:#c084fc}.theme-dark .dy-chip--ok{color:#4ade80}
+.theme-dark .dy-dot{background:#4ade80}.theme-dark .dy-dot.warn{background:#f7ad31}.theme-dark .dy-dot.err{background:#f87171}.theme-dark .dy-dot.idle{background:var(--d)}
+.theme-dark .dy-sep{background:var(--l2)}
+.theme-dark .dy-btn{border-color:var(--l2);color:var(--p)}
+.theme-dark .dy-btn:hover{background:rgba(255,255,255,.05)}
+.theme-dark .dy-btn:disabled{color:var(--d);border-color:var(--l1)}
+.theme-dark .dy-btn.primary{background:var(--p);border-color:var(--p);color:var(--bg)}
+.theme-dark .dy-tab{border-color:var(--l2);color:var(--s)}
+.theme-dark .dy-tab:hover{background:rgba(255,255,255,.05)}
+.theme-dark .dy-tab[aria-selected="true"]{background:var(--p);border-color:var(--p);color:var(--bg)}
+.theme-dark .dy-perm{border-bottom-color:var(--l1)}
+.theme-dark .dy-h{color:var(--p)}
+.theme-dark .dy-h3{color:var(--s)}
+.theme-dark .dy-alert{border-color:rgba(247,173,49,.35);background:rgba(247,173,49,.08);color:var(--s)}
+.theme-dark .dy-details summary{color:var(--t)}
+.theme-dark .dy-mark.ok{color:#4ade80}.theme-dark .dy-mark.warn{color:#f7ad31}.theme-dark .dy-mark.err{color:#f87171}
+.theme-dark h2.demo{color:var(--s)}
+</style>
+</head>
+<body>
+<div class="page">
+
+<p class="note"><strong>预览稿（不实装）</strong>· 合成数据。看点：① 顶部三段式状态行（带分隔线与更新时间）② 待答卡片化（彩色状态胶囊 + 按钮胶囊）③ 「回复处理记录」不再是 JSON 代码墙——改为人话行 + 一键复制原始数据 ④ 自检结果卡片化。每块下面都有暗色变体对照。</p>
+
+<!-- ================= ① 顶部状态区（浅色） ================= -->
+<h2 class="demo">① 顶部状态区（替代现在的灰胶囊堆）</h2>
+<div class="dialog"><div class="dialog-body">
+  <div class="dy-statusline" role="status" aria-label="运行状态">
+    <span class="dy-seg"><span class="dy-dot" aria-hidden="true"></span><span class="dy-num">在线 · 回复中</span><span class="dy-cap">好友互动</span></span>
+    <span class="dy-sep" aria-hidden="true"></span>
+    <span class="dy-seg"><span class="dy-dot warn" aria-hidden="true"></span><span class="dy-num">2</span><span class="dy-cap">自动恢复中</span></span>
+    <span class="dy-sep" aria-hidden="true"></span>
+    <span class="dy-seg"><span class="dy-dot err" aria-hidden="true"></span><span class="dy-num">1</span><span class="dy-cap">已转人工</span></span>
+    <span class="dy-time">更新于 14:32:08 · 每 2.5 秒刷新</span>
+  </div>
+  <div class="dy-card">
+    <div class="dy-card-top"><span class="dy-chip dy-chip--ok"><span class="d" aria-hidden="true"></span>一切正常</span><span class="dy-grow"></span><button class="dy-btn" type="button">打开抖音</button><button class="dy-btn" type="button">刷新插件状态</button></div>
+    <p class="dy-reason">回复服务在线 · 自主观看进行中（今日 42 分钟）</p>
+  </div>
+  <nav class="dy-tabs" role="tablist" aria-label="抖音设置分类">
+    <button class="dy-tab" role="tab" aria-selected="true" type="button">基础设置</button>
+    <button class="dy-tab" role="tab" aria-selected="false" type="button">视频观看</button>
+    <button class="dy-tab" role="tab" aria-selected="false" type="button">好友互动</button>
+    <button class="dy-tab" role="tab" aria-selected="false" type="button">公开评论</button>
+    <button class="dy-tab" role="tab" aria-selected="false" type="button">音频与密钥</button>
+    <button class="dy-tab" role="tab" aria-selected="false" type="button">观看日报</button>
+    <button class="dy-tab" role="tab" aria-selected="false" type="button">自检与用量</button>
+  </nav>
+</div></div>
+
+<!-- ================= ② 好友互动页（浅色） ================= -->
+<h2 class="demo">② 好友互动页：待答卡片 + 许可名单 + 处理历史</h2>
+<div class="dialog"><div class="dialog-body">
+  <div class="dy-panel">
+    <h2 class="dy-h">好友互动</h2>
+    <div class="dy-alert" role="alert">
+      <span class="dy-grow">有 1 条消息已转人工处理，需要你判断是否还要回复。</span>
+      <button class="dy-btn" type="button">查看待答</button>
+    </div>
+
+    <div class="dy-card">
+      <div class="dy-card-top"><h3 class="dy-h3">许可名单与运行状态</h3><span class="dy-grow"></span><button class="dy-btn" type="button">读取联系人与群聊</button></div>
+      <div class="dy-perm"><span class="nm">薄荷抹茶</span><span class="dy-chip dy-chip--ok"><span class="d" aria-hidden="true"></span>正常接收</span><span class="dy-grow"></span><span class="dy-at">最近检查 14:32:05</span></div>
+      <div class="dy-perm"><span class="nm">山栀的群</span><span class="dy-chip dy-chip--retry"><span class="d" aria-hidden="true"></span>等待身份重新核对</span><span class="dy-grow"></span><span class="dy-cap">未通过前不发送</span></div>
+    </div>
+
+    <div class="dy-card-top"><span class="dy-num" style="font-size:15px">待答消息 · 3 条</span><span class="dy-cap">2 条自动恢复中 · 1 条已转人工</span></div>
+
+    <div class="dy-card">
+      <div class="dy-card-top"><span class="dy-chip dy-chip--run"><span class="d" aria-hidden="true"></span>自动补答中</span><span class="dy-grow"></span><span class="dy-cap">薄荷抹茶</span><span class="dy-at">14:18 到达</span></div>
+      <p class="dy-summary">「这次的活动到几号结束呀」</p>
+      <p class="dy-reason">正在生成回复 · 最后检查 14:32:05</p>
+      <div class="dy-actions"></div>
+      <details class="dy-details"><summary>详情</summary><div>
+        <p class="dy-rowline"><span class="k">14:18</span><span>这次的活动到几号结束呀</span></p>
+        <p class="dy-reason">此阶段不会重新发送任何消息；发送前的安全读回核对照常进行。</p>
+      </div></details>
+    </div>
+
+    <div class="dy-card">
+      <div class="dy-card-top"><span class="dy-chip dy-chip--retry"><span class="d" aria-hidden="true"></span>等待自动恢复</span><span class="dy-grow"></span><span class="dy-cap">薄荷抹茶</span><span class="dy-at">14:11 到达</span></div>
+      <p class="dy-summary">「周六下午有空一起拼桌吗」（另有一条 14:12 的补充）</p>
+      <p class="dy-reason">上次自动生成失败（服务超时）· 下次自动尝试 14:36 · 最后检查 14:30:41</p>
+      <div class="dy-actions"><button class="dy-btn" type="button">安全重新检查</button><span class="dy-cap">只重读会话核对状态，不发送任何消息。</span></div>
+    </div>
+
+    <div class="dy-card">
+      <div class="dy-card-top"><span class="dy-chip dy-chip--missing"><span class="d" aria-hidden="true"></span>已转人工处理</span><span class="dy-grow"></span><span class="dy-cap">薄荷抹茶</span><span class="dy-at">13:47 到达</span></div>
+      <p class="dy-summary">「（分享了一条视频）」</p>
+      <p class="dy-reason dy-reason--strong">缺少媒体观察，自动补答无法为视频内容生成回复，需要你来判断。</p>
+      <div class="dy-actions"><button class="dy-btn primary" type="button">打开抖音</button><span class="dy-cap">打开后请手动查找原会话核对</span><button class="dy-btn" type="button">结束待答，不再回复</button></div>
+    </div>
+
+    <details class="dy-details"><summary>处理历史 · 今天已自动补答 1 条，人工结束 0 条（不计入待处理）</summary><div>
+      <p class="dy-rowline"><span class="k">09:40</span><span>薄荷抹茶 · 问候消息 → 已自动回复，平台确认送达</span></p>
+      <p class="dy-reason" style="opacity:.7">历史只保留结果与核对方式，不重复展示正文。</p>
+    </div></details>
+
+    <!-- ★ 核心改动：回复处理记录 —— 不再是 JSON -->
+    <details class="dy-details" open><summary>回复处理记录</summary><div>
+      <p class="dy-kv"><span class="k">恢复队列</span><span>自动恢复中 0 · 等待人工 0 · 可自动恢复 0</span></p>
+      <p class="dy-kv"><span class="k">今日统计</span><span>回复模型请求 4 次 · 分享 1 次 · 暂停会话 0 个</span></p>
+      <div class="dy-card" style="margin-top:6px">
+        <div class="dy-card-top"><h3 class="dy-h3">会话处理情况</h3></div>
+        <div class="dy-perm"><span class="nm">薄荷抹茶</span><span class="dy-chip dy-chip--run"><span class="d" aria-hidden="true"></span>正常接收</span><span class="dy-grow"></span><span class="dy-cap">待答 2 条 · 检查 14:32:05</span></div>
+        <div class="dy-perm"><span class="nm">山栀的群</span><span class="dy-chip dy-chip--retry"><span class="d" aria-hidden="true"></span>等待身份重新核对</span><span class="dy-grow"></span><span class="dy-cap">需要重新读取联系人确认</span></div>
+      </div>
+      <div class="dy-card" style="margin-top:6px">
+        <div class="dy-card-top"><h3 class="dy-h3">最近事件</h3><span class="dy-grow"></span><span class="dy-cap">最多保留 20 条</span></div>
+        <p class="dy-rowline"><span class="k">14:32</span><span>生成回复 → 完成（等待发送核对）</span></p>
+        <p class="dy-rowline"><span class="k">14:30</span><span>读取会话 → 正常</span></p>
+        <p class="dy-rowline"><span class="k">14:26</span><span>生成回复 → 服务超时，已加入自动恢复</span></p>
+      </div>
+      <details class="dy-details" style="margin-top:6px"><summary>复制原始数据（排查用，不会展示）</summary><div>
+        <p class="dy-reason">点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用；界面上不再直接铺代码。</p>
+        <div class="dy-actions"><button class="dy-btn" type="button" onclick="this.textContent='已复制（演示）'">复制原始数据</button></div>
+      </div></details>
+    </div></details>
+
+    <details class="dy-details"><summary>最近分享记录</summary><div>
+      <p class="dy-rowline"><span class="k">13:20</span><span>作品 11111 → 已确认送达</span></p>
+      <p class="dy-rowline"><span class="k">12:05</span><span>作品 22222 → 未发出（分享面板未打开）</span></p>
+    </div></details>
+  </div>
+</div></div>
+
+<!-- ================= ③ 自检与用量（浅色） ================= -->
+<h2 class="demo">③ 自检结果卡片化（替代 JSON 文本框）</h2>
+<div class="dialog"><div class="dialog-body">
+  <div class="dy-panel">
+    <div class="dy-card">
+      <div class="dy-card-top"><span class="dy-mark ok" aria-hidden="true">✓</span><strong style="font-size:13px">本机服务</strong><span class="dy-grow"></span><span class="dy-cap">接口与用量记录可读写</span></div>
+      <div class="dy-card-top"><span class="dy-mark warn" aria-hidden="true">!</span><strong style="font-size:13px">静默观看窗口</strong><span class="dy-grow"></span><span class="dy-cap">当前窗口仍显示，未最小化</span></div>
+      <div class="dy-actions"><button class="dy-btn" type="button">应用修复：重新应用静默设置</button></div>
+      <p class="dy-reason">修复建议：点击上面的按钮，重新最小化窗口并核对状态。</p>
+      <div class="dy-card-top"><span class="dy-mark ok" aria-hidden="true">✓</span><strong style="font-size:13px">模型请求额度</strong><span class="dy-grow"></span><span class="dy-cap">今日已用 2 / 30 次</span></div>
+    </div>
+    <div class="dy-actions"><button class="dy-btn" type="button">重新运行自检</button><button class="dy-btn" type="button" onclick="this.textContent='已复制（演示）'">复制完整报告</button></div>
+  </div>
+</div></div>
+
+<!-- ================= 暗色变体 ================= -->
+<h2 class="demo">④ 同一套 dy-* 在暗色主题下的自动适配（令牌换值，结构不变）</h2>
+<div class="theme-dark"><div class="dialog"><div class="dialog-body">
+  <div class="dy-statusline" role="status">
+    <span class="dy-seg"><span class="dy-dot" aria-hidden="true"></span><span class="dy-num">在线 · 回复中</span><span class="dy-cap">好友互动</span></span>
+    <span class="dy-sep" aria-hidden="true"></span>
+    <span class="dy-seg"><span class="dy-dot warn" aria-hidden="true"></span><span class="dy-num">2</span><span class="dy-cap">自动恢复中</span></span>
+    <span class="dy-sep" aria-hidden="true"></span>
+    <span class="dy-seg"><span class="dy-dot err" aria-hidden="true"></span><span class="dy-num">1</span><span class="dy-cap">已转人工</span></span>
+    <span class="dy-time">更新于 14:32:08</span>
+  </div>
+  <div class="dy-card" style="margin-top:10px">
+    <div class="dy-card-top"><span class="dy-chip dy-chip--missing"><span class="d" aria-hidden="true"></span>已转人工处理</span><span class="dy-grow"></span><span class="dy-cap">薄荷抹茶</span><span class="dy-at">13:47 到达</span></div>
+    <p class="dy-summary">「（分享了一条视频）」</p>
+    <p class="dy-reason dy-reason--strong">缺少媒体观察，自动补答无法为视频内容生成回复，需要你来判断。</p>
+    <div class="dy-actions"><button class="dy-btn primary" type="button">打开抖音</button><span class="dy-cap">打开后请手动查找原会话核对</span><button class="dy-btn" type="button">结束待答，不再回复</button></div>
+  </div>
+  <details class="dy-details" style="margin-top:8px" open><summary>回复处理记录</summary><div>
+    <p class="dy-kv"><span class="k">恢复队列</span><span>自动恢复中 0 · 等待人工 0 · 可自动恢复 0</span></p>
+    <p class="dy-rowline"><span class="k">14:32</span><span>生成回复 → 完成（等待发送核对）</span></p>
+    <details class="dy-details" style="margin-top:4px"><summary>复制原始数据（排查用，不会展示）</summary><div>
+      <div class="dy-actions"><button class="dy-btn" type="button">复制原始数据</button></div>
+    </div></details>
+  </div></details>
+</div></div></div>
+
+</div>
+</body>
+</html>

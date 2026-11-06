@@ -100,8 +100,8 @@ test('UnansweredSection 合成待答卡片挂载渲染：支持 onOpenDouyin 传
   assert.match(fallbackText, /打开抖音核对/);
   assert.match(fallbackText, /打开抖音后请手动查找原会话核对/);
 
-  // 4. 统计与缓存提示渲染断言（对齐顶部展示）
-  assert.match(fullText, /待答\s*1\s*条/);
+  // 4. 统计与缓存提示渲染断言（对齐顶部展示；dy-card-top 行内文本节点间有空白，用宽松匹配）
+  assert.match(fullText, /待答消息\s*·\s*1\s*条/);
   assert.match(fullText, /显示的是.*的缓存数据/);
 });
 

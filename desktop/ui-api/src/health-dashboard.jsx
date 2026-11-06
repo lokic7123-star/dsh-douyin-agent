@@ -71,9 +71,21 @@ export function HealthDashboard({ api, run, busy, connected }) {
     <div className="actions"><Button disabled={!connected || busy.has('diagnostics')} onClick={() => { void run('diagnostics', async () => { setRepairResult(''); setDiagnostics(await api('/api/diagnostics', {})); await refresh(); }); }}>{busy.has('diagnostics') ? '正在检查或修复…' : '一键自检'}</Button><Button disabled={!connected} onClick={() => { void refresh(); }}>刷新用量</Button></div>
     <p className="muted" role="status">{updatedAt ? `上次更新：${new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '正在读取用量…'}{refreshing ? ' · 正在刷新' : ''} · 连接时每1.5秒刷新</p>
     <p className="notice" role="status">{Number(usage?.inProgress?.total || 0) > 0 ? `${number(usage.inProgress.total)}个请求中，Token待平台返回。` : '每次模型响应完成后更新Token，不必等整轮观看结束。'} 未返回用量的请求不能当作零消耗。</p>
-    {error && <p role="alert">{error}</p>}{diagnostics && <section className="persona-records"><h2>自检结果</h2>{diagnostics.checks.map(item => <div key={item.id}><p><Tag>{{ pass: '通过', warning: '待核对', fail: '未通过' }[item.status]}</Tag> <strong>{item.label}</strong> · {item.message} <small>{item.code}</small></p>{item.resolution?.steps?.map((step, index) => <p className="muted" key={index}>{step}</p>)}</div>)}
+    {error && <p role="alert">{error}</p>}{diagnostics && <section className="persona-records"><h2>自检结果</h2>
+      {/* 自检结果逐项卡片（dy-* 体系），替代原 JSON 文本框；完整报告保留「复制」入口。 */}
+      <div className="dy-panel">{diagnostics.checks.map(item => <div className="dy-card" key={item.id}>
+        <div className="dy-card-top">
+          <span className={`dy-mark ${item.status === 'pass' ? 'ok' : item.status === 'warning' ? 'warn' : 'err'}`} aria-hidden="true">{item.status === 'pass' ? '✓' : item.status === 'warning' ? '!' : '×'}</span>
+          <span className="dy-num" style={{ fontSize: 13 }}>{item.label}</span>
+          <span className="dy-grow" />
+          <span className="dy-cap">{{ pass: '通过', warning: '待核对', fail: '未通过' }[item.status]}</span>
+        </div>
+        <p className="dy-reason">{item.message}{item.code ? `（${item.code}）` : ''}</p>
+        {(item.resolution?.steps || []).map((step, index) => <p className="dy-reason" key={index}>{step}</p>)}
+      </div>)}</div>
       {(diagnostics.repairableActions || []).map(action => <Button key={action.id} disabled={!connected || busy.has('diagnostics')} onClick={() => { void run('diagnostics', async () => { const result = await api('/api/diagnostics/repair', { reportId: diagnostics.reportId, action: action.id }); setDiagnostics(result.after); setRepairResult(result.message); }); }}>修复：{action.label}</Button>)}
-      {repairResult && <p role="status">{repairResult}</p>}<p className="muted">{diagnostics.note}</p><details><summary>查看或复制诊断报告</summary><textarea aria-label="诊断报告" readOnly rows={12} value={JSON.stringify(diagnostics, null, 2)} /></details></section>}
+      {repairResult && <p role="status">{repairResult}</p>}<p className="muted">{diagnostics.note}</p>
+      <div className="dy-actions"><Button size="sm" variant="outline" onClick={() => { void navigator.clipboard?.writeText(JSON.stringify(diagnostics, null, 2)).catch(() => {}); }}>复制完整报告</Button><span className="dy-cap">完整报告（含原始数据）只进剪贴板，不在界面铺开。</span></div></section>}
     {usage && <><section className="persona-records"><h2>今日用量 · {usage.date}</h2><div className="usage-grid">{[['模型响应', 'requests'],['已报告 Token', 'totalTokens'],['输入 Token', 'promptTokens'],['输出 Token', 'completionTokens'],['缓存命中 Token', 'cachedTokens'],['用量未知的响应', 'unknownRequests']].map(([label, key]) => <div className="interest-card" key={key}><small>{label}</small><h2>{key === 'cachedTokens' && !usage.today.cacheReportedRequests ? '未报告' : number(usage.today[key])}</h2></div>)}</div></section>
       <section className="persona-records"><h2>{usage.period} · {number(usage.total.totalTokens)} Token</h2><div className="usage-scroll"><table><thead><tr><th>入口 / 用途</th><th>模型</th><th>响应数</th><th>已报告 Token</th><th>未知用量</th></tr></thead><tbody>{usage.groups.map((item, index) => <tr key={index}><td>{item.source === 'dsh' ? '插件' : '软件'} / {kinds[item.kind]}</td><td>{item.model}</td><td>{number(item.requests)}</td><td>{number(item.totalTokens)}</td><td>{number(item.unknownRequests)}</td></tr>)}</tbody></table></div>{!usage.groups.length && <p className="muted">暂时没有本版记录。</p>}<p className="muted">{usage.note}</p>{usage.damagedRecords > 0 && <p role="alert">有异常记录，请运行自检。原记录已保留。</p>}</section>
       <section className="persona-records"><h2>按日记录</h2>{usage.days.slice().reverse().map(item => <p key={item.date}>{item.date} · {number(item.requests)} 次响应 · {number(item.totalTokens)} Token · {item.unknownRequests} 次用量未知</p>)}</section></>}
