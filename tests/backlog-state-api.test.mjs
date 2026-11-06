@@ -173,4 +173,20 @@ test('终审 P1 表驱动反例：混合记录（needs-manual + 文字 targetSta
   assert.equal(mapDerived.backlogState,'needs-manual');
   assert.ok(!mapDerived.availableActions.includes('end'),'mapping-stale 伴随 delivery-uncertain 绝不得提供 end');
   assert.deepEqual(mapDerived.availableActions,['open-chat']);
+
+  // 逻辑纠偏反例 1：纯媒体待答伴随 delivery-uncertain 时，progressNote 不得包含“文字部分”虚假说明
+  const pureMediaUncertain=archiveRecord(messages,{id:'pure-media-unc',targetIds:['v'],phase:'delivery-uncertain',extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString()}});
+  const pureMediaDerived=deriveBacklogState(pureMediaUncertain,{});
+  assert.equal(pureMediaDerived.backlogState,'needs-manual');
+  assert.ok(!pureMediaDerived.availableActions.includes('end'),'纯媒体未决绝不得提供 end');
+  assert.ok(!pureMediaDerived.progressNote.includes('文字部分'),'纯媒体待答无文字，progressNote 不得包含“文字部分”');
+  assert.match(pureMediaDerived.progressNote,/媒体内容.*无法重看画面/);
+
+  // 逻辑纠偏反例 2：纯文字身份核对失败（identity-unverifiable）伴随未决文字时，progressNote 不得包含“媒体部分已转人工”
+  const idTextUncertain=archiveRecord(messages,{id:'id-text-unc',targetIds:['t'],extra:{needsManual:true,needsManualReason:'identity-unverifiable',needsManualAt:new Date().toISOString(),targetStates:[{messageId:'t',state:'uncertain',at:new Date().toISOString(),text:'文字'}]}});
+  const idTextDerived=deriveBacklogState(idTextUncertain,{});
+  assert.equal(idTextDerived.backlogState,'needs-manual');
+  assert.ok(!idTextDerived.availableActions.includes('end'),'纯文字身份失效待答无媒体，progressNote 不得出现“媒体部分已转人工”');
+  assert.ok(!idTextDerived.progressNote.includes('媒体部分已转人工'),'纯文字身份失效待答无媒体，progressNote 不得出现“媒体部分已转人工”');
+  assert.match(idTextDerived.progressNote,/身份凭据无法与当前会话核对/);
 });

@@ -78,9 +78,9 @@ export function deriveBacklogState(record,{queue,escalated=false}={}){
     // 待文字目标全部核对完成（confirmed/zero-click 等终态）且无其他发送不明证据后，恢复整条人工结束。
     if(isUncertain){
       const pendingTextState=(record.targetStates??[]).find(item=>['reserved','uncertain'].includes(item.state));
-      const note=pendingTextState||record.needsManualReason==='media-unobservable'
+      const note=record.needsManualReason==='media-unobservable'&&pendingTextState
         ?'媒体部分已转人工；文字部分发送结果未确认，只读回核对，不会自动重发——文字核对完成前不能整条结束。'
-        :`${needsManualReasonText[record.needsManualReason]} 发送结果未确认，只读回核对，不会自动重发——人工核实送达前不能整条结束。`;
+        :`${needsManualReasonText[record.needsManualReason]} 发送结果未确认，只读回核对，不会自动重发——${pendingTextState?'文字核对完成':'人工核实送达'}前不能整条结束。`;
       const blocker=record.autoAttempt?.state==='uncertain'||pendingTextState?'readback-uncertain':'delivery-uncertain';
       return{backlogState:'needs-manual',progressNote:note,availableActions:['open-chat'],blockerCode:blocker,attempts:0,textReadbackPending:Boolean(pendingTextState)};
     }

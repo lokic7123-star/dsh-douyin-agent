@@ -242,6 +242,7 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
   return <section className="unanswered-section" aria-label="遗留待处理消息">
     {count > 0 && <Note error>待答 {count} 条：自动恢复中 {groups?.autoRecovering ?? 0} · 需人工核对 {(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。{checkedAt ? ` 数据更新于 ${checkedAt}。` : ''}</Note>}
     {stale && <Note>显示的是 {checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。</Note>}
+    {error && <Note error>{error}</Note>}
     {(list?.items || []).map(item => {
       const st = state(item), escalate = item.escalated === true, done = marks.has(item.recordId) || busy.has(`unanswered-${item.recordId}`);
       const actions = Array.isArray(item.availableActions) ? item.availableActions : ['open-chat'];
@@ -261,7 +262,6 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
         {(item.attempts > 0 || item.retryCount > 0 || item.blockerCode) && <details><summary>详情</summary><p className="muted">记录字段：backlogState={st} · blockerCode={item.blockerCode || '无'} · attempts={item.attempts ?? 0} · retryCount={item.retryCount ?? 0}{escalate ? ' · escalated=true' : ''}</p>{item.reason && item.reason !== reason && <p className="muted">{item.reason}</p>}<p className="muted">本地保留的文字预览仅用于核对；不会自动补发。</p></details>}
       </div>;
     })}
-    {error && <Note error>{error}</Note>}
     {list && count === 0 && <Note>没有遗留待处理消息。</Note>}
     {!list && !error && <p className="muted">正在读取遗留待处理消息…</p>}
   </section>;
