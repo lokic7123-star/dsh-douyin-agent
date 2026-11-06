@@ -1,5 +1,7 @@
 # 项目交接卡 (HANDOFF)
 
+> **2026-11-06 会话收口（只追加不覆盖）**：**fix: 闭环待答五态服务端指纹、结案拦截与跨端缓存一致性**——① **问题/目标**：闭环待答五态细粒度指纹、非法结案拦截、防幽灵回弹与样稿文案一致性；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：chat-service 暴露细粒度 unansweredFingerprint 并在 endUnanswered 校验 end 权限；client.js 与 main.jsx 统一锁键 browser、对接指纹与更新 cacheRef；文档样稿对齐打开抖音；④ **结果**：提交 df213f2 已入库；物理门禁 [node --test tests/backlog-state-api.test.mjs tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
+
 > **2026-11-06 会话收口（只追加不覆盖）**：**fix: 修复 chat-service.mjs, main.jsx, unanswered-panel.test.mjs 等 4 个文件 中的逻辑缺陷**——① **问题/目标**：完成 fix: 修复 chat-service.mjs, main.jsx, unanswered-panel.test.mjs 等 4 个文件 中的逻辑缺陷；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：提交 e560b5d（变更 chat-service.mjs, main.jsx, unanswered-panel.test.mjs, backlog-state-api.test.mjs）；④ **结果**：提交 e560b5d 已入库；物理门禁 [node --test tests/backlog-state-api.test.mjs tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
 
 > **2026-11-06 会话收口（只追加不覆盖）**：**fix: 修复 UnansweredSection 异常与逻辑缺陷**——① **问题/目标**：完成 fix: 修复 UnansweredSection 异常与逻辑缺陷；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：提交 421d80b（变更 chat-service.mjs, client.js, main.jsx, backlog-state-api.test.mjs 等 5 个文件）；④ **结果**：提交 421d80b 已入库；物理门禁 [node --test tests/backlog-state-api.test.mjs tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
