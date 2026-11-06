@@ -164,7 +164,7 @@ function AudioPanel({ state, api, run, busy, bridge, operationActive }) {
   </Panel>;
 }
 
-function FriendInteractionPanel({ state, interactions, share, api, run, busy, configured, connected = true }) {
+function FriendInteractionPanel({ state, interactions, share, api, run, busy, configured, connected = true, onOpenDouyin }) {
   const [contacts, setContacts] = useState(null), [discovery, setDiscovery] = useState(null), [switchError, setSwitchError] = useState(''), [switchStatus, setSwitchStatus] = useState('');
   const changing = useRef(false), pending = useRef(null), existingAuthorization = useRef(false), enabled = interactions?.policy?.enabled === true;
   const read = snapshot => ({ recipientIds: (snapshot?.policy?.allowlist || []).map(item => item.id), allowConversationOnly: existingAuthorization.current || (snapshot?.policy?.allowlist || []).some(item => ['existing-conversation', 'existing-group'].includes(item.authorizationKind)), groupMentionNamesText: (snapshot?.policy?.groupMentionNames || ['大肥鱼']).join('\n') });
@@ -209,12 +209,21 @@ function FriendInteractionPanel({ state, interactions, share, api, run, busy, co
 // 待答五态（与后端 deriveBacklogState 对齐；与 client.js 的 STATE_LABELS 保持同构，差异：这里走 /api 前缀路由与 run() 包装）。
 const STATE_LABELS = { replying: '自动补答中', retrying: '等待自动恢复', 'needs-manual': '已转人工处理', uncertain: '发送结果不明', resolved: '已结束' };
 function UnansweredSection({ api, run, busy, connected, allowlist, workerActive }) {
-  const [list, setList] = useState(null), [error, setError] = useState(''), [marks, setMarks] = useState(new Set());
+  const [list, setList] = useState(null), [error, setError] = useState(''), [marks, setMarks] = useState(new Set()), [stale, setStale] = useState(false);
+  // P2-3 跨挂载缓存：desktop 是长驻 Electron 页面，设置分类切换会卸载本组件——用模块级变量保存上次真实列表，
+  // 重新进入分类立即呈现（含「数据更新于 HH:MM:SS」），后台刷新成功即替换；不用 sessionStorage（Electron 会话过长，待答是短生命周期状态）。
+  const cacheRef = UnansweredSection.cache || (UnansweredSection.cache = { value: null });
+  const fingerprint = (list?.items || []).map(item => `${item.backlogState ?? ''}${item.escalated ? '!' : ''}`).join(',') + `#${list?.count ?? 0}`;
   useEffect(() => {
     if (!connected) return; let alive = true;
-    void api('/api/chat/unanswered').then(value => { if (alive && value?.protocol === 'chat-unanswered-v2') { setList(value); setError(''); } }).catch(failure => { if (alive) setError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
-    return () => { alive = false; };
-  }, [connected, allowlist.length]);
+    if (!list && cacheRef.value) { setList(cacheRef.value); setStale(true); }
+    // P2-1 状态指纹 + 30s 轻量兜底重拉（与 1.5s 状态轮询错开）：总数不变、状态变化也能触发更新。
+    const load = () => { void api('/api/chat/unanswered').then(value => { if (alive && value?.protocol === 'chat-unanswered-v2') { setList(value); setError(''); setStale(false); cacheRef.value = value; } }).catch(failure => { if (alive) setError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); }); };
+    load();
+    const slow = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(slow); };
+  }, [connected, allowlist.length, fingerprint]);
+  const checkedAt = list?.checkedAt ? new Date(list.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
   const count = list?.count ?? 0;
   async function endUnanswered(recordId, snapshot) {
     setMarks(old => new Set([...old, recordId]));
@@ -231,19 +240,21 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive 
   const groups = list?.groups;
   const state = item => item.backlogState || 'retrying';
   return <section className="unanswered-section" aria-label="遗留待处理消息">
-    {count > 0 && <Note error>待答 {count} 条：自动恢复中 {groups?.autoRecovering ?? 0} · 需人工核对 {(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。</Note>}
+    {count > 0 && <Note error>待答 {count} 条：自动恢复中 {groups?.autoRecovering ?? 0} · 需人工核对 {(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。{checkedAt ? ` 数据更新于 ${checkedAt}。` : ''}</Note>}
+    {stale && <Note>显示的是 {checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。</Note>}
     {(list?.items || []).map(item => {
-      const st = state(item), escalate = item.escalated === true, done = marks.has(item.recordId), inFlight = busy.has(`unanswered-${item.recordId}`);
+      const st = state(item), escalate = item.escalated === true, done = marks.has(item.recordId) || busy.has(`unanswered-${item.recordId}`);
       const actions = Array.isArray(item.availableActions) ? item.availableActions : ['open-chat'];
       const reason = item.progressNote || item.reason || '';
       return <div className="paused-contact" key={item.recordId}>
         <strong>{done ? '正在处理' : STATE_LABELS[st] || '等待自动恢复'} · {item.contactName}{item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false })}` : ''}{item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}</strong>
         <p>{item.preview ? `「${item.preview.slice(0, 40)}」` : item.previewNote || '（没有可显示的文字正文）'}</p>
         <p className={escalate || st === 'needs-manual' ? '' : 'muted'}>{escalate && st === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason}</p>
-        {done || inFlight ? <p role="status">正在处理，请等待结果回读。</p> : <div className="actions">
-          {actions.includes('open-chat') && <span className="muted">打开原会话核对</span>}
+        {done ? <p role="status">正在处理，请等待结果回读。</p> : <div className="actions">
+          {actions.includes('open-chat') && (onOpenDouyin ? <Button size="sm" variant="outline" disabled={busy.has('browserOpen')} onClick={onOpenDouyin}>打开原会话</Button> : <span className="muted">打开原会话核对</span>)}
           {actions.includes('retry-now') && <Button size="sm" variant="outline" disabled={!connected || workerActive || busy.has(`recheck-${item.recordId}`)} onClick={() => { void run(`recheck-${item.recordId}`, () => retryUnanswered(item.recordId)); }}>安全重新检查</Button>}
-          {actions.includes('end') && <Button size="sm" variant="outline" disabled={!connected || workerActive || item.canResolve === false} onClick={() => { void run(`unanswered-${item.recordId}`, () => endUnanswered(item.recordId, list.snapshot)); }}>结束待答，不再回复</Button>}
+          {/* 结束待答不在服务运行时禁用：后端有 withChatPaused 协调；保护裁剪只在服务端 availableActions（uncertain 无 end），前端跟随。 */}
+          {actions.includes('end') && <Button size="sm" variant="outline" disabled={!connected || item.canResolve === false} onClick={() => { void run(`unanswered-${item.recordId}`, () => endUnanswered(item.recordId, list.snapshot)); }}>结束待答，不再回复</Button>}
           {st === 'uncertain' && <span className="muted">只读回核对；在原会话核实前不重发。</span>}
         </div>}
         {(item.attempts > 0 || item.retryCount > 0 || item.blockerCode) && <details><summary>详情</summary><p className="muted">记录字段：backlogState={st} · blockerCode={item.blockerCode || '无'} · attempts={item.attempts ?? 0} · retryCount={item.retryCount ?? 0}{escalate ? ' · escalated=true' : ''}</p>{item.reason && item.reason !== reason && <p className="muted">{item.reason}</p>}<p className="muted">本地保留的文字预览仅用于核对；不会自动补发。</p></details>}
@@ -381,7 +392,7 @@ export function App() {
     <StatusSummary connected={connected} configured={configured} watchReady={watchReady} browser={browser} video={video} videoTimeEnabled={boot?.videoTime?.enabled === true} watch={watch} share={share} chat={chat} interactions={interactions} actions={{ openSettings: () => setSettingsOpen(true), openDouyin, openReceipts: () => setReviewOpen(true), openFriends: () => setSettingsCategory('好友互动') }} /><div role="tablist" aria-label="刷抖音设置分类" className="settings-tabs">{Object.keys(SETTINGS_SECTIONS).map(name => <Button key={name} role="tab" aria-selected={settingsCategory === name} size="sm" variant={settingsCategory === name ? 'primary' : 'outline'} onClick={() => setSettingsCategory(name)}>{name}</Button>)}</div>
     {settingsCategory === '基础设置' && <><Panel title="模型设置"><p className="muted">独立软件使用自己的 API Key，设置控件与插件采用同一套 DSH 组件。</p><p>当前模型：{settings.model || '尚未配置'} · {configured ? '已配置 Key' : '尚未配置 Key'}</p><Button size="sm" onClick={() => setSettingsOpen(true)}>配置模型与 API Key</Button></Panel><PersonaPanel snapshot={persona} onSnapshot={setPersona} api={api} run={run} bridge={bridge} busy={busy} watchState={watch} watchReady={watchReady} /><details><summary>检索共享记忆</summary><MemoryView settings={settings} api={api} run={run} busy={busy} bridge={bridge} /></details></>}
     {settingsCategory === '视频观看' && <><TopicPanel state={watch?.options} active={watchActive} api={api} run={run} busy={busy} connected={connected && watchReady} /><VideoPanel state={video} schedule={schedule} watch={watch} api={api} run={run} busy={busy} connected={connected} configured={configured}>{boot?.mode?.available && <SilentPanel state={mode} connected={connected} api={api} run={run} busy={busy} />}</VideoPanel><TaskBudgetPanel state={taskLimits} api={api} run={run} busy={busy} operationActive={operationActive} /></>}
-    {settingsCategory === '好友互动' && <FriendInteractionPanel state={chat} interactions={interactions} share={share} api={api} run={run} busy={busy} configured={configured} connected={connected} />}
+    {settingsCategory === '好友互动' && <FriendInteractionPanel state={chat} interactions={interactions} share={share} api={api} run={run} busy={busy} configured={configured} connected={connected} onOpenDouyin={openDouyin} />}
     {settingsCategory === '公开评论' && <CommentsPanel state={comments} connected={connected} api={api} run={run} busy={busy} />}
     {settingsCategory === '音频与密钥' && <AudioPanel state={audio} api={api} run={run} busy={busy} bridge={bridge} operationActive={operationActive} />}
     {settingsCategory === '观看日报' && <ReportsView connected={connected} api={api} run={run} busy={busy} />}

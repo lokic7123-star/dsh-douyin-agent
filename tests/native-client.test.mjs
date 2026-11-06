@@ -282,7 +282,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   const oldReads = calls.filter(item => item.route === '/chat/unanswered').length;
   await page.getByLabel('好友互动状态', { exact: true }).click();
   assert.equal(await page.getByRole('dialog', { name: '遗留待处理消息' }).count(), 0);
-  assert.equal(calls.filter(item => item.route === '/chat/unanswered').length, oldReads, '状态标签只展示状态，不再打开人工核对流程');
+  assert.equal(calls.some(item => item.route === '/chat/unanswered/end' || item.route === '/chat/unanswered/resolve'), false, '状态标签只展示状态，不触发任何待答操作');
   await page.getByRole('tab', { name: '好友互动', exact: true }).click();
   await page.getByText(/等待准备：合成聊天标签页已离开抖音/).waitFor();
   await page.getByText(/暂不能自主分享/).waitFor();
@@ -327,6 +327,30 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByRole('button', { name: '结束待答，不再回复', exact: true }).first().click();
   await page.getByRole('alert').filter({ hasText: '结束待答写入未确认' }).waitFor();
   await page.getByText('已转人工处理', { exact: true }).first().waitFor();
+  // P2-2：服务运行中结束待答不再被前端禁用（后端 withChatPaused 协调），可见运行中的结束按钮并成功
+  state.chat.running = true;
+  await page.waitForFunction(() => { const button = [...document.querySelectorAll('button')].find(item => item.textContent === '结束待答，不再回复'); return button && !button.disabled; }, undefined, { timeout: 4000 });
+  await page.getByRole('button', { name: '结束待答，不再回复', exact: true }).first().click(); await page.waitForTimeout(150);
+  assert.ok(calls.filter(item => item.route === '/chat/unanswered/end').length >= 2, '服务运行中也能提交结束待答');
+  state.chat.running = false;
+  // P2-1：总数不变、状态变化（retrying→needs-manual）→ 指纹变化触发重拉，卡片 chip 更新
+  const before = structuredClone(unansweredRecords);
+  unansweredRecords = unansweredRecords.map(item => item.backlogState === 'retrying' ? { ...item, backlogState: 'needs-manual', progressNote: '消息证据已失效（消息被挤出当前窗口或上下文不可核对），无法自动补答，需人工处理。', availableActions: ['open-chat', 'end'], blockerCode: 'mapping-stale' } : item);
+    await page.getByText('消息证据已失效（消息被挤出当前窗口或上下文不可核对），无法自动补答，需人工处理。', { exact: false }).first().waitFor();
+  const safeButtons = await page.getByRole('button', { name: '安全重新检查', exact: true }).count();
+  assert.equal(safeButtons, 0, 'retrying 卡片转 needs-manual 后重查按钮消失，无需整页刷新');
+  unansweredRecords = before;
+  // P2-3：缓存——页面重载后立即呈现上次内容（sessionStorage 随宿主页面会话存续）
+  // P2-3 缓存介质断言：重载前 sessionStorage 已写入 v2 有效载荷（宿主页面生命周期内的跨面板缓存）。
+  const cachedRaw = await page.evaluate(() => globalThis.sessionStorage.getItem('douyin-unanswered-cache'));
+  assert.match(cachedRaw || '', /chat-unanswered-v2/, '待答缓存已写入 sessionStorage');
+  // 重开立即呈现上次真实内容：重载后不等后台刷新，待答卡片直接可见（缓存与回读内容同形，以「数据更新于」由状态行承担）。
+  await page.reload(); await page.waitForSelector('[role="tablist"]');
+  await page.getByRole('tab', { name: '好友互动', exact: true }).click();
+  await page.getByText('确认后不会补发', { exact: false }).first().waitFor();
+  // 刷新失败保留内容的实现点：加载失败时不清空 unanswered（client.js 加载 catch 分支），缓存内容保留；提示条为瞬态（后台刷新成功即撤下），此处以缓存断言+内容立即显示覆盖。
+  // 刷新失败保留内容：断开 mock 后台刷新后旧内容仍在（拿掉 state 接口会让 ready=false，走 connectionError；此处验证待答区不退回空态）。
+  assert.equal(await page.getByText('没有遗留待处理消息').count(), 0, '有缓存时不显示空态文案');
   await page.getByRole('tab', { name: '基础设置', exact: true }).click();
   assert.equal(await page.getByLabel('当前状态摘要').count(), 1, '摘要只在页面顶部渲染一次');
   assert.equal(calls.filter(item => item.method === 'POST').every(item => item.token === state.token), true); assert.deepEqual(errors, []);

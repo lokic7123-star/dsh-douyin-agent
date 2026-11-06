@@ -187,19 +187,32 @@ window.__ModuleLoader__.load({
       const STATE_LABELS = { replying: '自动补答中', retrying: '等待自动恢复', 'needs-manual': '已转人工处理', uncertain: '发送结果不明', resolved: '已结束' };
       const STATE_CHIP = { replying: 'run', retrying: 'retry', 'needs-manual': 'missing', uncertain: 'uncertain' };
       const chatActive = Boolean(active(state?.chat));
-      const [unanswered, setUnanswered] = useState(null), [unansweredError, setUnansweredError] = useState('');
+      // P2-3 跨面板生命周期缓存：client.js 跑在 DSH 宿主页面里，sessionStorage 随宿主页面会话存续——
+      // 重开设置面板立即呈现上次真实内容，数据仍以接口回读为准（展示用缓存，不用于放行任何操作）。
+      // 不用 localStorage：待答是短生命周期状态，跨 DSH 重启展示旧数据弊大于利。
+      const CACHE_KEY = 'douyin-unanswered-cache';
+      const readCache = () => { try { const value = JSON.parse(globalThis.sessionStorage?.getItem(CACHE_KEY) || 'null'); return value && value.protocol === 'chat-unanswered-v2' ? value : null; } catch { return null; } };
+      const writeCache = value => { try { if (value) globalThis.sessionStorage?.setItem(CACHE_KEY, JSON.stringify(value)); } catch { /* 隐私模式等存不进就不缓存，行为退回直连。 */ } };
+      const [unanswered, setUnanswered] = useState(null), [unansweredError, setUnansweredError] = useState(''), [stale, setStale] = useState(false);
+      // P2-1 状态指纹：unansweredCount+chatActive 之外再加 items 的 backlogState+escalated 拼接，
+      // 总数不变、状态变化（如补答完成转结案、升级提示置位）也能触发重拉；
+      // 另加 30s 轻量兜底重拉（与 2.5s 状态轮询错开，避免每拍都打待答接口），拿不到指纹时也有兜底。
+      const stateFingerprint = (unanswered?.items || []).map(item => `${item.backlogState ?? ''}${item.escalated ? '!' : ''}`).join(',') + `#${unanswered?.count ?? 0}`;
       useEffect(() => {
         if (!ready) return; let aliveView = true;
-        void api.request('/chat/unanswered').then(value => { if (aliveView && value?.protocol === 'chat-unanswered-v2') { setUnanswered(value); setUnansweredError(''); } }).catch(failure => { if (aliveView) setUnansweredError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); });
-        return () => { aliveView = false; };
-      }, [api, ready, state?.chat?.unansweredCount, chatActive]);
+        if (!unanswered) { const cached = readCache(); if (cached) { setUnanswered(cached); setStale(true); } }
+        const load = () => { void api.request('/chat/unanswered').then(value => { if (aliveView && value?.protocol === 'chat-unanswered-v2') { setUnanswered(value); setUnansweredError(''); setStale(false); writeCache(value); } }).catch(failure => { if (aliveView) { setUnansweredError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); if (!readCache()) setStale(false); } }); };
+        load();
+        const slow = setInterval(load, 30_000);
+        return () => { aliveView = false; clearInterval(slow); };
+      }, [api, ready, state?.chat?.unansweredCount, chatActive, stateFingerprint]);
       const workerActive = chatActive;
       const cardKey = recordId => `unanswered:${recordId.slice(0, 8)}`;
       const endUnanswered = (recordId, snapshot) => perform(cardKey(recordId), async () => {
-        const value = await api.request('/chat/unanswered/end', { recordIds: [recordId], snapshot }); setUnanswered(value.unanswered || null); setUnansweredError(''); return value;
+        const value = await api.request('/chat/unanswered/end', { recordIds: [recordId], snapshot }); setUnanswered(value.unanswered || null); setUnansweredError(''); setStale(false); writeCache(value.unanswered || null); return value;
       });
       const retryUnanswered = recordId => perform(`recheck:${recordId.slice(0, 8)}`, async () => {
-        const value = await api.request('/chat/unanswered/retry', { recordIds: [recordId] }); setUnanswered(value.unanswered || null); setUnansweredError(''); return value;
+        const value = await api.request('/chat/unanswered/retry', { recordIds: [recordId] }); setUnanswered(value.unanswered || null); setUnansweredError(''); setStale(false); writeCache(value.unanswered || null); return value;
       });
       // 五态卡片：chip + 一行摘要 + 一句原因 + 按态按钮（availableActions 由服务端裁剪）；细节收进「详情」。
       const unansweredCard = item => {
@@ -215,16 +228,22 @@ window.__ModuleLoader__.load({
           h('p', { style: { ...muted, color: 'var(--dsw-alias-label-primary)', margin: 0, overflowWrap: 'anywhere' } }, summary),
           h('p', { style: { ...muted, ...(escalate || state === 'needs-manual' ? { color: 'var(--dsw-alias-label-primary)' } : {}), margin: 0, overflowWrap: 'anywhere' } }, escalate && state === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason),
           h('div', { style: row },
-            actions.includes('open-chat') && h('span', { style: muted }, '打开原会话核对'), // 原会话入口由抖音侧承担，面板只给提示文案；如需直达链接由后端补 href。
+            actions.includes('open-chat') && button('打开原会话', `openChat:${item.recordId.slice(0, 8)}`, () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false), // 打开专用浏览器到抖音消息页；会话级直达链接后端尚无 href，先给面板内可达入口。
             actions.includes('retry-now') && button('安全重新检查', `recheck:${item.recordId.slice(0, 8)}`, () => { void retryUnanswered(item.recordId); }, workerActive),
-            actions.includes('end') && !done && button('结束待答，不再回复', key, () => { void endUnanswered(item.recordId, unanswered.snapshot); }, workerActive || item.canResolve === false),
+            // 结束待答不在运行时禁用：后端 endUnanswered 有 withChatPaused(resume:'preserve') 协调运行中写入；
+            // 保留的保护裁剪只在服务端 availableActions（uncertain 态无 end、混合记录文字目标未核对完不给 end），前端跟随不再造禁用。
+            actions.includes('end') && !done && button('结束待答，不再回复', key, () => { void endUnanswered(item.recordId, unanswered.snapshot); }, item.canResolve === false),
             done && note('正在结束待答…'),
             state === 'uncertain' && h('span', { style: muted }, '只读回核对；在原会话核实前不重发。')),
           (item.attempts > 0 || item.retryCount > 0 || item.blockerCode) && h('details', null, h('summary', null, '详情'), h('div', null, note(`记录字段：backlogState=${state} · blockerCode=${item.blockerCode || '无'} · attempts=${item.attempts ?? 0} · retryCount=${item.retryCount ?? 0}${escalate ? ' · escalated=true' : ''}`), item.reason && item.reason !== reason && note(item.reason), note('本地保留的文字预览仅用于核对；不会自动补发。'))));
       };
       const groups = unanswered?.groups;
+      const checkedAt = unanswered?.checkedAt ? new Date(unanswered.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+      const staleNotice = `显示的是 ${checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。`;
       const unansweredView = !unanswered ? (unansweredError ? [h('p', { role: 'alert', style: muted }, unansweredError)] : []) : [
         unanswered.count > 0 && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-label-primary)' } }, `待答 ${unanswered.count} 条：自动恢复中 ${groups?.autoRecovering ?? 0} · 需人工核对 ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。`),
+        stale && h('p', { role: 'status', style: muted }, staleNotice),
+        staleNotice && !stale && null,
         ...unanswered.items.map(unansweredCard),
       ].filter(Boolean);
       const summary = (() => {
