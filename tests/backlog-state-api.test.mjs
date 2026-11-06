@@ -81,8 +81,8 @@ test('接口出口：/chat/unanswered items 附派生五态与分组计数，sta
 
 test('结束待答全流程：运行中（withChatPaused 协调）与停止两种路径都写入 resolvedVia=panel 并回读确认',async t=>{
   const messages=[textIncoming('a','（合成改写）上下文一'),textIncoming('b','（合成改写）上下文二'),textIncoming('t','（合成改写）纯文字追问')];
-  // 运行中：经 friend-interactions.endUnanswered（withChatPaused）协调后写入
-  const f=await replay(t,{messages,records:[mark=>archiveRecord(messages,{id:'end-run-',targetIds:['t']})]});
+  // 运行中：经 friend-interactions.endUnanswered（withChatPaused）协调后写入（需要是具有 end 权限的 needs-manual 待答）
+  const f=await replay(t,{messages,records:[mark=>archiveRecord(messages,{id:'end-run-',targetIds:['t'],extra:{needsManual:true,needsManualReason:'mapping-stale',needsManualAt:new Date().toISOString()}})]});
   const record=f.mark().unanswered[0];
   const recordId=f.service.unanswered().items[0].recordId;
   // 服务运行中：直接调 service.endUnanswered（control 内协调断言在 friend-interactions 层，此处验证服务端写入+回读）
@@ -100,7 +100,7 @@ test('结束待答全流程：运行中（withChatPaused 协调）与停止两�
 
 test('结束待答运行中写入回读失败保留原态（写盘被拒绝时不得返回成功）',async t=>{
   const messages=[textIncoming('a','（合成改写）上下文一'),textIncoming('b','（合成改写）上下文二'),textIncoming('t','（合成改写）纯文字追问')];
-  const f=await replay(t,{messages,records:[mark=>archiveRecord(messages,{id:'end-verify-',targetIds:['t']})]});
+  const f=await replay(t,{messages,records:[mark=>archiveRecord(messages,{id:'end-verify-',targetIds:['t'],extra:{needsManual:true,needsManualReason:'mapping-stale',needsManualAt:new Date().toISOString()}})]});
   const record=f.mark().unanswered[0];
   const recordId=f.service.unanswered().items[0].recordId;
   // 拦截写盘：save 被外部干扰时回读应失败
@@ -112,6 +112,21 @@ test('结束待答运行中写入回读失败保留原态（写盘被拒绝时�
   const diskRecord=disk.contacts[contact.id].unanswered.find(item=>item.archiveId==='end-verify-');
   assert.equal(diskRecord.resolvedVia,undefined,'失败保留原态（磁盘无标记）');
   assert.equal(diskRecord.handledByUserAt,undefined,'失败不写入半截标记（磁盘）');
+});
+
+test('结束待答权限拦截：发送未决（uncertain）记录调用 endUnanswered 必须被服务端拒绝并报400',async t=>{
+  const messages=[textIncoming('a','（合成改写）上下文一'),textIncoming('t','（合成改写）纯文字追问')];
+  const f=await replay(t,{messages,records:[mark=>archiveRecord(messages,{id:'end-uncertain-',targetIds:['t'],extra:{autoAttempt:{version:1,source:'authorized-unsent-backlog-v1',state:'uncertain'}}})]});
+  const recordId=f.service.unanswered().items[0].recordId;
+  await assert.rejects(
+    f.service.endUnanswered({recordIds:[recordId]}),
+    err=>err.status===400&&/未确认.*不能.*结束/.test(err.message),
+    '未决待答记录必须被服务端拦截结案'
+  );
+  // 数据保留原态，未被结案
+  const disk=JSON.parse(fs.readFileSync(path.join(f.service.stateDir,'chat-watermarks.json'),'utf8'));
+  const diskRecord=disk.contacts[contact.id].unanswered.find(item=>item.archiveId==='end-uncertain-');
+  assert.equal(diskRecord.handledByUserAt,undefined,'被拦截的记录不得被写入结案标记');
 });
 
 test('retry-now 安全重新检查：只更新重查时间与唤醒队列，不触发发送',async t=>{

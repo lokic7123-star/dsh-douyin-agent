@@ -200,7 +200,7 @@ function FriendInteractionPanel({ state, interactions, share, api, run, busy, co
     <AutoSaveStatus status={form.status} />
     <Note>今日回复模型请求 {state?.daily?.requests || 0} 次 · 今日分享 {share?.daily?.attempts || 0} 次。未确认发送会暂停，不自动重发。</Note>
     {(state?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => <div className="paused-contact" key={item.id}><strong>{contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id))}</strong><p>{item.reason || '该会话暂缓处理，状态会继续更新。'}</p>{item.identityReviewRequired === true && <p>请重新读取联系人并确认许可名单；身份未通过前不会发送。</p>}{!(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0) && !(state?.running || state?.starting || state?.busy || state?.worker?.alive) && <div className="actions"><Button size="sm" variant="outline" disabled={!connected || busy.has('chatResolve')} onClick={() => { void run('chatResolve', async () => { const value = await api('/api/chat/resolve', { recipientId: item.id }); setChat(value); }); }}>{busy.has('chatResolve') ? '正在解除…' : '已人工核对，解除暂停'}</Button></div>}</div>)}
-    <UnansweredSection api={api} run={run} busy={busy} connected={connected} allowlist={state?.policy?.allowlist || []} workerActive={state?.running === true || state?.starting === true || state?.busy === true || state?.worker?.alive === true} onOpenDouyin={onOpenDouyin} />
+    <UnansweredSection api={api} run={run} busy={busy} connected={connected} allowlist={state?.policy?.allowlist || []} workerActive={state?.running === true || state?.starting === true || state?.busy === true || state?.worker?.alive === true} onOpenDouyin={onOpenDouyin} unansweredFingerprint={state?.unansweredFingerprint} />
     <div id="share-receipts"><ShareReceipts state={share} api={api} run={run} busy={busy} connected={connected} /></div>
     <details><summary>回复处理记录</summary><Data value={{ recovery: state?.recovery, contacts: (state?.contacts || []).map(item => ({ recovery: item.recovery, reason: item.reason, name: contactName(state?.policy?.allowlist?.find(contact => contact.id === item.id)), status: item.status, pending: Boolean(item.pending), unanswered: item.unanswered?.length || 0 })), events: state?.events || [] }} /></details>
   </Panel>;
@@ -208,7 +208,7 @@ function FriendInteractionPanel({ state, interactions, share, api, run, busy, co
 
 // 待答五态（与后端 deriveBacklogState 对齐；与 client.js 的 STATE_LABELS 保持同构，差异：这里走 /api 前缀路由与 run() 包装）。
 const STATE_LABELS = { replying: '自动补答中', retrying: '等待自动恢复', 'needs-manual': '已转人工处理', uncertain: '发送结果不明', resolved: '已结束' };
-function UnansweredSection({ api, run, busy, connected, allowlist, workerActive, onOpenDouyin }) {
+function UnansweredSection({ api, run, busy, connected, allowlist, workerActive, onOpenDouyin, unansweredFingerprint }) {
   // P2-3 跨挂载缓存：desktop 是长驻 Electron 页面，设置分类切换会卸载本组件——用模块级变量保存上次真实列表，
   // 重新进入分类立即呈现（含「数据更新于 HH:MM:SS」），后台刷新成功即替换；不用 sessionStorage（Electron 会话过长，待答是短生命周期状态）。
   const cacheRef = UnansweredSection.cache || (UnansweredSection.cache = { value: null });
@@ -222,18 +222,18 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
     load();
     const slow = setInterval(load, 30_000);
     return () => { alive = false; clearInterval(slow); };
-  }, [connected, allowlist.length, fingerprint]);
+  }, [connected, allowlist.length, unansweredFingerprint, fingerprint]);
   const checkedAt = list?.checkedAt ? new Date(list.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
   const count = list?.count ?? 0;
   async function endUnanswered(recordId, snapshot) {
     setMarks(old => new Set([...old, recordId]));
-    try { const value = await api('/api/chat/unanswered/end', { recordIds: [recordId], snapshot }); setList(value.unanswered || null); setError(''); }
+    try { const value = await api('/api/chat/unanswered/end', { recordIds: [recordId], snapshot }); setList(value.unanswered || null); setError(''); setStale(false); cacheRef.value = value.unanswered || null; }
     catch (failure) { setError(failure.message || '结束待答未完成，请重试。'); }
     finally { setMarks(old => { const next = new Set(old); next.delete(recordId); return next; }); }
   }
   async function retryUnanswered(recordId) {
     setMarks(old => new Set([...old, recordId]));
-    try { const value = await api('/api/chat/unanswered/retry', { recordIds: [recordId] }); setList(value.unanswered || null); setError(''); }
+    try { const value = await api('/api/chat/unanswered/retry', { recordIds: [recordId] }); setList(value.unanswered || null); setError(''); setStale(false); cacheRef.value = value.unanswered || null; }
     catch (failure) { setError(failure.message || '安全重新检查未完成，请重试。'); }
     finally { setMarks(old => { const next = new Set(old); next.delete(recordId); return next; }); }
   }

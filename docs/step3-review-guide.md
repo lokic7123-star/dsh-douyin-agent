@@ -84,7 +84,7 @@
 | 状态与按钮分离：chip + 一行摘要 + 一句原因 + 按钮 | `unansweredCard`（:205-224）：:209 chip（STATE_LABELS :187 映射）→ :215 摘要行（preview 截断 40 字）→ :216 原因行 → :218-222 按钮行 | `UnansweredSection`（main.jsx:211-252）：:240 chip+联系人+时间 → :241 摘要 → :242 原因 → :244-247 按钮 |
 | 按钮按态裁剪（needs-manual 才有「结束待答」；retrying 才有「安全重新检查」；uncertain 只有核对） | :218-222 按 `item.availableActions` 条件渲染（服务端裁剪，前端不自创按钮） | main.jsx:244-247 同构 |
 | 人工按钮统一文案「结束待答，不再回复」 | :220（走 `endUnanswered` :198 → `/chat/unanswered/end`） | main.jsx:246（`endUnanswered` :219-224 → `/api/chat/unanswered/end`） |
-| 发送结果不明只有「打开原会话核对」，无发送按钮、明示不重发 | :222 uncertain 尾注「只读回核对；在原会话核实前不重发」；服务端 uncertain 态 availableActions 仅 `['open-chat']`（chat-service.mjs:78） | main.jsx:247 同构文案 |
+| 发送结果不明提供「打开抖音（手动查找原会话核对）」，无发送按钮、明示不重发 | client.js:231-232 提供「打开抖音」按钮与「（打开抖音后请手动查找原会话核对）」提示，尾注「只读回核对；在原会话核实前不重发」；服务端 uncertain 态 availableActions 仅 `['open-chat']`（chat-service.mjs:78） | main.jsx:255-256 同构（提供打开抖音及手动查找提示） |
 | 「结束待答」成功=服务端回读确认后从列表移除；失败保留原态 | :198-200 响应体 `unanswered` 直接替换列表（成功即消失）；失败时 `perform` 把错误挂 operationErrors（:171-174），卡片按钮态由 `busy` 派生自动回原态 | main.jsx:216-223 try/catch：成功 setList、失败 setError 并复位 marks |
 | 「查看待答」替代「去处理」跳转 | :243（状态摘要行动作按钮，label 三分口径 :235） | health-dashboard.jsx:24-26（actions.openFriends 跳好友互动分类） |
 | 数量三分（自动恢复中/需人工/已结案折叠历史），不再单一「N 条待处理」 | :227 三分头部 `待答 N 条：自动恢复中 X · 需人工核对 Y`（Y=needsManual+uncertain） | main.jsx:234（三分头部）同构 |
@@ -136,6 +136,6 @@ desktop/ui-api tests/*.test.mjs（28 项）：构建产物 + 切源码断言（�
 1. **双入口文案同构但实现独立**：STATE_LABELS（client.js:187 与 desktop main.jsx:210）和卡片文案是两份相同常量，无共享模块——改文案需两处同步（两处已互相注释指向）。合并到共享文件的收益/成本未评估，本轮不做。
 2. **字段定名差异**：任务清单原名 `lastBlockerCode` / `lastCheckedAt`，backend-fix 实际交付为 `blockerCode`（逐条）+ 顶层 `checkedAt`（无逐条最后检查时间），前端按实际形状接线；卡片上未显示「最后检查时间」行（无数据源）。
 3. **escalated 触发条件**：同一联系人补答连续 6 次等待后置位（chat-service.mjs:804，`autoBacklogWaits >= 6`），once 置位不自动清除；前端只在 retrying 态追加升级文案，needs-manual/uncertain 态不叠加（它们本身已是人工态）。
-4. **打开原会话目前只是提示文案**：availableActions 含 `open-chat` 但后端未提供直达链接/调起能力，面板仅显示文字提示（client.js:218 注释标注「如需直达链接由后端补 href」）。
+4. **打开原会话修正为打开抖音入口**：因底层目前仅支持唤起抖音主界面/浏览器入口，无法直接定位到单人会话，因此按钮已修正为「打开抖音」，并明确提示「（打开抖音后请手动查找原会话核对）」，删除了原先直达会话的不实假设。
 5. **desktop 侧五态渲染无独立浏览器断言**：依赖与 client.js 的同构实现 + 共享文案表；如两入口后续分叉，desktop 侧需补渲染测试。
 6. **「首开无数据不显示在线」的两入口实现路径不同**：client.js 用 `!ready → summary=null`（卡片不渲染），desktop 用 openBacklog=0 不产生卡点行——行为一致但代码路径不同，验收时两入口都要看首开场景。

@@ -193,7 +193,7 @@ window.__ModuleLoader__.load({
       const CACHE_KEY = 'douyin-unanswered-cache';
       const readCache = () => { try { const value = JSON.parse(globalThis.sessionStorage?.getItem(CACHE_KEY) || 'null'); return value && value.protocol === 'chat-unanswered-v2' ? value : null; } catch { return null; } };
       const writeCache = value => { try { if (value) globalThis.sessionStorage?.setItem(CACHE_KEY, JSON.stringify(value)); } catch { /* 隐私模式等存不进就不缓存，行为退回直连。 */ } };
-      const [unanswered, setUnanswered] = useState(() => readCache()), [unansweredError, setUnansweredError] = useState(''), [stale, setStale] = useState(() => Boolean(readCache()));
+      const [unanswered, setUnanswered] = useState(readCache), [unansweredError, setUnansweredError] = useState(''), [stale, setStale] = useState(() => Boolean(readCache()));
       // P2-1 状态指纹：unansweredCount+chatActive 之外再加 items 的 backlogState+escalated 拼接，
       // 总数不变、状态变化（如补答完成转结案、升级提示置位）也能触发重拉；
       // 另加 30s 轻量兜底重拉（与 2.5s 状态轮询错开，避免每拍都打待答接口），拿不到指纹时也有兜底。
@@ -205,7 +205,7 @@ window.__ModuleLoader__.load({
         load();
         const slow = setInterval(load, 30_000);
         return () => { aliveView = false; clearInterval(slow); };
-      }, [api, ready, state?.chat?.unansweredCount, chatActive, stateFingerprint]);
+      }, [api, ready, state?.chat?.unansweredFingerprint || state?.chat?.unansweredCount, chatActive, stateFingerprint]);
       const workerActive = chatActive;
       const cardKey = recordId => `unanswered:${recordId.slice(0, 8)}`;
       const endUnanswered = (recordId, snapshot) => perform(cardKey(recordId), async () => {
@@ -228,7 +228,7 @@ window.__ModuleLoader__.load({
           h('p', { style: { ...muted, color: 'var(--dsw-alias-label-primary)', margin: 0, overflowWrap: 'anywhere' } }, summary),
           h('p', { style: { ...muted, ...(escalate || state === 'needs-manual' ? { color: 'var(--dsw-alias-label-primary)' } : {}), margin: 0, overflowWrap: 'anywhere' } }, escalate && state === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason),
           h('div', { style: row },
-            actions.includes('open-chat') && button('打开抖音', `openChat:${item.recordId.slice(0, 8)}`, () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false),
+            actions.includes('open-chat') && button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false),
             actions.includes('open-chat') && h('span', { style: muted }, '（打开抖音后请手动查找原会话核对）'),
             actions.includes('retry-now') && button('安全重新检查', `recheck:${item.recordId.slice(0, 8)}`, () => { void retryUnanswered(item.recordId); }, workerActive),
             // 结束待答不在运行时禁用：后端 endUnanswered 有 withChatPaused(resume:'preserve') 协调运行中写入；
