@@ -71,12 +71,17 @@ test('接口出口：/chat/unanswered items 附派生五态与分组计数，sta
   const open=list.items.find(item=>item.archiveId==='api-open-');
   assert.equal(open.backlogState,'retrying');assert.ok(open.availableActions.includes('retry-now'));
   assert.equal(list.groups.needsManual,1);assert.equal(list.groups.autoRecovering,1);assert.equal(list.groups.uncertain,0);
+  assert.ok(list.resolvedHistory, '附带结案历史');
+  assert.equal(typeof list.resolvedHistory.todayAutoResolved, 'number');
+  assert.equal(typeof list.resolvedHistory.todayManualEnded, 'number');
+  assert.ok(manual.lastCheckedAt !== undefined, '附带条目级最后检查时间');
   const state=f.service.state(),contactState=state.contacts[0];
   assert.equal(contactState.unanswered.length,2,'contacts[].unanswered 改为只含 open 记录');
   assert.ok(contactState.unanswered.every(entry=>entry.backlogState),'open 记录附服务端派生五态');
   assert.equal(contactState.unansweredAll.length,3,'unansweredAll 保留全量历史供对照');
   assert.deepEqual(state.unansweredGroups,{autoRecovering:1,needsManual:1,uncertain:0});
   assert.equal(state.unansweredCount,2);
+  assert.ok(typeof state.unansweredFingerprint === 'string' && state.unansweredFingerprint.length > 0, '暴露非空待答指纹');
 });
 
 test('结束待答全流程：运行中（withChatPaused 协调）与停止两种路径都写入 resolvedVia=panel 并回读确认',async t=>{

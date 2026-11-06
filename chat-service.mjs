@@ -340,11 +340,39 @@ export class ChatService {
   unanswered() {
     const policy=validatePolicy(load(this.policyFile,this.policy)),watermarks=load(this.watermarkFile,this.watermarks),records=unansweredItems(watermarks,policy).filter(entry=>isOpenBacklogRecord(entry.item));
     records.sort((left,right)=>(Date.parse(left.item.at||left.item.skippedAt)||0)-(Date.parse(right.item.at||right.item.skippedAt)||0)||left.recordId.localeCompare(right.recordId));
-    const items=records.map(({contact,item,recordId})=>{const preview=unansweredPreview(item),types=[...new Set((item.incoming||[]).map(messageKind))];const derived=deriveBacklogState(item,{queue:watermarks.contacts?.[contact.id]?.autoBacklog,escalated:watermarks.contacts?.[contact.id]?.autoBacklogEscalated===true});return{recordId,archiveId:item.archiveId||null,contactId:contact.id,contactName:contact.name||'许可会话',at:Number.isFinite(Date.parse(item.at||item.skippedAt))?new Date(item.at||item.skippedAt).toISOString():null,reason:redact(unansweredReason(item),[this.config?.apiKey]).slice(0,200),phase:item.phase||'unknown',messageCount:Array.isArray(item.incoming)?item.incoming.length:0,types,...preview,canResolve:true,...derived};});
+    const items=records.map(({contact,item,recordId})=>{const preview=unansweredPreview(item),types=[...new Set((item.incoming||[]).map(messageKind))];const derived=deriveBacklogState(item,{queue:watermarks.contacts?.[contact.id]?.autoBacklog,escalated:watermarks.contacts?.[contact.id]?.autoBacklogEscalated===true});return{recordId,archiveId:item.archiveId||null,contactId:contact.id,contactName:contact.name||'许可会话',at:Number.isFinite(Date.parse(item.at||item.skippedAt))?new Date(item.at||item.skippedAt).toISOString():null,lastCheckedAt:watermarks.contacts?.[contact.id]?.lastCheckedAt||null,reason:redact(unansweredReason(item),[this.config?.apiKey]).slice(0,200),phase:item.phase||'unknown',messageCount:Array.isArray(item.incoming)?item.incoming.length:0,types,...preview,canResolve:true,...derived};});
     const worker=this.worker();
     const groups={autoRecovering:0,needsManual:0,uncertain:0};
     for(const item of items){const key=item.backlogState==='replying'||item.backlogState==='retrying'?'autoRecovering':item.backlogState==='needs-manual'?'needsManual':item.backlogState==='uncertain'?'uncertain':null;if(key)groups[key]++;}
-    return{protocol:'chat-unanswered-v2',checkedAt:new Date().toISOString(),count:items.length,snapshot:unansweredSnapshot(records),running:Boolean(worker?.alive&&['running','starting'].includes(worker.status)),worker:worker?{alive:worker.alive,status:worker.status,heartbeatAt:worker.heartbeatAt}:null,groups,items};
+    const today = dayKey();
+    let todayAutoResolved = 0, todayManualEnded = 0;
+    const historyItems = [];
+    for (const contact of policy.allowlist) {
+      const mark = watermarks.contacts?.[contact.id];
+      for (const item of mark?.unanswered || []) {
+        const isAuto = item.autoHandled === true && typeof item.autoHandledAt === 'string' && item.autoHandledAt.startsWith(today);
+        const isManual = Boolean(item.handledByUserAt && typeof item.handledByUserAt === 'string' && item.handledByUserAt.startsWith(today));
+        if (isAuto) todayAutoResolved++;
+        if (isManual) todayManualEnded++;
+        if (isAuto || isManual) {
+          const at = item.autoHandledAt || item.handledByUserAt;
+          const timeStr = at ? new Date(at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '';
+          const methodText = isAuto ? '已自动回复，平台确认送达' : (item.handledNote || '用户已在待答面板人工结束');
+          historyItems.push({
+            recordId: item.archiveId || item.archiveKey || at,
+            contactName: contact.name || '许可会话',
+            at,
+            timeStr,
+            summary: `${contact.name || '许可会话'} · ${methodText}`,
+            isAuto,
+            isManual
+          });
+        }
+      }
+    }
+    historyItems.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+    const resolvedHistory = { todayAutoResolved, todayManualEnded, items: historyItems.slice(0, 10) };
+    return{protocol:'chat-unanswered-v2',checkedAt:new Date().toISOString(),count:items.length,snapshot:unansweredSnapshot(records),running:Boolean(worker?.alive&&['running','starting'].includes(worker.status)),worker:worker?{alive:worker.alive,status:worker.status,heartbeatAt:worker.heartbeatAt}:null,groups,resolvedHistory,items};
   }
   // D3「结束待答，不再回复」服务端入口：运行中走 withChatPaused 协调在途任务，写入→persist→回读确认→才返回成功。
   async endUnanswered({recordIds,snapshot}={},{reason='panel'}={}){

@@ -212,8 +212,7 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
   // P2-3 跨挂载缓存：desktop 是长驻 Electron 页面，设置分类切换会卸载本组件——用模块级变量保存上次真实列表，
   // 重新进入分类立即呈现（含「数据更新于 HH:MM:SS」），后台刷新成功即替换；不用 sessionStorage（Electron 会话过长，待答是短生命周期状态）。
   const cacheRef = UnansweredSection.cache || (UnansweredSection.cache = { value: null });
-  const [list, setList] = useState(() => cacheRef.value), [error, setError] = useState(''), [marks, setMarks] = useState(new Set()), [stale, setStale] = useState(() => Boolean(cacheRef.value));
-  const fingerprint = (list?.items || []).map(item => `${item.backlogState ?? ''}${item.escalated ? '!' : ''}`).join(',') + `#${list?.count ?? 0}`;
+  const [list, setList] = useState(() => cacheRef.value), [error, setError] = useState(''), [marks, setMarks] = useState(() => new Set()), [stale, setStale] = useState(() => Boolean(cacheRef.value));
   useEffect(() => {
     if (!connected) return; let alive = true;
     if (!list && cacheRef.value) { setList(cacheRef.value); setStale(true); }
@@ -222,7 +221,7 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
     load();
     const slow = setInterval(load, 30_000);
     return () => { alive = false; clearInterval(slow); };
-  }, [connected, allowlist.length, unansweredFingerprint, fingerprint]);
+  }, [connected, allowlist.length, unansweredFingerprint]);
   const checkedAt = list?.checkedAt ? new Date(list.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
   const count = list?.count ?? 0;
   async function endUnanswered(recordId, snapshot) {
@@ -259,9 +258,10 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
           {actions.includes('end') && <Button size="sm" variant="outline" disabled={!connected || item.canResolve === false} onClick={() => { void run(`unanswered-${item.recordId}`, () => endUnanswered(item.recordId, list.snapshot)); }}>结束待答，不再回复</Button>}
           {st === 'uncertain' && <span className="muted">只读回核对；在原会话核实前不重发。</span>}
         </div>}
-        {(item.attempts > 0 || item.retryCount > 0 || item.blockerCode) && <details><summary>详情</summary><p className="muted">记录字段：backlogState={st} · blockerCode={item.blockerCode || '无'} · attempts={item.attempts ?? 0} · retryCount={item.retryCount ?? 0}{escalate ? ' · escalated=true' : ''}</p>{item.reason && item.reason !== reason && <p className="muted">{item.reason}</p>}<p className="muted">本地保留的文字预览仅用于核对；不会自动补发。</p></details>}
+        {(item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && <details><summary>详情</summary><p className="muted">记录字段：backlogState={st} · blockerCode={item.blockerCode || '无'} · attempts={item.attempts ?? 0} · retryCount={item.retryCount ?? 0}{escalate ? ' · escalated=true' : ''}{item.lastCheckedAt ? ` · 最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}</p>{item.reason && item.reason !== reason && <p className="muted">{item.reason}</p>}<p className="muted">本地保留的文字预览仅用于核对；不会自动补发。</p></details>}
       </div>;
     })}
+    {list?.resolvedHistory && (list.resolvedHistory.todayAutoResolved > 0 || list.resolvedHistory.todayManualEnded > 0) && <details className="history-details"><summary>处理历史 · 今天已自动补答 {list.resolvedHistory.todayAutoResolved} 条，人工结束 {list.resolvedHistory.todayManualEnded} 条（不计入待处理）</summary><div>{list.resolvedHistory.items?.map(entry => <p key={entry.recordId} className="muted"><span style={{ marginRight: 8, fontVariantNumeric: 'tabular-nums' }}>{entry.timeStr}</span><span>{entry.summary}</span></p>)}<p className="muted dim">历史只保留结果与核对方式，不重复展示正文。</p></div></details>}
     {list && count === 0 && <Note>没有遗留待处理消息。</Note>}
     {!list && !error && <p className="muted">正在读取遗留待处理消息…</p>}
   </section>;

@@ -341,7 +341,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   // P2-1：保持 state.chat.running = true 不变（排除 chatActive 变更作弊），仅凭服务端 unansweredFingerprint 驱动前端自动感知
   const before = structuredClone(unansweredRecords);
   unansweredRecords = unansweredRecords.map(item => item.backlogState === 'retrying' ? { ...item, backlogState: 'needs-manual', progressNote: '消息证据已失效（消息被挤出当前窗口或上下文不可核对），无法自动补答，需人工处理。', availableActions: ['open-chat', 'end'], blockerCode: 'mapping-stale' } : item);
-  state.chat.unansweredFingerprint = unansweredRecords.map(u => `${u.recordId}:${u.backlogState}${u.escalated ? '!' : ''}`).join(';');
+  state.chat.unansweredFingerprint = unansweredRecords.map(u => `${u.archiveId || u.recordId}:${u.backlogState}${u.escalated ? '!' : ''}`).sort().join(';') || 'none';
   await page.getByRole('button', { name: '刷新插件状态', exact: true }).click();
   await page.getByText('消息证据已失效（消息被挤出当前窗口或上下文不可核对），无法自动补答，需人工处理。', { exact: false }).first().waitFor();
   const safeButtons = await page.getByRole('button', { name: '安全重新检查', exact: true }).count();

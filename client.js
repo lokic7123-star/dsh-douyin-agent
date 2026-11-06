@@ -236,16 +236,25 @@ window.__ModuleLoader__.load({
             actions.includes('end') && !done && button('结束待答，不再回复', key, () => { void endUnanswered(item.recordId, unanswered.snapshot); }, item.canResolve === false),
             done && note('正在结束待答…'),
             state === 'uncertain' && h('span', { style: muted }, '只读回核对；在原会话核实前不重发。')),
-          (item.attempts > 0 || item.retryCount > 0 || item.blockerCode) && h('details', null, h('summary', null, '详情'), h('div', null, note(`记录字段：backlogState=${state} · blockerCode=${item.blockerCode || '无'} · attempts=${item.attempts ?? 0} · retryCount=${item.retryCount ?? 0}${escalate ? ' · escalated=true' : ''}`), item.reason && item.reason !== reason && note(item.reason), note('本地保留的文字预览仅用于核对；不会自动补发。'))));
+          (item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && h('details', null, h('summary', null, '详情'), h('div', null, note(`记录字段：backlogState=${state} · blockerCode=${item.blockerCode || '无'} · attempts=${item.attempts ?? 0} · retryCount=${item.retryCount ?? 0}${escalate ? ' · escalated=true' : ''}${item.lastCheckedAt ? ` · 最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}`), item.reason && item.reason !== reason && note(item.reason), note('本地保留的文字预览仅用于核对；不会自动补发。'))));
       };
       const groups = unanswered?.groups;
       const checkedAt = unanswered?.checkedAt ? new Date(unanswered.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
       const staleNotice = `显示的是 ${checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。`;
+      const history = unanswered?.resolvedHistory;
+      const historyView = history && (history.todayAutoResolved > 0 || history.todayManualEnded > 0) ? h('details', null,
+        h('summary', null, `处理历史 · 今天已自动补答 ${history.todayAutoResolved} 条，人工结束 ${history.todayManualEnded} 条（不计入待处理）`),
+        h('div', null,
+          ...(history.items || []).map(entry => h('p', { key: entry.recordId, style: { ...muted, margin: '4px 0' } }, h('span', { style: { marginRight: 8, fontVariantNumeric: 'tabular-nums' } }, entry.timeStr), h('span', null, entry.summary))),
+          h('p', { style: { ...muted, opacity: 0.7, margin: '6px 0 0' } }, '历史只保留结果与核对方式，不重复展示正文。')
+        )
+      ) : null;
       const unansweredView = !unanswered ? (unansweredError ? [h('p', { role: 'alert', style: muted }, unansweredError)] : []) : [
         unanswered.count > 0 && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-label-primary)' } }, `待答 ${unanswered.count} 条：自动恢复中 ${groups?.autoRecovering ?? 0} · 需人工核对 ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。`),
         stale && h('p', { role: 'status', style: muted }, staleNotice),
         unansweredError && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-signal-danger, #d93025)' } }, unansweredError),
         ...unanswered.items.map(unansweredCard),
+        historyView,
       ].filter(Boolean);
       const summary = (() => {
         if (!ready) return null;
@@ -259,7 +268,12 @@ window.__ModuleLoader__.load({
       return h('div', { style: { ...column, maxWidth: 900, paddingBottom: 32 } },
         h('h2', null, '大肥鱼抖音助手'), !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
         ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', style: row }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
-        h('div', { role: 'status', 'aria-live': 'polite', style: { ...row, position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)', padding: '8px 0' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') }, h('span', { 'aria-label': '好友互动状态', title: presenceReason, style: { border: '1px solid currentColor', borderRadius: 20, padding: '6px 12px', whiteSpace: 'nowrap' } }, `${replyPresence?.online === true ? '●' : '○'} ${presenceLabel}`), watchState?.active && h('small', { role: 'status', 'aria-label': '自主观看状态', title: watchState.reason, style: muted }, `◉ ${watchLabel}`), (['attention', 'preparing'].includes(replyPresence?.status) || watchState?.active && replyPresence?.online !== true) && h('small', { role: replyPresence?.status === 'attention' ? 'alert' : 'status', style: muted }, presenceReason)),
+        h('div', { role: 'status', 'aria-live': 'polite', style: { ...row, position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)', padding: '8px 0' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
+          h('span', { 'aria-label': '好友互动状态', title: presenceReason, style: { border: '1px solid currentColor', borderRadius: 20, padding: '6px 12px', whiteSpace: 'nowrap' } }, `${replyPresence?.online === true ? '●' : '○'} ${presenceLabel}`),
+          (state?.chat?.unansweredGroups?.autoRecovering > 0) && h('span', { style: { ...muted, border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 16, padding: '4px 10px', whiteSpace: 'nowrap' } }, `○ ${state.chat.unansweredGroups.autoRecovering} 自动恢复中`),
+          (((state?.chat?.unansweredGroups?.needsManual ?? 0) + (state?.chat?.unansweredGroups?.uncertain ?? 0)) > 0) && h('span', { style: { ...muted, color: 'var(--dsw-alias-signal-danger, #d93025)', border: '1px solid currentColor', borderRadius: 16, padding: '4px 10px', whiteSpace: 'nowrap' } }, `▲ ${(state.chat.unansweredGroups.needsManual ?? 0) + (state.chat.unansweredGroups.uncertain ?? 0)} 已转人工`),
+          watchState?.active && h('small', { role: 'status', 'aria-label': '自主观看状态', title: watchState.reason, style: muted }, `◉ ${watchLabel}`),
+          (['attention', 'preparing'].includes(replyPresence?.status) || watchState?.active && replyPresence?.online !== true) && h('small', { role: replyPresence?.status === 'attention' ? 'alert' : 'status', style: muted }, presenceReason)),
         summary && h('div', { role: 'status', 'aria-label': '当前状态摘要', style: { ...row, padding: '10px 12px', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-1)' }, title: summary.detail }, h('span', { 'aria-hidden': 'true' }, summary.label === '一切正常' ? '○' : '●'), h('strong', null, summary.label), h('span', { style: muted }, summary.detail), summary.tab && summary.label !== '一切正常' && button('查看待答', 'statusGoto', () => setCategory(summary.tab))),
         h('div', { style: row }, button('刷新插件状态', 'refresh', () => { void refresh(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
         h('div', { role: 'tablist', 'aria-label': '抖音设置分类', tabIndex: 0, style: tabRow }, ...Object.keys(fallbackCategories).map(name => h(Button, { key: name, role: 'tab', type: 'button', size: 'sm', variant: category === name ? 'primary' : 'outline', 'aria-selected': category === name, style: tab, onClick: () => setCategory(name) }, name))),

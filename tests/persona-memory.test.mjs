@@ -114,6 +114,29 @@ test('同作品主题跨入口幂等，来源必须真实登记，代理反思�
   assert.deepEqual(second.userPreferences, []);
 });
 
+test('认知诚实性与采样分镜校验：证据强制挂载 understandingVerified=false、uncertainties 及 frameIndex 合法性', t => {
+  const f = fixture(t); f.store.initialize();
+  const obs = capture();
+  const evidence = f.store.recordObservation(obs, { source: 'api', kind: 'visual' });
+  // 越界 frameIndex 抛出错误
+  assert.throws(
+    () => f.store.updateAgentInterests({ evidenceId: evidence.evidenceId, topics: [{ topic: '纸船', signal: 'like' }], frameIndex: 99 }, { source: 'api' }),
+    { code: 'PERSONA_ARGUMENT' }
+  );
+  // 合法 frameIndex 与 uncertainties
+  const snap = f.store.updateAgentInterests({
+    evidenceId: evidence.evidenceId,
+    topics: [{ topic: '纸船', signal: 'like' }],
+    reflection: '合成画面第0格有纸船',
+    frameIndex: 0,
+    uncertainties: ['画面光线较暗', '标题可能为隐喻']
+  }, { source: 'api' });
+  const entry = snap.interests[0].evidence[0];
+  assert.equal(entry.frameIndex, 0);
+  assert.equal(entry.understandingVerified, false);
+  assert.deepEqual(entry.uncertainties, ['画面光线较暗', '标题可能为隐喻']);
+});
+
 test('手编保存要求明确操作与包含文件指纹的版本，不覆盖外部编辑或自动兴趣', t => {
   const f = fixture(t); const old = f.store.initialize();
   fs.writeFileSync(f.store.roleCardFile, fs.readFileSync(f.store.roleCardFile, 'utf8').replace('小鲸的人格卡', '用户刚编辑的人格卡'));

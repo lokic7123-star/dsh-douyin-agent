@@ -398,7 +398,7 @@ export class PersonaMemory {
       return { evidenceId, videoId: observation.videoId, sampleId, accepted: true, duplicate, ...behaviorByVideo(data).get(observation.videoId) };
     });
   }
-  updateAgentInterests({ evidenceId, topics, reflection = '' } = {}, { source: origin } = {}) {
+  updateAgentInterests({ evidenceId, topics, reflection = '', frameIndex, uncertainties } = {}, { source: origin } = {}) {
     source(origin);
     if (!Array.isArray(topics) || topics.length < 1 || topics.length > 5) throw error('PERSONA_ARGUMENT', '每次只整理一至五个代理兴趣主题。');
     const normalized = topics.map(item => {
@@ -412,6 +412,11 @@ export class PersonaMemory {
       const files = this.readFiles(), data = files.state;
       const observation = data?.observations.find(item => item.id === evidenceId);
       if (!observation || !observation.sources.includes(origin)) throw error('PERSONA_EVIDENCE', '代理兴趣必须引用该入口实际记录的抖音作品观察。');
+      if (frameIndex !== undefined) {
+        if (!Number.isInteger(frameIndex) || frameIndex < 0 || (observation.frameCount > 0 && frameIndex >= observation.frameCount)) {
+          throw error('PERSONA_ARGUMENT', '采样分镜格编号无效或超出实际采样帧范围。');
+        }
+      }
       const summary = behaviorByVideo(data).get(observation.videoId);
       let changed = false;
       for (const input of normalized) {
@@ -419,7 +424,21 @@ export class PersonaMemory {
         const prior = item?.evidence.find(ref => ref.videoId === observation.videoId);
         if (prior) continue;
         if (!item) { item = { topic: input.topic, key: input.key, signal: 'neutral', privacy: observation.privacy, visibility: observation.visibility, evidence: [], updatedAt: 0 }; data.interests.push(item); }
-        item.evidence.push({ evidenceId, videoId: observation.videoId, signal: summary.signal, proposalSignal: input.signal, assessmentVersion: 1, reflection: note, source: origin, at: this.clock(), visibility: observation.visibility, privacy: observation.privacy });
+        item.evidence.push({
+          evidenceId,
+          videoId: observation.videoId,
+          signal: summary.signal,
+          proposalSignal: input.signal,
+          assessmentVersion: 1,
+          reflection: note,
+          source: origin,
+          at: this.clock(),
+          visibility: observation.visibility,
+          privacy: observation.privacy,
+          understandingVerified: false,
+          uncertainties: Array.isArray(uncertainties) ? uncertainties.map(u => String(u).slice(0, 100)) : [],
+          ...(frameIndex !== undefined ? { frameIndex } : {})
+        });
         item.updatedAt = this.clock(); changed = true;
       }
       if (changed) { data.generation += 1; this.writeState(data); }
