@@ -150,4 +150,27 @@ test('终审 P1 表驱动反例：混合记录（needs-manual + 文字 targetSta
   const mixedDone=deriveBacklogState(archiveRecord(messages,{id:'mixed-done',targetIds:['t'],extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString(),targetStates:[{messageId:'t',state:'confirmed',at:new Date().toISOString()}]}}),{});
   assert.equal(mixedDone.backlogState,'needs-manual');
   assert.deepEqual(mixedDone.availableActions,['open-chat','end'],'文字已核对完成后恢复整条人工结束');
+
+  // 退回项 2：旧格式记录同时包含 needsManual 与 autoAttempt.state='uncertain'（无 targetStates）时，统一覆盖发送不明判据，不得给 end
+  const legacyMixed=archiveRecord(messages,{id:'legacy-unc',targetIds:['t'],extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString(),autoAttempt:{version:1,source:'authorized-unsent-backlog-v1',state:'uncertain',text:'（合成改写）旧格式文本'}}});
+  const legacyDerived=deriveBacklogState(legacyMixed,{});
+  assert.equal(legacyDerived.backlogState,'needs-manual');
+  assert.ok(!legacyDerived.availableActions.includes('end'),'旧格式 autoAttempt.state=uncertain 时绝不得给 end');
+  assert.deepEqual(legacyDerived.availableActions,['open-chat']);
+  assert.match(legacyDerived.progressNote,/发送结果未确认|只读回|不重发/,'旧格式 progressNote 应含发送不明保护语义');
+
+  // 退回项 2：身份核对失败（identity-unverifiable）与 autoAttempt.state='uncertain' 形成的组合，同样不得给 end
+  const identityUncertain=archiveRecord(messages,{id:'id-unc',targetIds:['t'],extra:{needsManual:true,needsManualReason:'identity-unverifiable',needsManualAt:new Date().toISOString(),autoAttempt:{version:1,source:'authorized-unsent-backlog-v1',state:'uncertain'}}});
+  const idDerived=deriveBacklogState(identityUncertain,{});
+  assert.equal(idDerived.backlogState,'needs-manual');
+  assert.ok(!idDerived.availableActions.includes('end'),'身份核对失败伴随 uncertain 时绝不得给 end');
+  assert.deepEqual(idDerived.availableActions,['open-chat']);
+  assert.match(idDerived.progressNote,/发送结果未确认|只读回|不重发/,'身份核对失败伴随 uncertain 应含发送不明保护语义');
+
+  // 退回项 2：mapping-stale 伴随 delivery-uncertain 同样不得给 end
+  const mappingUncertain=archiveRecord(messages,{id:'map-unc',targetIds:['t'],phase:'delivery-uncertain',extra:{needsManual:true,needsManualReason:'mapping-stale',needsManualAt:new Date().toISOString()}});
+  const mapDerived=deriveBacklogState(mappingUncertain,{});
+  assert.equal(mapDerived.backlogState,'needs-manual');
+  assert.ok(!mapDerived.availableActions.includes('end'),'mapping-stale 伴随 delivery-uncertain 绝不得提供 end');
+  assert.deepEqual(mapDerived.availableActions,['open-chat']);
 });

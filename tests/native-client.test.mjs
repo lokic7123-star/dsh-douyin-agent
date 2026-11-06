@@ -100,7 +100,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   state.interactions.presence = { status: 'online', online: true, label: '在线 · 等待消息', reason: '合成后端确认许可会话全部就绪', checkedAt: new Date().toISOString() };
   state.watchOptions = { policy: { mode:'recommend', topics:[], exclude:[] } };
   state.usage = { today: { requests:2,totalTokens:4321,promptTokens:4000,completionTokens:321,cachedTokens:3000,cacheReportedRequests:1,unknownRequests:0 }, groups:[], days:[], note:'合成用量说明' };
-  const calls = [], errors = []; let failState = false, failComments = false, failInteractions = false, failEndGate = false, videoSaveGate = null, chatSaveGate = null, resolveGate = null, listOverride = null, stateVideoOverride = null, stateReadGate = null, startOnConfigure = false;
+  const calls = [], errors = []; let failState = false, failComments = false, failInteractions = false, failEndGate = false, failUnanswered = false, unansweredGate = null, videoSaveGate = null, chatSaveGate = null, resolveGate = null, listOverride = null, stateVideoOverride = null, stateReadGate = null, startOnConfigure = false;
   let unansweredRecords = [
     { recordId: '1'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T12:28:21.601Z', reason: '新消息尚未取得可靠的新到达资格，未自动回复。', phase: 'unqualified', messageCount: 1, types: ['文字'], preview: '合成插件预览一', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'replying', progressNote: '正在自动补答本次待答。', availableActions: ['open-chat'], blockerCode: null, attempts: 1, retryCount: 0, escalated: false },
     { recordId: '2'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T12:50:58.112Z', reason: '新消息尚未取得可靠的新到达资格，未自动回复。', phase: 'unqualified', messageCount: 1, types: ['文字'], preview: '合成插件预览二', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'retrying', progressNote: '上次自动生成失败，稍后自动重试。', availableActions: ['open-chat', 'retry-now'], blockerCode: 'bounded-generation-failed', attempts: 2, retryCount: 3, escalated: true },
@@ -136,7 +136,11 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
       if (route === '/chat/resolve') { if (resolveGate) { const gate = resolveGate; resolveGate = null; gate.received(); await gate.wait; } state.chat.contacts = state.chat.contacts.map(item => item.id === input.recipientId ? { ...item, status: 'ready', reason: '' } : item); return reply(state.chat); }
       if (route === '/mode/configure') state.mode.silent = input.silent;
       if (route === '/chat/contacts') return reply({ contacts: listOverride || allowed, listDiscovery: { source: 'current-conversation-list', scannedToEnd: false, count: (listOverride || allowed).length, reason: '合成读取预算已到，只返回当前网页会话。' } });
-      if (route === '/chat/unanswered') return reply(unansweredList());
+      if (route === '/chat/unanswered') {
+        if (unansweredGate) { const gate = unansweredGate; gate.received(); await gate.wait; }
+        if (failUnanswered) return reply({ error: '合成待答刷新失败服务忙。' }, 500);
+        return reply(unansweredList());
+      }
       if (route === '/chat/unanswered/end') { if (failEndGate) { failEndGate = false; return reply({ error: '结束待答写入未确认，记录保持原状，请重试。' }, 500); } if (!Array.isArray(input.recordIds) || input.recordIds.length > 1 && !input.snapshot) return reply({ error: '结束待答只接收记录标识和当前快照。' }, 400); const wanted = new Set(input.recordIds); if (input.recordIds.some(id => !unansweredRecords.some(item => item.recordId === id))) return reply({ error: '待处理消息不存在或已更新，请刷新列表。' }, 404); unansweredRecords = unansweredRecords.filter(item => !wanted.has(item.recordId)); return reply({ resolved: wanted.size, alreadyHandled: false, checkedAt: new Date().toISOString(), unanswered: unansweredList() }); }
       if (route === '/chat/unanswered/retry') { const wanted = new Set(input.recordIds); if (input.recordIds.some(id => !unansweredRecords.some(item => item.recordId === id))) return reply({ error: '待处理消息不存在或已更新，请刷新列表。' }, 404); return reply({ rechecked: unansweredRecords.filter(item => wanted.has(item.recordId)).length, checkedAt: new Date().toISOString(), unanswered: unansweredList() }); }
       if (route === '/chat/unanswered/resolve') { if (input.recordIds.length > 1 && !input.snapshot) return reply({ error: '批量处理必须核对当前列表快照。' }, 400); const wanted = new Set(input.recordIds); if (input.recordIds.some(id => !unansweredRecords.some(item => item.recordId === id))) return reply({ error: '待处理消息不存在或已更新，请刷新列表。' }, 404); unansweredRecords = unansweredRecords.filter(item => !wanted.has(item.recordId)); return reply({ resolved: wanted.size, alreadyHandled: false, unanswered: unansweredList() }); }
@@ -307,6 +311,8 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByText('已转人工处理', { exact: true }).first().waitFor();
   await page.getByText('发送结果不明', { exact: true }).waitFor();
   await page.getByText('（已连续多次等待，建议人工核对）', { exact: false }).waitFor();
+  assert.ok(await page.getByRole('button', { name: '打开抖音', exact: true }).count() > 0, '卡片使用「打开抖音」而非「打开原会话」');
+  assert.ok(await page.getByText('打开抖音后请手动查找原会话核对', { exact: false }).count() > 0, '附手动查找原会话核对说明');
   const endButtons = page.getByRole('button', { name: '结束待答，不再回复', exact: true });
   assert.equal(await endButtons.count(), 2, '结束待答按钮只出现在 needs-manual 态（两条 needs-manual 记录）');
   assert.equal(await page.getByRole('button', { name: '安全重新检查', exact: true }).count(), 1, '安全重新检查只出现在 retrying 态');
@@ -344,13 +350,34 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   // P2-3 缓存介质断言：重载前 sessionStorage 已写入 v2 有效载荷（宿主页面生命周期内的跨面板缓存）。
   const cachedRaw = await page.evaluate(() => globalThis.sessionStorage.getItem('douyin-unanswered-cache'));
   assert.match(cachedRaw || '', /chat-unanswered-v2/, '待答缓存已写入 sessionStorage');
-  // 重开立即呈现上次真实内容：重载后不等后台刷新，待答卡片直接可见（缓存与回读内容同形，以「数据更新于」由状态行承担）。
+
+  // 行为用例 1：延迟响应时先显示缓存（阻断后台成功响应，证明重开立即呈现缓存卡片及 stale 说明，不等后台响应）
+  let releaseUnanswered;
+  const delayedUnanswered = new Promise(resolve => { releaseUnanswered = resolve; });
+  unansweredGate = { received: () => {}, wait: delayedUnanswered };
   await page.reload(); await page.waitForSelector('[role="tablist"]');
   await page.getByRole('tab', { name: '好友互动', exact: true }).click();
+  // 后台未响应时已先显示缓存与 stale 说明
+  await page.getByText('显示的是', { exact: false }).first().waitFor();
   await page.getByText('确认后不会补发', { exact: false }).first().waitFor();
-  // 刷新失败保留内容的实现点：加载失败时不清空 unanswered（client.js 加载 catch 分支），缓存内容保留；提示条为瞬态（后台刷新成功即撤下），此处以缓存断言+内容立即显示覆盖。
-  // 刷新失败保留内容：断开 mock 后台刷新后旧内容仍在（拿掉 state 接口会让 ready=false，走 connectionError；此处验证待答区不退回空态）。
-  assert.equal(await page.getByText('没有遗留待处理消息').count(), 0, '有缓存时不显示空态文案');
+  assert.equal(await page.getByText('没有遗留待处理消息').count(), 0, '延迟响应时先显示缓存，不显示空态文案');
+  // 放行后台响应，刷新完成后 stale 提示撤下
+  releaseUnanswered();
+  unansweredGate = null;
+  await page.getByText('显示的是', { exact: false }).waitFor({ state: 'hidden' });
+
+  // 行为用例 2：成功后刷新失败时明确提示（已有列表刷新失败后重新标为旧数据，原生页面明确渲染错误提示）
+  failUnanswered = true;
+  state.chat.unansweredCount = 999;
+  await page.getByRole('button', { name: '刷新插件状态', exact: true }).click();
+  // 原生页面渲染刷新失败明确提示条（role=alert）
+  await page.getByRole('alert').filter({ hasText: '合成待答刷新失败服务忙' }).waitFor();
+  // 已有列表重新标为旧数据（stale 状态文案重新出现）
+  await page.getByText('显示的是', { exact: false }).first().waitFor();
+  // 卡片内容保留，不退回空态
+  assert.ok(await page.getByText('确认后不会补发', { exact: false }).count() > 0, '刷新失败后旧数据卡片保留');
+  failUnanswered = false;
+  state.chat.unansweredCount = 5;
   await page.getByRole('tab', { name: '基础设置', exact: true }).click();
   assert.equal(await page.getByLabel('当前状态摘要').count(), 1, '摘要只在页面顶部渲染一次');
   assert.equal(calls.filter(item => item.method === 'POST').every(item => item.token === state.token), true); assert.deepEqual(errors, []);

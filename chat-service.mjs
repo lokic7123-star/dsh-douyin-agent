@@ -71,16 +71,22 @@ const needsManualReasonText={'mapping-stale':'消息证据已失效（消息被�
 const progressNoteText={'waiting-bounded-generation-evidence':'正在等待可生成回复的上下文证据。','waiting-backlog-evidence-or-outgoing':'正在补答证据核对。','waiting-archive-identity':'正在核对记录标识。','waiting-target-context-capacity':'正在核对上下文容量。','waiting-context-after-bounded-generation':'该上下文的生成次数已达上限，稍后自动重试。','waiting-generated-text':'正在等待生成的回复文本。','bounded-generation-failed':'上次自动生成失败，稍后自动重试。','waiting-native-outgoing-readback':'正在读回已发出的消息以确认发送结果。','waiting-zero-click-retry':'上次未能点击发送，稍后自动重试。','waiting-contact-recheck':'正在等待重新核对该会话。','waiting-reliable-conversation':'正在等待可核对的会话快照。','waiting-media-manual':'该批待答含需人工处理的媒体内容。'};
 export function deriveBacklogState(record,{queue,escalated=false}={}){
   if(!record||record.autoHandled===true||record.handledByUserAt||record.resolvedVia)return{backlogState:'resolved',progressNote:'已回复或已结束，不会再自动回复。',availableActions:['open-chat'],blockerCode:null,attempts:0};
+  const isUncertain=Boolean(record.legacyUncertain===true||record.recoveryEvidence?.beforeDispatch===false||['sending','delivery-uncertain'].includes(record.phase)||['reserved','uncertain'].includes(record.autoAttempt?.state)||(record.targetStates??[]).some(item=>['reserved','uncertain'].includes(item.state)));
   if(record.needsManual===true&&typeof record.needsManualReason==='string'&&['mapping-stale','media-unobservable','identity-unverifiable'].includes(record.needsManualReason)){
-    // 终审 P1 目标粒度分层：混合记录的文字目标仍有 reserved/uncertain 未定论时，发送不明保护语义优先——
-    // progressNote 写明两部分各自状态，availableActions 不给 end（文字未核对完前不允许整条人工结束）；
-    // 文字目标全部核对完成（confirmed/zero-click 等终态）后恢复整条人工结束。
-    const pendingTextState=(record.targetStates??[]).find(item=>['reserved','uncertain'].includes(item.state));
-    if(pendingTextState)return{backlogState:'needs-manual',progressNote:'媒体部分已转人工；文字部分发送结果未确认，只读回核对，不会自动重发——文字核对完成前不能整条结束。',availableActions:['open-chat'],blockerCode:'readback-uncertain',attempts:0,textReadbackPending:true};
+    // 终审 P1 发送不明保护语义优先：混合记录或旧格式/身份核对记录只要存在发送未定论（targetStates/autoAttempt/phase/beforeDispatch 等既有判据），
+    // progressNote 写明未定论语义，availableActions 绝对不给 end（核对完前不允许整条人工结束）；
+    // 待文字目标全部核对完成（confirmed/zero-click 等终态）且无其他发送不明证据后，恢复整条人工结束。
+    if(isUncertain){
+      const pendingTextState=(record.targetStates??[]).find(item=>['reserved','uncertain'].includes(item.state));
+      const note=pendingTextState||record.needsManualReason==='media-unobservable'
+        ?'媒体部分已转人工；文字部分发送结果未确认，只读回核对，不会自动重发——文字核对完成前不能整条结束。'
+        :`${needsManualReasonText[record.needsManualReason]} 发送结果未确认，只读回核对，不会自动重发——人工核实送达前不能整条结束。`;
+      const blocker=record.autoAttempt?.state==='uncertain'||pendingTextState?'readback-uncertain':'delivery-uncertain';
+      return{backlogState:'needs-manual',progressNote:note,availableActions:['open-chat'],blockerCode:blocker,attempts:0,textReadbackPending:Boolean(pendingTextState)};
+    }
     return{backlogState:'needs-manual',progressNote:needsManualReasonText[record.needsManualReason],availableActions:['open-chat','end'],blockerCode:record.needsManualReason,attempts:0};
   }
-  const uncertain=record.legacyUncertain===true||record.recoveryEvidence?.beforeDispatch===false||['sending','delivery-uncertain'].includes(record.phase)||['reserved','uncertain'].includes(record.autoAttempt?.state);
-  if(uncertain)return{backlogState:'uncertain',progressNote:'发送结果未确认，只读回核对，不会自动重发；请人工核对是否已送达。',availableActions:['open-chat'],blockerCode:record.autoAttempt?.state==='uncertain'?'readback-uncertain':'delivery-uncertain',attempts:0};
+  if(isUncertain)return{backlogState:'uncertain',progressNote:'发送结果未确认，只读回核对，不会自动重发；请人工核对是否已送达。',availableActions:['open-chat'],blockerCode:record.autoAttempt?.state==='uncertain'||(record.targetStates??[]).some(item=>['reserved','uncertain'].includes(item.state))?'readback-uncertain':'delivery-uncertain',attempts:0};
   const inQueue=Boolean(queue&&Array.isArray(queue.archiveIds)&&queue.archiveIds.includes(record.archiveId));
   const attempts=Number.isSafeInteger(record.autoBacklog?.generationAttempts)||Number.isSafeInteger(queue?.generationAttempts)?(record.autoBacklog?.generationAttempts??queue?.generationAttempts??0):0;
   const retryCount=queue?.retryCount??0;

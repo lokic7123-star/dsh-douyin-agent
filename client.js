@@ -193,15 +193,15 @@ window.__ModuleLoader__.load({
       const CACHE_KEY = 'douyin-unanswered-cache';
       const readCache = () => { try { const value = JSON.parse(globalThis.sessionStorage?.getItem(CACHE_KEY) || 'null'); return value && value.protocol === 'chat-unanswered-v2' ? value : null; } catch { return null; } };
       const writeCache = value => { try { if (value) globalThis.sessionStorage?.setItem(CACHE_KEY, JSON.stringify(value)); } catch { /* 隐私模式等存不进就不缓存，行为退回直连。 */ } };
-      const [unanswered, setUnanswered] = useState(null), [unansweredError, setUnansweredError] = useState(''), [stale, setStale] = useState(false);
+      const [unanswered, setUnanswered] = useState(() => readCache()), [unansweredError, setUnansweredError] = useState(''), [stale, setStale] = useState(() => Boolean(readCache()));
       // P2-1 状态指纹：unansweredCount+chatActive 之外再加 items 的 backlogState+escalated 拼接，
       // 总数不变、状态变化（如补答完成转结案、升级提示置位）也能触发重拉；
       // 另加 30s 轻量兜底重拉（与 2.5s 状态轮询错开，避免每拍都打待答接口），拿不到指纹时也有兜底。
       const stateFingerprint = (unanswered?.items || []).map(item => `${item.backlogState ?? ''}${item.escalated ? '!' : ''}`).join(',') + `#${unanswered?.count ?? 0}`;
       useEffect(() => {
-        if (!ready) return; let aliveView = true;
         if (!unanswered) { const cached = readCache(); if (cached) { setUnanswered(cached); setStale(true); } }
-        const load = () => { void api.request('/chat/unanswered').then(value => { if (aliveView && value?.protocol === 'chat-unanswered-v2') { setUnanswered(value); setUnansweredError(''); setStale(false); writeCache(value); } }).catch(failure => { if (aliveView) { setUnansweredError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); if (!readCache()) setStale(false); } }); };
+        if (!ready) return; let aliveView = true;
+        const load = () => { void api.request('/chat/unanswered').then(value => { if (aliveView && value?.protocol === 'chat-unanswered-v2') { setUnanswered(value); setUnansweredError(''); setStale(false); writeCache(value); } }).catch(failure => { if (aliveView) { setUnansweredError(failure.message && failure.message !== 'undefined' ? failure.message : '待答列表未读取，稍后自动重试。'); setStale(true); } }); };
         load();
         const slow = setInterval(load, 30_000);
         return () => { aliveView = false; clearInterval(slow); };
@@ -228,7 +228,8 @@ window.__ModuleLoader__.load({
           h('p', { style: { ...muted, color: 'var(--dsw-alias-label-primary)', margin: 0, overflowWrap: 'anywhere' } }, summary),
           h('p', { style: { ...muted, ...(escalate || state === 'needs-manual' ? { color: 'var(--dsw-alias-label-primary)' } : {}), margin: 0, overflowWrap: 'anywhere' } }, escalate && state === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason),
           h('div', { style: row },
-            actions.includes('open-chat') && button('打开原会话', `openChat:${item.recordId.slice(0, 8)}`, () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false), // 打开专用浏览器到抖音消息页；会话级直达链接后端尚无 href，先给面板内可达入口。
+            actions.includes('open-chat') && button('打开抖音', `openChat:${item.recordId.slice(0, 8)}`, () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false),
+            actions.includes('open-chat') && h('span', { style: muted }, '（打开抖音后请手动查找原会话核对）'),
             actions.includes('retry-now') && button('安全重新检查', `recheck:${item.recordId.slice(0, 8)}`, () => { void retryUnanswered(item.recordId); }, workerActive),
             // 结束待答不在运行时禁用：后端 endUnanswered 有 withChatPaused(resume:'preserve') 协调运行中写入；
             // 保留的保护裁剪只在服务端 availableActions（uncertain 态无 end、混合记录文字目标未核对完不给 end），前端跟随不再造禁用。
@@ -243,7 +244,7 @@ window.__ModuleLoader__.load({
       const unansweredView = !unanswered ? (unansweredError ? [h('p', { role: 'alert', style: muted }, unansweredError)] : []) : [
         unanswered.count > 0 && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-label-primary)' } }, `待答 ${unanswered.count} 条：自动恢复中 ${groups?.autoRecovering ?? 0} · 需人工核对 ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)}；确认后不会补发。`),
         stale && h('p', { role: 'status', style: muted }, staleNotice),
-        staleNotice && !stale && null,
+        unansweredError && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-signal-danger, #d93025)' } }, unansweredError),
         ...unanswered.items.map(unansweredCard),
       ].filter(Boolean);
       const summary = (() => {
