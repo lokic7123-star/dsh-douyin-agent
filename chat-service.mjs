@@ -72,6 +72,11 @@ const progressNoteText={'waiting-bounded-generation-evidence':'正在等待可�
 export function deriveBacklogState(record,{queue,escalated=false}={}){
   if(!record||record.autoHandled===true||record.handledByUserAt||record.resolvedVia)return{backlogState:'resolved',progressNote:'已回复或已结束，不会再自动回复。',availableActions:['open-chat'],blockerCode:null,attempts:0};
   if(record.needsManual===true&&typeof record.needsManualReason==='string'&&['mapping-stale','media-unobservable','identity-unverifiable'].includes(record.needsManualReason)){
+    // 终审 P1 目标粒度分层：混合记录的文字目标仍有 reserved/uncertain 未定论时，发送不明保护语义优先——
+    // progressNote 写明两部分各自状态，availableActions 不给 end（文字未核对完前不允许整条人工结束）；
+    // 文字目标全部核对完成（confirmed/zero-click 等终态）后恢复整条人工结束。
+    const pendingTextState=(record.targetStates??[]).find(item=>['reserved','uncertain'].includes(item.state));
+    if(pendingTextState)return{backlogState:'needs-manual',progressNote:'媒体部分已转人工；文字部分发送结果未确认，只读回核对，不会自动重发——文字核对完成前不能整条结束。',availableActions:['open-chat'],blockerCode:'readback-uncertain',attempts:0,textReadbackPending:true};
     return{backlogState:'needs-manual',progressNote:needsManualReasonText[record.needsManualReason],availableActions:['open-chat','end'],blockerCode:record.needsManualReason,attempts:0};
   }
   const uncertain=record.legacyUncertain===true||record.recoveryEvidence?.beforeDispatch===false||['sending','delivery-uncertain'].includes(record.phase)||['reserved','uncertain'].includes(record.autoAttempt?.state);

@@ -129,3 +129,25 @@ test('retry-now 安全重新检查：只更新重查时间与唤醒队列，不�
   // 不触发发送：sendMessage 保持回放的拦截桩
   assert.equal(f.service.outbound?true:true,true);
 });
+
+test('终审 P1 表驱动反例：混合记录（needs-manual + 文字 targetStates uncertain）不得显示为已转人工且不得给 end',()=>{
+  const messages=[textIncoming('a','（合成改写）上下文一'),textIncoming('b','（合成改写）上下文二'),textIncoming('t','（合成改写）纯文字追问'),videoIncoming('v')];
+  // needs-manual（媒体转人工）+ 文字目标 targetStates 含 uncertain（发送结果未定论）的混合记录
+  const mixed=archiveRecord(messages,{id:'mixed-unc',targetIds:['t'],extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString(),targetStates:[{messageId:'t',state:'uncertain',at:new Date().toISOString(),text:'（合成改写）历史生成文本'}]}});
+  const derived=deriveBacklogState(mixed,{});
+  // 文字发送结果未核对完之前：不得给 end（发送不明保护语义优先）；backlogState 保持 needs-manual 但展示必须含发送不明语义（lead 要点：非 needs-manual 或 progressNote 含发送不明语义，OR 关系——本实现取后者）
+  if(derived.backlogState==='needs-manual')assert.match(derived.progressNote,/发送结果未确认|只读回|不重发/,'needs-manual 态内必须区分展示发送不明语义');
+  assert.ok(!derived.availableActions.includes('end'),'文字 uncertain 未核对前不得给 end');
+  assert.match(derived.progressNote,/发送结果未确认|只读回|不重发/,'progressNote 应含发送不明保护语义');
+  // 对照：无文字 targetStates 未定论的 needs-manual 记录保持原语义（给 end）
+  const pure=deriveBacklogState(archiveRecord(messages,{id:'pure-manual',targetIds:['v'],extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString()}}),{});
+  assert.equal(pure.backlogState,'needs-manual');
+  assert.deepEqual(pure.availableActions,['open-chat','end']);
+  // 对照：reserved 未定论同样不给 end
+  const mixedReserved=deriveBacklogState(archiveRecord(messages,{id:'mixed-res',targetIds:['t'],extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString(),targetStates:[{messageId:'t',state:'reserved',at:new Date().toISOString(),text:'（合成改写）历史生成文本'}]}}),{});
+  assert.ok(!mixedReserved.availableActions.includes('end'),'reserved 未定论同样不给 end');
+  // 对照：文字目标已 confirmed（读回核对完成）后恢复 end（人工部分可整条结束）
+  const mixedDone=deriveBacklogState(archiveRecord(messages,{id:'mixed-done',targetIds:['t'],extra:{needsManual:true,needsManualReason:'media-unobservable',needsManualAt:new Date().toISOString(),targetStates:[{messageId:'t',state:'confirmed',at:new Date().toISOString()}]}}),{});
+  assert.equal(mixedDone.backlogState,'needs-manual');
+  assert.deepEqual(mixedDone.availableActions,['open-chat','end'],'文字已核对完成后恢复整条人工结束');
+});
