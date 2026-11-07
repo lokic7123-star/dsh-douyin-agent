@@ -290,7 +290,7 @@ function UnansweredSection({ api, run, busy, connected, allowlist, workerActive,
 
 // 观看足迹（吞噬新增，与插件端同构）：读取 /watched 聚合，按日分组卡片墙。
 const WATCHED_DAYS = { '14': '最近 14 天', '30': '最近 30 天' };
-function WatchedPanel({ api, run, busy, connected, onOpenDouyin }) {
+function WatchedPanel({ api, run, busy, connected }) {
   const [data, setData] = useState(null), [error, setError] = useState(''), [days, setDays] = useState('14');
   useEffect(() => {
     if (!connected) return;
@@ -298,13 +298,14 @@ function WatchedPanel({ api, run, busy, connected, onOpenDouyin }) {
     void api(`/api/douyin-browser/watched?days=${days}`).then(value => { if (alive && value?.protocol === 'douyin-watched-v1') { setData(value); setError(''); } }).catch(failure => { if (alive) setError(failure.message || '观看足迹未读取，稍后重试。'); });
     return () => { alive = false; };
   }, [connected, days]);
+  const openVideo = url => { if (url) void run('browserOpen', () => api('/api/browser/navigate', { url })); };
   return <Panel title="观看足迹" badge={<Tag>{data ? `${data.total} 条` : '读取中'}</Tag>}>
     {error && <Note error>{error}</Note>}
     <div className="actions"><select aria-label="足迹范围" value={days} onChange={event => setDays(event.target.value)}>{Object.entries(WATCHED_DAYS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><span className="muted">封面来自本机观察缓存；点击卡片在专用浏览器打开原作品。</span></div>
     {data && !data.groups.length && <Note>开启自主观看后，看过的作品会按日期出现在这里。</Note>}
     {data && !!data.groups.length && data.groups.map(group => <div key={group.day}>
       <p className="muted"><strong>{group.day}</strong> · {group.count} 条</p>
-      <div className="interest-list">{group.items.map(item => <button className="interest-card" key={item.videoId + item.at} onClick={() => onOpenDouyin?.()}><small>{item.tier}{item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · {new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}</small><p>{item.title || '无文案作品'}</p></button>)}</div>
+      <div className="interest-list">{group.items.map(item => <button className="interest-card" key={item.videoId + item.at} onClick={() => openVideo(item.url)}><small>{item.tier}{item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · {new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}</small><p>{item.title || '无文案作品'}</p></button>)}</div>
     </div>)}
     <Note>分层来自实际观看行为：转发 &gt; 停留观看 &gt; 短暂停留 / 跳过。数据来自既有观看记录，不新增采集。</Note>
   </Panel>;
@@ -437,7 +438,7 @@ export function App() {
     {settingsCategory === '基础设置' && <><Panel title="模型设置"><p className="muted">独立软件使用自己的 API Key，设置控件与插件采用同一套 DSH 组件。</p><p>当前模型：{settings.model || '尚未配置'} · {configured ? '已配置 Key' : '尚未配置 Key'}</p><Button size="sm" onClick={() => setSettingsOpen(true)}>配置模型与 API Key</Button></Panel><PersonaPanel snapshot={persona} onSnapshot={setPersona} api={api} run={run} bridge={bridge} busy={busy} watchState={watch} watchReady={watchReady} /><details><summary>检索共享记忆</summary><MemoryView settings={settings} api={api} run={run} busy={busy} bridge={bridge} /></details></>}
     {settingsCategory === '视频观看' && <><TopicPanel state={watch?.options} active={watchActive} api={api} run={run} busy={busy} connected={connected && watchReady} /><VideoPanel state={video} schedule={schedule} watch={watch} api={api} run={run} busy={busy} connected={connected} configured={configured}>{boot?.mode?.available && <SilentPanel state={mode} connected={connected} api={api} run={run} busy={busy} />}</VideoPanel><TaskBudgetPanel state={taskLimits} api={api} run={run} busy={busy} operationActive={operationActive} /></>}
     {settingsCategory === '好友互动' && <FriendInteractionPanel state={chat} interactions={interactions} share={share} api={api} run={run} busy={busy} configured={configured} connected={connected} onOpenDouyin={openDouyin} />}
-    {settingsCategory === '观看足迹' && <WatchedPanel api={api} run={run} busy={busy} connected={connected} onOpenDouyin={openDouyin} />}
+    {settingsCategory === '观看足迹' && <WatchedPanel api={api} run={run} busy={busy} connected={connected} />}
     {settingsCategory === '记忆管理' && <Panel title="记忆管理"><p className="muted">共享记忆与人格：完整编辑在「共享记忆与人格」页。</p><Button size="sm" onClick={() => setView('memory')}>打开共享记忆与人格</Button></Panel>}
     {settingsCategory === '公开评论' && <CommentsPanel state={comments} connected={connected} api={api} run={run} busy={busy} />}
     {settingsCategory === '音频与密钥' && <AudioPanel state={audio} api={api} run={run} busy={busy} bridge={bridge} operationActive={operationActive} />}

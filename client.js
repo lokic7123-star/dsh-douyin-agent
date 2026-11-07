@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
     const { createElement: h, useEffect, useRef, useState } = React;
     const Button = primitives.Button, Input = primitives.Input || 'input';
     const PREFIX = '/api/douyin-browser';
-    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched']);
+    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
     // 导航行与通用 row 解耦：单行自然溢出滚动（内容自然宽约 559px，见 docs/mockups/nav-measurement.md），不折行不硬编码断点。
@@ -244,8 +244,8 @@ textarea.dy-big{min-height:110px}
       const [busy, setBusy] = useState(new Set()), [contacts, setContacts] = useState(null), [discovery, setDiscovery] = useState(null), [diagnostics, setDiagnostics] = useState(null), [repairResult, setRepairResult] = useState(''), [report, setReport] = useState(null), [reportDate, setReportDate] = useState('');
       const [credentials, setCredentials] = useState({ mimo: '', minimax: '' }), [keyStatus, setKeyStatus] = useState({}), [reviews, setReviews] = useState(new Set());
       // 观看足迹与记忆管理（吞噬新增栏目）的本地状态；足迹数据懒加载，进入栏目时拉取。
-      const [watched, setWatched] = useState(null), [watchedError, setWatchedError] = useState(''), [watchedDays, setWatchedDays] = useState('14'), [memTab, setMemTab] = useState('character');
-      useEffect(() => { if (category === '观看足迹' && !watched && ready) { void loadWatched(); } }, [category, ready]);
+      const [watched, setWatched] = useState(null), [watchedError, setWatchedError] = useState(''), [watchedDays, setWatchedDays] = useState('14'), [memTab, setMemTab] = useState('character'), [panelErrorsTick, setPanelErrorsTick] = useState(0);
+      useEffect(() => { if (category === '观看足迹' && ready) { void loadWatched(watchedDays); } }, [category, ready, watchedDays]);
       const existingAuthorization = useRef(false); const alive = useRef(true), refreshing = useRef(null), refreshAgain = useRef(false), locks = useRef(new Set()), submitted = useRef(new Set()), keyValues = useRef(credentials);
       const active = value => value?.running || value?.starting || value?.busy || value?.worker?.alive;
       const operationActive = active(state?.watch) || state?.chat?.starting || state?.chat?.busy || state?.share?.busy;
@@ -523,7 +523,7 @@ textarea.dy-big{min-height:110px}
           watched && !watched.groups.length && dyCard(h3Card('还没有观看记录'), h('p', { className: 'dy-note' }, '开启自主观看后，看过的作品会按日期出现在这里。')),
           watched && !!watched.groups.length && h('div', { className: 'dy-wall' }, ...watched.groups.map(group => h('div', { key: group.day },
             h('div', { className: 'dy-dayhead' }, h('b', null, group.day), h('span', { className: 'dy-cap' }, `${group.count} 条`), h('span', { className: 'ln' })),
-            h('div', { className: 'dy-grid' }, ...group.items.map(item => h('a', { key: item.videoId + item.at, className: 'dy-vitem', href: item.url || '#', target: '_blank', rel: 'noreferrer', onClick: event => { if (!item.url) { event.preventDefault(); return; } event.preventDefault(); void perform('browser', () => api.request('/browser/open', {})); } },
+            h('div', { className: 'dy-grid' }, ...group.items.map(item => h('a', { key: item.videoId + item.at, className: 'dy-vitem', href: item.url || '#', onClick: event => { event.preventDefault(); if (item.url) void perform('browser', () => api.request('/browser/navigate', { url: item.url })); } },
               h('div', { className: 'dy-thumb', 'aria-hidden': 'true' }, '封面截图'),
               h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}`)))))))),
           watched && !!watched.groups.length && h('p', { className: 'dy-note' }, '分层来自实际观看行为：转发 > 停留观看 > 短暂停留 / 跳过；「跳过·超过 60 分钟」类长视频保留跳过标记。')),
@@ -531,6 +531,7 @@ textarea.dy-big{min-height:110px}
         category === '记忆管理' && h('div', { className: 'dy-wrap' },
           h('div', { className: 'dy-card' },
             h('div', { className: 'dy-card-top' }, h('h3', null, '记忆管理'), h('span', { className: 'sp' }),
+              state?.persona?.personaFolder && button('打开记忆文件夹', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} }), h('span', { className: 'dy-cap' }, '完整编辑在「基础设置 → 人格与兴趣」'),
               h('div', { className: 'dy-mtabs', role: 'tablist', 'aria-label': '记忆分区' },
                 ...[['character', '角色卡'], ['interests', '兴趣'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label)))),
             memTab === 'character' && h('div', { className: 'dy-inner' },
@@ -545,7 +546,7 @@ textarea.dy-big{min-height:110px}
               !(state?.persona?.recentObservations || []).length && h('p', { className: 'dy-note' }, '暂无观察记录。')),
             memTab === 'raw' && h('div', { className: 'dy-inner' },
               h('p', { className: 'dy-note' }, `记忆文件夹：${state?.persona?.personaFolder || '读取中…'}`),
-              h('div', { className: 'dy-actions' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); }), state?.persona?.personaFolder && button('打开记忆文件夹', 'openMemory', () => { void perform('openMemory', () => api.request('/reports/generate', {})).catch(() => {}); })),
+              h('div', { className: 'dy-actions' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); })),
               h('p', { className: 'dy-note' }, '原始记录只在剪贴板交付；清理/单条删除走 memory.forget，后续批次接入。')))),
         category === '公开评论' && h('div', { className: 'dy-wrap' },
           dyCard(

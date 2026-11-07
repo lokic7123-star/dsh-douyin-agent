@@ -240,6 +240,17 @@ export function createApiServer({ controller, config, personaMemory, watchServic
         try { return reply(response, 200, await controller.openBrowser({ signal: AbortSignal.any([abort.signal, AbortSignal.timeout(75_000)]) })); }
         finally { response.removeListener('close', closed); if (browserAbort === abort) browserAbort = null; }
       }
+      if (url.pathname === '/api/browser/navigate' && request.method === 'POST') {
+        const body = await readJson(request);
+        if (typeof body.url !== 'string' || !/^https:\/\/(?:www\.)?douyin\.com\/video\/\d{6,}$/.test(body.url)) return reply(response, 400, { error: '只接受抖音作品页地址。' });
+        if (typeof controller.openBrowser !== 'function' || typeof controller.navigate !== 'function') return reply(response, 503, { error: '专用浏览器入口尚未就绪。' });
+        if (browserAbort) return reply(response, 409, { error: '专用浏览器正在打开，请等待当前操作完成。' });
+        const abort = new AbortController(); browserAbort = abort;
+        const closed = () => { if (!response.writableEnded) abort.abort(new Error('窗口已关闭，停止准备浏览器。')); };
+        response.once('close', closed);
+        try { await controller.openBrowser({ signal: AbortSignal.any([abort.signal, AbortSignal.timeout(75_000)]) }); return reply(response, 200, await controller.navigate(body.url, abort.signal)); }
+        finally { response.removeListener('close', closed); if (browserAbort === abort) browserAbort = null; }
+      }
       if (url.pathname.startsWith('/api/watch/')) {
         if (!watchService) return reply(response, 503, { error: '自主观看模块尚未就绪。' });
         if (request.method === 'GET' && url.pathname === '/api/watch/schedule') return reply(response,200,watchSchedule.state());
