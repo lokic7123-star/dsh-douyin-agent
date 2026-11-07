@@ -313,6 +313,28 @@ export class PersonaMemory {
     const data = { persona: snapshot.personaText.slice(0, 18_000), agentInterests: snapshot.interests.slice(0, 15).map(item => ({ topic: item.topic, signal: item.signal, basis: item.basis, counts: item.counts, privacy: item.privacy, visibility: item.visibility, evidenceCount: item.evidenceCount, latestEvidence: item.evidence.slice(-2).map(ref => ({ ...ref, reflection: ref.reflection.slice(0, 280) })) })), userPreferences: snapshot.userPreferences.slice(0, 15) };
     return `${BOUNDARY} 喜好只依据实际观看进度与已确认互动；标题、画面和模型提案本身只能记为待观察。\n${snapshot.available ? '' : '共享人格卡尚未就绪，不要声称已加载旧人格。\n'}${JSON.stringify(data)}`;
   }
+  // 观看足迹（只读聚合，供足迹页 /watched 使用）：按自然日分组的已观察作品与行为分层。
+  // 数据全部来自既有观察与互动记录，不新增采集；tier 由 behaviorByVideo 的行为判定复用（share/停留→完整观看倾向，quick-skip→跳过）。
+  watched({ days = 14 } = {}) {
+    if (!Number.isSafeInteger(days) || days < 1 || days > 90) throw error('PERSONA_ARGUMENT', '足迹天数必须是 1 至 90 的整数。');
+    const files = this.readFiles(), state = files.state ?? initial(0);
+    const summaries = behaviorByVideo(state);
+    const cutoff = this.clock() - days * 86_400_000;
+    const byDay = new Map();
+    for (const item of state.observations) {
+      const observedAt = Number(item.observedAt);
+      if (!Number.isFinite(observedAt) || observedAt < cutoff) continue;
+      const summary = summaries.get(item.videoId) || {};
+      const share = summary.actions?.share > 0, stay = summary.actions?.stay > 0, skip = summary.actions?.skip > 0;
+      const tier = share ? '已转发' : skip && !stay ? '跳过' : stay ? '停留观看' : '短暂停留';
+      const day = new Date(observedAt).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+      let bucket = byDay.get(day);
+      if (!bucket) { bucket = []; byDay.set(day, bucket); }
+      bucket.push({ videoId: item.videoId, url: item.url, title: item.title || '无文案作品', author: item.author || '', at: new Date(observedAt).toISOString(), tier, watchedSeconds: summary.watchedSeconds ?? 0, privacy: item.privacy, visibility: item.visibility });
+    }
+    const days_ = [...byDay.entries()].sort((a, b) => b[1][0].at.localeCompare(a[1][0].at)).map(([day, items]) => ({ day, count: items.length, items: items.sort((a, b) => b.at.localeCompare(a.at)) }));
+    return { protocol: 'douyin-watched-v1', days, total: days_.reduce((sum, entry) => sum + entry.count, 0), generatedAt: new Date(this.clock()).toISOString(), groups: days_, privacy: 'internal-reference', visibility: 'account-visible-unverified' };
+  }
   saveManualText({ text: manual, expectedRevision } = {}, { explicit = false } = {}) {
     if (explicit !== true) throw error('PERSONA_EXPLICIT_REQUIRED', '只有用户在本机明确保存才能修改手编人格卡。');
     text(manual, '人格卡正文', 40_000);

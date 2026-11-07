@@ -44,6 +44,13 @@ export function createNativeSettingsRoute({ getController, getComments, getRepor
         if (typeof supplied !== 'string' || !/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))) return send(res, 403, { error: '请刷新原生设置页后重试。' });
         return send(res, 200, await (await getChat()).unanswered());
       }
+      // 观看足迹：只读聚合既有观察记录，不新增采集；天数由查询参数限定（默认 14，上限 90）。
+      if (req.method === 'GET' && url.pathname === `${PREFIX}/watched`) {
+        const supplied = req.headers['x-douyin-settings-token'];
+        if (typeof supplied !== 'string' || !/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))) return send(res, 403, { error: '请刷新原生设置页后重试。' });
+        const days = Number(url.searchParams.get('days') ?? 14);
+        return send(res, 200, controller.getPersonaMemory().watched({ days: Number.isSafeInteger(days) ? days : 14 }));
+      }
       if (req.method !== 'POST') return send(res, 404, { error: '设置地址不存在。' });
       const supplied = req.headers['x-douyin-settings-token'];
       if (typeof supplied !== 'string' || !/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))) return send(res, 403, { error: '请刷新原生设置页后重试。' });

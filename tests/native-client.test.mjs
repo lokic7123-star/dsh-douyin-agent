@@ -168,7 +168,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(await page.getByLabel('好友互动状态', { exact: true }).getAttribute('title'), '好友互动已关闭。');
   assert.equal(await page.getByRole('dialog', { name: '遗留待处理消息' }).count(), 0);
   assert.equal(calls.some(item => item.route === '/chat/unanswered/resolve'), false);
-  assert.equal(await page.getByRole('tab').count(), 7); assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
+  assert.equal(await page.getByRole('tab').count(), 9); assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
   const tablistBox = await page.getByRole('tablist', { name: '抖音设置分类' }).evaluate(node => { const cs = getComputedStyle(node); return { wrap: cs.flexWrap, overflowX: cs.overflowX, rows: [...new Set([...node.querySelectorAll('[role="tab"]')].map(item => Math.round(item.getBoundingClientRect().top)))].length, shrink: getComputedStyle(node.querySelector('[role="tab"]')).flexShrink }; });
   assert.equal(tablistBox.wrap, 'nowrap'); assert.equal(tablistBox.overflowX, 'auto'); assert.equal(tablistBox.rows, 1); assert.equal(tablistBox.shrink, '0');
   await persona.fill('合成人格未保存草稿。'); await page.waitForTimeout(250); assert.equal(calls.some(item => item.route === '/persona/configure'), false);
@@ -183,7 +183,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   for (let count = 0; count < 40 && state.persona.revision !== 'synthetic-v3'; count++) await page.waitForTimeout(50);
   assert.equal(state.persona.manualText, '合成人格明确保存的新正文。');
   await page.getByRole('tab', { name: '视频观看', exact: true }).click();
-  await page.getByText('高级选项', { exact: true }).click();
+  // v2 面板：高级选项折叠已废除，每日观看上限直接平铺在观看时段卡内
   const minutes = page.getByRole('spinbutton', { name: '每日观看上限（分钟）', exact: true });
   await minutes.fill(''); const invalidCount = calls.filter(item => item.route === '/video/configure').length;
   await page.waitForTimeout(750); assert.equal(calls.filter(item => item.route === '/video/configure').length, invalidCount);
@@ -199,18 +199,19 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(state.video.policy.dailyMinutes, null); assert.equal(await minutes.inputValue(), '');
   stateVideoOverride = null; await page.waitForTimeout(250);
   state.video.policy = { ...state.video.policy, dailyMinutes: 45 }; await page.waitForFunction(() => document.querySelector('[aria-label="每日观看上限（分钟）"]').value === '45');
-  await page.getByRole('checkbox', { name: '允许自动观看', exact: true }).click(); await page.waitForFunction(() => document.querySelector('[aria-label="允许自动观看"]').checked === true);
+  // v2 面板：自主观看/静默观看为 dy-switch（role=switch），aria-checked 表达状态
+  await page.getByRole('switch', { name: '允许自动观看', exact: true }).click(); await page.waitForFunction(() => document.querySelector('[aria-label="允许自动观看"]').getAttribute('aria-checked') === 'true');
   assert.equal(state.schedule.policy.enabled, true); assert.equal(await page.getByRole('button', { name: /开始新一轮|停止自主观看|保存/ }).count(), 0);
   const startViewing = page.getByRole('button', { name: '开始自主观看', exact: true }), pauseViewing = page.getByRole('button', { name: '暂停观看', exact: true });
   assert.equal(await startViewing.isEnabled(), true, '总开关已开启但未运行时，可请求立即检查');
   const dailyBeforeViewing = structuredClone(state.video.daily); startOnConfigure = true; await startViewing.click();
   await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === '开始自主观看' && button.disabled));
-  await pauseViewing.click(); await page.waitForFunction(() => !document.querySelector('[aria-label="允许自动观看"]').checked);
+  await pauseViewing.click(); await page.waitForFunction(() => document.querySelector('[aria-label="允许自动观看"]').getAttribute('aria-checked') !== 'true');
   assert.equal(state.watch.running, false); assert.deepEqual(state.video.daily, dailyBeforeViewing, '开始/暂停不重置每日时长或请求次数'); startOnConfigure = false;
   await page.getByRole('button', { name: '谷时段（DeepSeek）', exact: true }).click(); await page.waitForTimeout(250); assert.deepEqual(state.video.policy.windows, ['00:00-09:00', '12:00-14:00', '18:00-24:00']);
-  await page.getByRole('combobox', { name: '观看方式', exact: true }).selectOption('topic'); await page.getByRole('textbox', { name: '想看的主题，每行一个', exact: true }).fill('合成天文'); await page.waitForTimeout(850);
+  await page.getByRole('combobox', { name: '观看方式', exact: true }).selectOption('topic'); await page.getByRole('textbox', { name: '想看的主题', exact: true }).fill('合成天文'); await page.waitForTimeout(850);
   assert.deepEqual(state.watchOptions.policy.topics, ['合成天文']);
-  await page.getByRole('checkbox', { name: '静默观看', exact: true }).click(); await page.waitForTimeout(250); assert.equal(state.mode.silent, true);
+  await page.getByRole('switch', { name: '静默观看', exact: true }).click(); await page.waitForTimeout(250); assert.equal(state.mode.silent, true);
   await page.getByRole('tab', { name: '好友互动', exact: true }).click();
   assert.equal(await page.getByRole('checkbox', { name: '允许好友互动', exact: true }).isChecked(), true);
   state.share.recent = [{ operationId: 'synthetic-share-failure', videoId: '11111', status: 'not-sent', failure: { code: 'SHARE_PANEL_UNAVAILABLE', stage: 'open-panel', message: '合成分享面板未显示。' } }, { operationId: 'synthetic-share-legacy', videoId: '22222', status: 'not-sent' }];
@@ -268,16 +269,18 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   failInteractions = false; await page.getByRole('checkbox', { name: '允许好友互动', exact: true }).click(); await page.waitForFunction(() => !document.querySelector('[aria-label="允许好友互动"]').checked);
   assert.equal(state.share.enabled, false); assert.equal(state.chat.running, false);
   assert.equal(calls.some(item => /^\/spark\/|^\/chat\/(?:start|stop)$|^\/share\/configure$/.test(item.route)), false);
-  await page.getByRole('tab', { name: '公开评论', exact: true }).click(); await page.getByRole('checkbox', { name: '允许自主发布评论', exact: true }).check(); await page.waitForTimeout(250);
+  await page.getByRole('tab', { name: '公开评论', exact: true }).click(); await page.getByRole('switch', { name: '允许自主发布评论', exact: true }).check(); await page.waitForTimeout(250);
   assert.equal(state.comments.enabled, true); assert.equal(await page.getByRole('button', { name: '保存评论许可', exact: true }).count(), 0);
   await page.getByRole('tab', { name: '音频与密钥', exact: true }).click();
+  // v2 面板：默认 backend=local-whisper 不显示 Key；先切到 MiMo 后端再填 Key
+  await page.getByRole('combobox', { name: '音频后端', exact: true }).selectOption('mimo');
   const key = page.getByLabel('MiMo API Key', { exact: true }); await key.fill('synthetic-mimo-key'); const beforeBlur = calls.filter(item => item.route === '/media/credentials').length; await page.waitForTimeout(250); assert.equal(calls.filter(item => item.route === '/media/credentials').length, beforeBlur);
   await key.press('Tab'); await page.waitForFunction(() => document.querySelector('[aria-label="MiMo API Key"]').value === '');
   assert.equal(state.media.enabled, false); assert.deepEqual(calls.filter(item => item.route === '/media/credentials').at(-1).body, { backend: 'mimo', apiKey: 'synthetic-mimo-key' });
   assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
   await page.getByRole('tab', { name: '观看日报', exact: true }).click(); await page.getByRole('button', { name: '读取所选日报', exact: true }).click(); await page.getByLabel('日报内容').filter({ hasText: '合成观看日报' }).waitFor();
-  await page.getByRole('tab', { name: '自检与用量', exact: true }).click(); await page.getByText('模型响应 2 次 · 已报告 4321 Token', { exact: true }).waitFor();
-  state.usage.today.totalTokens = 6789; await page.getByText('模型响应 2 次 · 已报告 6789 Token', { exact: true }).waitFor();
+  // v2 面板：用量改为指标卡（dy-stat 数值），文案断言改为「今日用量」卡内的数值
+  state.usage.today.totalTokens = 6789; await page.getByRole('tab', { name: '自检与用量', exact: true }).click(); await page.getByText('今日用量', { exact: true }).waitFor(); await page.getByText('6789', { exact: true }).waitFor();
   failState = true; await page.getByText('正在核实插件状态。', { exact: true }).waitFor(); failState = false;
   await page.getByRole('button', { name: '刷新插件状态', exact: true }).click(); await page.getByText('正在核实插件状态。', { exact: true }).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '一键自检', exact: true }).click(); await page.getByText('合成修复建议', { exact: true }).waitFor(); await page.getByRole('button', { name: '修复：重新应用静默设置', exact: true }).click(); await page.getByText('合成修复已回读', { exact: true }).waitFor();

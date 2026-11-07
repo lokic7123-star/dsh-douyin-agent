@@ -35,6 +35,24 @@ test('可播放作品缺少作者时仍可记录观察，不凭空补作者', t 
   assert.equal(saved.author, '');
 });
 
+test('观看足迹只读聚合：按日分组、天数过滤与分层标记，不修改状态', t => {
+  const f = fixture(t); f.store.initialize();
+  f.store.recordObservation(state('100001'), { source: 'api', kind: 'dom' });
+  f.store.recordObservation(state('100002'), { source: 'api', kind: 'dom' });
+  const watched = f.store.watched({ days: 14 });
+  assert.equal(watched.protocol, 'douyin-watched-v1');
+  assert.equal(watched.total, 2);
+  assert.ok(Array.isArray(watched.groups) && watched.groups.length >= 1, '按日分组输出');
+  for (const group of watched.groups) {
+    assert.equal(typeof group.day, 'string'); assert.equal(typeof group.count, 'number');
+    for (const item of group.items) { assert.ok(item.videoId); assert.ok(['已转发', '跳过', '停留观看', '短暂停留'].includes(item.tier)); assert.equal(item.privacy, 'internal-reference'); }
+  }
+  assert.throws(() => f.store.watched({ days: 0 }), { code: 'PERSONA_ARGUMENT' }, '天数下限 1');
+  assert.throws(() => f.store.watched({ days: 91 }), { code: 'PERSONA_ARGUMENT' }, '天数上限 90');
+  const after = JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8'));
+  assert.equal(after.observations.length, 2, 'watched 是只读聚合，不写入状态');
+});
+
 test('人格快照与上下文只读，不创建目录或默认读取旧人格', t => {
   const f = fixture(t), before = fs.readdirSync(f.root);
   const snapshot = f.store.snapshot();

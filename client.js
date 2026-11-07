@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
     const { createElement: h, useEffect, useRef, useState } = React;
     const Button = primitives.Button, Input = primitives.Input || 'input';
     const PREFIX = '/api/douyin-browser';
-    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate']);
+    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
     // 导航行与通用 row 解耦：单行自然溢出滚动（内容自然宽约 559px，见 docs/mockups/nav-measurement.md），不折行不硬编码断点。
@@ -15,50 +15,100 @@ window.__ModuleLoader__.load({
     const muted = { color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, margin: 0 };
     const formControl = { font: 'inherit', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 9, maxWidth: '100%', width: '100%', boxSizing: 'border-box' };
     const videoPolicyKey = policy => policy && JSON.stringify([Array.isArray(policy.windows) ? [...new Set(policy.windows)] : null, policy.weekendWindows || null, policy.sessionMinutes]);
-    const fallbackCategories = { '基础设置': ['人格与兴趣', 'DSH 模型'], '视频观看': ['观看主题', '视频时间与自主观看'], '自检与用量': ['自检与用量'], '好友互动': ['好友互动'], '公开评论': ['自主公开视频评论'], '音频与密钥': ['可选音频'], '观看日报': ['观看日报'] };
+    const fallbackCategories = { '基础设置': ['人格与兴趣', 'DSH 模型'], '视频观看': ['观看主题', '视频时间与自主观看'], '自检与用量': ['自检与用量'], '好友互动': ['好友互动'], '观看足迹': ['观看足迹'], '记忆管理': ['记忆管理'], '公开评论': ['自主公开视频评论'], '音频与密钥': ['可选音频'], '观看日报': ['观看日报'] };
     // 面板样式：class 体系 + 单 <style> 注入（与 dsh-plugin-wallpaper-engine / dsh-qq-tts 同模式）。
-    // 令牌只用 dsw-alias 原生变量（暗亮主题自动切换），回退值仅在宿主缺失令牌时兜底。
+    // CSS 与 docs/mockups/panel-redesign-v2.html 预览稿逐字一致（v2.4 已获用户批准）；实装用 dsw-alias 令牌，深色主题自动适配。
     const PANEL_CSS = `
-.dy-panel{display:flex;flex-direction:column;gap:10px;min-width:0}
-.dy-card{border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:6px;min-width:0}
+.dy-wrap{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dy-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dy-head h2{margin:0;font-size:17px;font-weight:600}
+.dy-head .sp{flex:1}
+.dy-statusline{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:6px 2px;min-width:0}
+.dy-dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-success-primary,#16a34a);flex:none}
+.dy-dot.warn{background:var(--dsw-alias-state-warn-primary,#d97706)}
+.dy-dot.err{background:var(--dsw-alias-state-error-primary,#dc2626)}
+.dy-dot.idle{background:var(--dsw-alias-label-tertiary,#6b7280)}
+.dy-num{font-size:13px;font-weight:600;white-space:nowrap}
+.dy-cap{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;white-space:nowrap}
+.dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
+.dy-nav{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.dy-nav::-webkit-scrollbar{display:none}
+.dy-nav button{flex:none;font:inherit;font-size:12px;padding:4px 12px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dy-nav button:hover{background:var(--dsw-alias-bg-layer-1,#f7f8fa)}
+.dy-nav button[aria-selected="true"]{background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));color:#fff;font-weight:500}
+.dy-card{background:var(--dsw-alias-bg-layer-1,#f7f8fa);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .dy-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.dy-grow{flex:1;min-width:0}
-.dy-at{color:var(--dsw-alias-label-dimmed);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.dy-cap{color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}
-.dy-chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;white-space:nowrap;border:1px solid color-mix(in srgb,currentColor 30%,transparent);background:color-mix(in srgb,currentColor 10%,transparent);color:var(--dsw-alias-label-secondary)}
-.dy-chip .d{width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:6px;flex:none}
-.dy-chip--run{color:var(--dsw-alias-state-business-primary,#3b82f6)}
-.dy-chip--retry{color:var(--dsw-alias-state-warn-primary,#b45309)}
-.dy-chip--missing{color:var(--dsw-alias-state-error-primary,#b91c1c)}
-.dy-chip--uncertain{color:#7c3aed}
-.dy-chip--ok{color:var(--dsw-alias-state-success-primary,#15803d)}
-.dy-summary{font-size:13.5px;color:var(--dsw-alias-label-primary);margin:0;overflow-wrap:anywhere}
-.dy-reason{font-size:12.5px;color:var(--dsw-alias-label-secondary);margin:0;overflow-wrap:anywhere}
-.dy-reason--strong{color:var(--dsw-alias-label-primary)}
-.dy-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0}
-.dy-statusline{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 2px;min-width:0}
-.dy-seg{display:flex;align-items:center;gap:7px;min-width:0}
-.dy-dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-success-primary,#22c55e);flex:none}
-.dy-dot.warn{background:var(--dsw-alias-state-warn-primary,#f7ad31)}
-.dy-dot.err{background:var(--dsw-alias-state-error-primary,#f87171)}
-.dy-dot.idle{background:var(--dsw-alias-label-dimmed)}
-.dy-num{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
-.dy-sep{width:1px;height:16px;background:var(--dsw-alias-border-l2);flex:none}
-.dy-alert{display:flex;align-items:center;gap:10px;padding:9px 13px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f7ad31) 35%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#f7ad31) 10%,transparent);border-radius:10px;font-size:13px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
-.dy-kv{display:flex;gap:8px;font-size:12.5px;color:var(--dsw-alias-label-secondary);margin:2px 0;flex-wrap:wrap;overflow-wrap:anywhere}
-.dy-kv .k{color:var(--dsw-alias-label-dimmed);flex:none}
-.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:13px;color:var(--dsw-alias-label-secondary);margin:2px 0;overflow-wrap:anywhere}
-.dy-rowline .k{flex:none;color:var(--dsw-alias-label-dimmed);font-size:11.5px;min-width:52px;font-variant-numeric:tabular-nums}
-.dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1);min-width:0}
+.dy-card-top h3{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dy-card-top .sp{flex:1}
+.dy-inner{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.dy-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-row .sp{flex:1}
+.dy-label{font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dy-note{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;margin:0;overflow-wrap:anywhere}
+.dy-strong{color:var(--dsw-alias-label-primary);font-weight:600}
+.dy-input{font:inherit;font-size:12.5px;width:100%;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);
+  border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:4px 9px;height:30px}
+.dy-input:focus{outline:none;border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
+.dy-sel{position:relative;display:inline-flex;flex:none;min-width:0}
+.dy-sel::after{content:'';position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--dsw-alias-label-tertiary,#6b7280);pointer-events:none}
+.dy-sel select{-webkit-appearance:none;appearance:none;padding-right:26px;cursor:pointer;text-overflow:ellipsis}
+select.dy-input option{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+.dy-textarea{font:inherit;font-size:12.5px;width:100%;min-height:0;resize:vertical;color:var(--dsw-alias-label-primary);
+  background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:6px 9px;line-height:1.5}
+textarea.dy-big{min-height:110px}
+.dy-btn{font:inherit;font-size:12.5px;padding:5px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary)}
+.dy-btn:hover{background:var(--dsw-alias-bg-layer-1,#f7f8fa)}
+.dy-btn.primary{background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));color:#fff}
+.dy-btn.primary:hover{opacity:.88;background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
+.dy-btn:disabled{opacity:.45;cursor:default}
+.dy-chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 10px;font-size:11.5px;font-weight:500;white-space:nowrap}
+.dy-chip .d{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.dy-chip.ok{color:var(--dsw-alias-state-success-primary,#16a34a);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#16a34a) 10%,transparent)}
+.dy-chip.warn{color:var(--dsw-alias-state-warn-primary,#d97706);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d97706) 12%,transparent)}
+.dy-chip.err{color:var(--dsw-alias-state-error-primary,#dc2626);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 10%,transparent)}
+.dy-chip.info{color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));background:color-mix(in srgb,var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb)) 10%,transparent)}
+.dy-chip.violet{color:#7c3aed;background:color-mix(in srgb,#7c3aed 10%,transparent)}
+.dy-kv{display:flex;gap:8px;font-size:12.5px;flex-wrap:wrap;min-width:0}
+.dy-kv .k{color:var(--dsw-alias-label-tertiary,#6b7280);flex:none}
+.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.dy-rowline .t{flex:none;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11.5px;font-variant-numeric:tabular-nums}
+.dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));min-width:0}
 .dy-perm:last-child{border-bottom:0}
-.dy-perm .nm{font-weight:500;font-size:13.5px;min-width:0;overflow-wrap:anywhere}
-.dy-details summary{cursor:pointer;color:var(--dsw-alias-label-tertiary);font-size:12.5px}
-.dy-details>div{padding:6px 2px 2px}
-.dy-mark{flex:none;width:16px;text-align:center;font-weight:600;font-size:13px}
-.dy-mark.ok{color:var(--dsw-alias-state-success-primary,#15803d)}
-.dy-mark.warn{color:var(--dsw-alias-state-warn-primary,#b45309)}
-.dy-mark.err{color:var(--dsw-alias-state-error-primary,#b91c1c)}
-.dy-head3{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary);margin:0}
+.dy-perm .nm{font-weight:500;font-size:13px;width:150px;flex:none;overflow-wrap:anywhere}
+.dy-switch{width:34px;height:20px;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;flex:none;cursor:pointer}
+.dy-switch::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+.dy-switch.on{background:var(--dsw-alias-state-success-primary,#16a34a)}
+.dy-switch.on::after{left:16px}
+.dy-foot{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11.5px;font-variant-numeric:tabular-nums}
+.dy-wall{display:flex;flex-direction:column;gap:12px}
+.dy-dayhead{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dy-dayhead b{color:var(--dsw-alias-label-primary);font-weight:600}
+.dy-dayhead .ln{flex:1;height:1px;background:var(--dsw-alias-border-l1,var(--dsw-alias-border-l2))}
+.dy-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.dy-vitem{display:flex;flex-direction:column;gap:6px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));
+  border-radius:10px;overflow:hidden;text-decoration:none;color:inherit}
+.dy-vitem:hover{border-color:var(--dsw-alias-border-l2)}
+.dy-thumb{width:100%;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#f7f8fa));display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}
+.dy-vbody{padding:0 10px 10px;display:flex;flex-direction:column;gap:3px}
+.dy-vt{font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.dy-vn{font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280)}
+.dy-mtabs{display:flex;gap:6px;flex-wrap:wrap}
+.dy-mtab{font:inherit;font-size:12px;padding:3px 11px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer}
+.dy-mtab[aria-selected="true"]{background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));color:#fff;font-weight:500}
+.dy-tl{display:flex;flex-direction:column;gap:6px}
+.dy-tl-item{display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:8px;background:var(--dsw-alias-bg-base);min-width:0}
+.dy-tl-bar{width:3px;border-radius:2px;align-self:stretch;flex:none;background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
+.dy-tl-bar.pref{background:#f0a35e}.dy-tl-bar.fact{background:var(--dsw-alias-state-success-primary,#16a34a)}
+.dy-tl-bar.habit{background:#7c3aed}.dy-tl-bar.mention{background:var(--dsw-alias-state-warn-primary,#d97706)}
+.dy-tl-text{font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.dy-tl-meta{font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280);flex:none;margin-left:auto}
+.dy-stat2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dy-stat{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;padding:10px 12px}
+.dy-stat .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.dy-stat .k{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#6b7280)}
 `;
     function injectStyles() {
       if (typeof document === 'undefined') return;
@@ -70,12 +120,19 @@ window.__ModuleLoader__.load({
       node.textContent = PANEL_CSS;
       document.head.appendChild(node);
     }
-    // 面板通用积木：卡片、状态胶囊、kv 行、事件行（对应预览稿 dy-* 规格）。dyCard 只接 children；带 key 的用法直接写 h('div', {className:'dy-card', key}) 。
+    // 面板通用积木（对应预览稿 dy-* 规格 v2.4）。dyCard 只接 children；带 key 的用法直接写 h('div', {className:'dy-card', key}) 。
     const dyCard = (...children) => h('div', { className: 'dy-card' }, ...children);
-    const dyChip = (kind, text) => h('span', { className: `dy-chip dy-chip--${kind}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), text);
-    const dyKv = (key, value) => h('p', { className: 'dy-kv' }, h('span', { className: 'k' }, key), h('span', null, value));
-    const dyRow = (time, text) => h('p', { className: 'dy-rowline' }, h('span', { className: 'k' }, time), h('span', null, text));
+    const dyChip = (kind, text) => h('span', { className: `dy-chip ${kind}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), text);
+    const dyKv = (key, value) => h('p', { className: 'dy-kv' }, key ? h('span', { className: 'k' }, key) : null, h('span', null, value));
+    const dyRow = (time, text) => h('p', { className: 'dy-rowline' }, time ? h('span', { className: 't' }, time) : null, h('span', null, text));
+    const dySel = (props, options) => h('span', { className: 'dy-sel' }, h('select', { className: 'dy-input', ...props }, ...options.map(([key, text]) => h('option', { key, value: key }, text))));
+    const dySwitch = (on, props) => h('span', { className: `dy-switch${on ? ' on' : ''}`, role: 'switch', 'aria-checked': on === true, ...props });
     const copyData = (build) => { try { void navigator.clipboard?.writeText(build()); } catch {} };
+    const h3Card = text => h('h3', { style: { margin: 0, fontSize: 13, fontWeight: 600 } }, text);
+    // 前端错误环：window.onerror 收集最近 20 条渲染/运行异常，自检页展示、可清空；不含个人信息。
+    const ERR_KEY = 'douyin-panel-errors';
+    const recordPanelError = message => { try { const list = JSON.parse(globalThis.sessionStorage?.getItem(ERR_KEY) || '[]'); list.unshift({ at: new Date().toISOString(), message: String(message).slice(0, 300) }); globalThis.sessionStorage?.setItem(ERR_KEY, JSON.stringify(list.slice(0, 20))); } catch {} };
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !window.__douyinPanelErrHooked) { window.__douyinPanelErrHooked = true; window.addEventListener('error', ev => recordPanelError(ev?.message || '未知脚本错误')); }
 
     const OPERATIONS = {
       '/bootstrap': '连接本机服务', '/state': '刷新运行状态', '/interactions/state': '读取好友在线状态', '/interactions/configure': '设置好友互动',
@@ -186,6 +243,9 @@ window.__ModuleLoader__.load({
       const [operationErrors, setOperationErrors] = useState({});
       const [busy, setBusy] = useState(new Set()), [contacts, setContacts] = useState(null), [discovery, setDiscovery] = useState(null), [diagnostics, setDiagnostics] = useState(null), [repairResult, setRepairResult] = useState(''), [report, setReport] = useState(null), [reportDate, setReportDate] = useState('');
       const [credentials, setCredentials] = useState({ mimo: '', minimax: '' }), [keyStatus, setKeyStatus] = useState({}), [reviews, setReviews] = useState(new Set());
+      // 观看足迹与记忆管理（吞噬新增栏目）的本地状态；足迹数据懒加载，进入栏目时拉取。
+      const [watched, setWatched] = useState(null), [watchedError, setWatchedError] = useState(''), [watchedDays, setWatchedDays] = useState('14'), [memTab, setMemTab] = useState('character');
+      useEffect(() => { if (category === '观看足迹' && !watched && ready) { void loadWatched(); } }, [category, ready]);
       const existingAuthorization = useRef(false); const alive = useRef(true), refreshing = useRef(null), refreshAgain = useRef(false), locks = useRef(new Set()), submitted = useRef(new Set()), keyValues = useRef(credentials);
       const active = value => value?.running || value?.starting || value?.busy || value?.worker?.alive;
       const operationActive = active(state?.watch) || state?.chat?.starting || state?.chat?.busy || state?.share?.busy;
@@ -205,6 +265,11 @@ window.__ModuleLoader__.load({
       useEffect(() => { alive.current = true; void refresh(); const timer = setInterval(() => { void refresh(); }, 2500); return () => { alive.current = false; clearInterval(timer); }; }, [api]);
       useEffect(() => { if (!reportDate && state?.reports?.date) setReportDate(state.reports.date); }, [state]);
       const write = route => async payload => { const result = await api.request(route, payload); void refresh(true); return result; };
+      const loadWatched = async (days = watchedDays) => {
+        if (!ready) return;
+        try { setWatchedError(''); setWatched(await api.request(`/watched?days=${days}`)); }
+        catch (failure) { setWatchedError(failure.message || '观看足迹未读取，稍后重试。'); }
+      };
       const list = text => String(text || '').split(/[\n,;，；]+/).map(item => item.trim()).filter(Boolean);
       const positive = (value, label) => { const number = Number(value); if (String(value).trim() === '' || !Number.isSafeInteger(number) || number < 1) throw new Error(`${label}请填写正整数。`); return number; };
       const model = useAutosave({ value: state?.model, initial: { provider: '', model: '' }, read: value => ({ provider: value.provider || '', model: value.model || '' }), encode: value => { if (!value.provider || !value.model) throw new Error('请选择提供商和模型。'); return value; }, write: write('/model/configure'), available: ready && !operationActive });
@@ -245,7 +310,8 @@ window.__ModuleLoader__.load({
       const presence = ready ? state?.interactions?.presence : null, replyPresence = presence?.reply || presence, watchState = presence?.watch, presenceLabel = replyPresence?.label || '状态待核实', presenceReason = replyPresence?.reason || '正在读取好友回复服务状态。', watchLabel = watchState?.active ? watchState.label : '';
       // 待答五态（与后端 deriveBacklogState 对齐；两入口共用同一套文案，desktop/ui-api 侧实现保持同构）。
       const STATE_LABELS = { replying: '自动补答中', retrying: '等待自动恢复', 'needs-manual': '已转人工处理', uncertain: '发送结果不明', resolved: '已结束' };
-      const STATE_CHIP = { replying: 'run', retrying: 'retry', 'needs-manual': 'missing', uncertain: 'uncertain' };
+      // 五态胶囊配色（v2 预览稿语义）：replying=info 蓝 / retrying=warn 橙 / needs-manual=err 红 / uncertain=violet 紫
+      const STATE_CHIP = { replying: 'info', retrying: 'warn', 'needs-manual': 'err', uncertain: 'violet' };
       const chatActive = Boolean(active(state?.chat));
       // P2-3 跨面板生命周期缓存：client.js 跑在 DSH 宿主页面里，sessionStorage 随宿主页面会话存续——
       // 重开设置面板立即呈现上次真实内容，数据仍以接口回读为准（展示用缓存，不用于放行任何操作）。
@@ -332,38 +398,87 @@ window.__ModuleLoader__.load({
         if (replyPresence?.status === 'attention') return { label: '回复服务异常', detail: presenceReason, tab: '好友互动' };
         return { label: '一切正常', detail: [replyPresence?.label, watchState?.active ? watchState.label : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。' };
       })();
-      return h('div', { className: 'dy-panel', style: { maxWidth: 900, paddingBottom: 32 } },
+      return h('div', { className: 'dy-wrap', style: { maxWidth: 900, paddingBottom: 32 } },
         injectStyles(),
-        h('h2', null, '大肥鱼抖音助手'), !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
-        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-card-top' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
+        h('div', { className: 'dy-head' }, h('h2', null, '大肥鱼抖音助手'), h('span', { className: 'sp' }), button('刷新插件状态', 'refresh', () => { void refresh(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
+        !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
+        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
         h('div', { role: 'status', 'aria-live': 'polite', className: 'dy-statusline', style: { position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
-          h('span', { className: 'dy-seg', 'aria-label': '好友互动状态', title: presenceReason },
+          h('span', { 'aria-label': '好友互动状态', title: presenceReason },
             h('span', { className: `dy-dot ${replyPresence?.online === true ? '' : 'idle'}`, 'aria-hidden': 'true' }),
             h('span', { className: 'dy-num' }, presenceLabel)),
-          (state?.chat?.unansweredGroups?.autoRecovering > 0) && h('span', { className: 'dy-seg' }, h('span', { className: 'dy-dot warn', 'aria-hidden': 'true' }), h('span', { className: 'dy-num' }, String(state.chat.unansweredGroups.autoRecovering)), h('span', { className: 'dy-cap' }, '自动恢复中')),
-          (((state?.chat?.unansweredGroups?.needsManual ?? 0) + (state?.chat?.unansweredGroups?.uncertain ?? 0)) > 0) && h('span', { className: 'dy-seg' }, h('span', { className: 'dy-dot err', 'aria-hidden': 'true' }), h('span', { className: 'dy-num' }, String((state.chat.unansweredGroups.needsManual ?? 0) + (state.chat.unansweredGroups.uncertain ?? 0))), h('span', { className: 'dy-cap' }, '已转人工')),
-          watchState?.active && h('span', { className: 'dy-seg', role: 'status', 'aria-label': '自主观看状态', title: watchState.reason }, h('span', { className: 'dy-dot', 'aria-hidden': 'true' }), h('span', { className: 'dy-cap' }, `◉ ${watchLabel}`)),
+          (state?.chat?.unansweredGroups?.autoRecovering > 0) && h('span', null, h('span', { className: 'dy-dot warn', 'aria-hidden': 'true' }), ' ', h('span', { className: 'dy-num' }, String(state.chat.unansweredGroups.autoRecovering)), ' ', h('span', { className: 'dy-cap' }, '自动恢复中')),
+          (((state?.chat?.unansweredGroups?.needsManual ?? 0) + (state?.chat?.unansweredGroups?.uncertain ?? 0)) > 0) && h('span', null, h('span', { className: 'dy-dot err', 'aria-hidden': 'true' }), ' ', h('span', { className: 'dy-num' }, String((state.chat.unansweredGroups.needsManual ?? 0) + (state.chat.unansweredGroups.uncertain ?? 0))), ' ', h('span', { className: 'dy-cap' }, '已转人工')),
+          watchState?.active && h('span', { role: 'status', 'aria-label': '自主观看状态', title: watchState.reason }, h('span', { className: 'dy-dot', 'aria-hidden': 'true' }), ' ', h('span', { className: 'dy-cap' }, `◉ ${watchLabel}`)),
           (['attention', 'preparing'].includes(replyPresence?.status) || watchState?.active && replyPresence?.online !== true) && h('small', { role: replyPresence?.status === 'attention' ? 'alert' : 'status', className: 'dy-cap', style: { whiteSpace: 'normal' } }, presenceReason)),
         summary && h('div', { role: 'status', 'aria-label': '当前状态摘要', className: 'dy-card', title: summary.detail },
           h('div', { className: 'dy-card-top' },
             h('span', { className: `dy-dot ${summary.label === '一切正常' ? '' : 'warn'}`, 'aria-hidden': 'true' }),
             h('span', { className: 'dy-num' }, summary.label),
-            h('span', { className: 'dy-grow' }),
+            h('span', { style: { flex: 1 } }),
             summary.tab && summary.label !== '一切正常' && button('查看待答', 'statusGoto', () => setCategory(summary.tab))),
-          h('p', { className: 'dy-reason' }, summary.detail)),
-        h('div', { style: row }, button('刷新插件状态', 'refresh', () => { void refresh(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
-        h('div', { role: 'tablist', 'aria-label': '抖音设置分类', tabIndex: 0, style: tabRow }, ...Object.keys(fallbackCategories).map(name => h(Button, { key: name, role: 'tab', type: 'button', size: 'sm', variant: category === name ? 'primary' : 'outline', 'aria-selected': category === name, style: tab, onClick: () => setCategory(name) }, name))),
-        category === '基础设置' && h('div', null,
-          section('DSH 模型', select('模型提供商', model.draft.provider, [['', '请选择 DSH 提供商'], ...(state?.model?.providers || []).map(item => [item.id, item.name || item.id])], provider => model.edit({ provider, model: '' }, { immediate: true }), operationActive), select('模型名称', model.draft.model, [['', '请选择模型'], ...(state?.model?.models || []).filter(item => item.provider === model.draft.provider).map(item => [item.id, item.name || item.id])], value => model.edit({ model: value }, { immediate: true }), operationActive), status(model), note(state?.model?.configured ? '模型已配置。' : '请选择已配置的 DSH 模型。')),
-          section('人格与兴趣', area('大肥鱼人格正文', persona, 'content', 14, true, operationActive), status(persona), persona.status.kind === 'error' && button('载入最新人格（替换草稿）', 'personaReload', () => { void perform('personaReload', async () => { const latest = await refresh(true); if (!latest?.persona?.revision) throw new Error('未读到最新人格，原草稿已保留。'); persona.edit({ content: latest.persona.manualText || '', expectedRevision: latest.persona.revision }, { blurOnly: true }); return latest.persona; }); }), note('离开输入框后保存。插件与软件共用人格，未保存草稿不会被轮询覆盖。'), note(state?.persona?.personaFolder))),
-        category === '视频观看' && h('div', null,
-          section('视频观看', toggle('允许自动观看', watchEnabled, enabled => { void perform('schedule', () => api.request('/watch/schedule', { enabled })); }, typeof state?.schedule?.policy?.enabled !== 'boolean' || busy.has('schedule')), note('在允许时段内自动观看，离开时段或用完每日预算会停止。DSH 需保持运行。'),
-            h('div', { style: row }, button('开始自主观看', 'schedule', () => { void perform('schedule', () => api.request('/watch/schedule', { enabled: true })); }, typeof state?.schedule?.policy?.enabled !== 'boolean' || typeof state?.watch?.running !== 'boolean' || !state?.model?.configured || active(state?.watch) || state?.schedule?.busy), button('暂停观看', 'schedule', () => { void perform('schedule', () => api.request('/watch/schedule', { enabled: false })); }, typeof state?.schedule?.policy?.enabled !== 'boolean' || typeof state?.watch?.running !== 'boolean' || !watchEnabled && !active(state?.watch) && !state?.schedule?.busy)),
-            note('不在允许时段会等待；按钮与开关共用设置，每日已用时长和模型次数不会重置。'),
-            h('div', { style: row }, button('谷时段（DeepSeek）', 'valley', () => video.edit({ windows: '00:00-09:00\n12:00-14:00\n18:00-24:00', weekendAll: true }, { immediate: true })), button('全天', 'all', () => video.edit({ windows: '00:00-24:00', weekendAll: false }, { immediate: true })), button('晚间 20–22 点', 'evening', () => video.edit({ windows: '20:00-22:00', weekendAll: false }, { immediate: true }))), toggle('周末全天允许', video.draft.weekendAll, value => video.edit({ weekendAll: value }, { immediate: true })), area('每日允许视频时段（北京时间）', video, 'windows'),
-            h('details', null, h('summary', null, '高级选项'), toggle('不限每日观看时长', video.draft.unlimitedMinutes, value => video.edit({ unlimitedMinutes: value }, { immediate: true })), field('每日观看上限（分钟）', video, 'dailyMinutes', { type: 'number', min: 1, value: video.draft.unlimitedMinutes ? '' : video.draft.dailyMinutes, placeholder: video.draft.unlimitedMinutes ? '不限；输入分钟数可设置上限' : '正整数分钟数', onChange: event => video.edit({ dailyMinutes: event.target.value, ...(event.target.value !== '' ? { unlimitedMinutes: false } : {}) }) }), toggle('不限每日模型请求次数', video.draft.unlimitedRequests, value => video.edit({ unlimitedRequests: value }, { immediate: true })), field('每日观看模型请求上限', video, 'dailyRequests', { type: 'number', min: 1, value: video.draft.unlimitedRequests ? '' : video.draft.dailyRequests, placeholder: video.draft.unlimitedRequests ? '不限；输入次数可设置上限' : '正整数次数', onChange: event => video.edit({ dailyRequests: event.target.value, ...(event.target.value !== '' ? { unlimitedRequests: false } : {}) }) })), status(video), note(`今日已观看 ${Math.floor(state?.video?.daily?.usedSeconds || 0)} 秒 · 已请求 ${state?.video?.daily?.requests || 0} 次模型。`), note(state?.video?.reason), note(state?.schedule?.lastError), state?.watch?.lastError && h('p', { role: 'status' }, `上次自主观看停止原因：${state.watch.lastError}`)),
-          section('观看主题', select('观看方式', topics.draft.mode, [['recommend', '自主挑选推荐'], ['topic', '围绕指定主题观看']], value => topics.edit({ mode: value }, { immediate: true })), area('想看的主题，每行一个', topics, 'topics'), area('排除关键词，每行一个', topics, 'exclude'), status(topics)),
-          section('静默观看', toggle('静默观看', mode.draft.silent, value => mode.edit({ silent: value }, { immediate: true })), status(mode), note(state?.mode?.application?.message || state?.mode?.note))),
+          h('p', { className: 'dy-note' }, summary.detail)),
+        h('nav', { className: 'dy-nav', role: 'tablist', 'aria-label': '抖音设置分类', tabIndex: 0 }, ...Object.keys(fallbackCategories).map(name => h('button', { key: name, role: 'tab', type: 'button', 'aria-selected': category === name, onClick: () => setCategory(name) }, name))),
+        category === '基础设置' && h('div', { className: 'dy-wrap' },
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '模型连接'), h('span', { className: 'sp' }), h('span', { className: `dy-chip ${state?.model?.configured ? 'ok' : 'err'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), state?.model?.configured ? '已配置' : '未配置')),
+            h('div', { className: 'dy-row' },
+              h('span', { className: 'dy-label' }, '提供商'),
+              dySel({ 'aria-label': '模型提供商', value: model.draft.provider, disabled: !ready || operationActive, onChange: event => model.edit({ provider: event.target.value, model: '' }, { immediate: true }) }, [['', '请选择 DSH 提供商'], ...(state?.model?.providers || []).map(item => [item.id, item.name || item.id])]),
+              h('span', { className: 'dy-label' }, '模型'),
+              dySel({ 'aria-label': '模型名称', value: model.draft.model, disabled: !ready || operationActive, onChange: event => model.edit({ model: event.target.value }, { immediate: true }) }, [['', '请选择模型'], ...(state?.model?.models || []).filter(item => item.provider === model.draft.provider).map(item => [item.id, item.name || item.id])])),
+            status(model),
+            h('p', { className: 'dy-note' }, '选择已配置的 DSH 模型。配置后观看、回复、分享等自动能力按各自的开关运行。')
+          ),
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '人格与兴趣'), h('span', { className: 'sp' }), persona.status.kind === 'error' && button('载入最新人格（替换草稿）', 'personaReload', () => { void perform('personaReload', async () => { const latest = await refresh(true); if (!latest?.persona?.revision) throw new Error('未读到最新人格，原草稿已保留。'); persona.edit({ content: latest.persona.manualText || '', expectedRevision: latest.persona.revision }, { blurOnly: true }); return latest.persona; }); })),
+            h('textarea', { className: 'dy-textarea dy-big', 'aria-label': '大肥鱼人格正文', rows: 9, value: persona.draft.content, disabled: !ready || operationActive, onChange: event => persona.edit({ content: event.target.value }, { blurOnly: true }), onBlur: () => { void persona.flush(); } }),
+            h('div', { className: 'dy-row' }, h('p', { className: 'dy-note', style: { margin: 0 } }, '离开输入框后保存。插件与软件共用人格，未保存草稿不会被轮询覆盖。'), h('span', { style: { flex: 1 } }), h('span', { className: 'dy-foot' }, `${[...persona.draft.content].length} 字`)),
+            status(persona),
+            h('div', { className: 'dy-inner' },
+              h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '人设自动补写'), dySwitch(false, { 'aria-label': '人设自动补写', title: '后续批次接入：每天按记忆在人格卡末尾补一段观察（带上下文预算检查）' }), h('span', { style: { flex: 1 } }), h('span', { className: 'dy-cap' }, '默认关闭 · 后续批次接入')),
+              h('p', { className: 'dy-note', style: { margin: 0 } }, '开启后每天根据记忆自动补写人格卡；补写前检查上下文预算，接近上限自动停写。')),
+            h('p', { className: 'dy-note' }, state?.persona?.personaFolder)
+          )
+        ),
+        category === '视频观看' && h('div', { className: 'dy-wrap' },
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '自主观看'), dySwitch(watchEnabled, { 'aria-label': '允许自动观看', onClick: () => { if (typeof state?.schedule?.policy?.enabled === 'boolean' && !busy.has('schedule')) void perform('schedule', () => api.request('/watch/schedule', { enabled: !watchEnabled })); } }),
+              h('span', { style: { flex: 1 } }), h('span', { className: 'dy-foot' }, `今日 ${Math.floor((state?.video?.daily?.usedSeconds || 0) / 60)} 分钟 · 请求 ${state?.video?.daily?.requests || 0} 次`)),
+            h('div', { className: 'dy-row' },
+              button('开始自主观看', 'schedule', () => { void perform('schedule', () => api.request('/watch/schedule', { enabled: true })); }, typeof state?.schedule?.policy?.enabled !== 'boolean' || typeof state?.watch?.running !== 'boolean' || !state?.model?.configured || active(state?.watch) || state?.schedule?.busy),
+              button('暂停观看', 'schedule', () => { void perform('schedule', () => api.request('/watch/schedule', { enabled: false })); }, typeof state?.schedule?.policy?.enabled !== 'boolean' || typeof state?.watch?.running !== 'boolean' || !watchEnabled && !active(state?.watch) && !state?.schedule?.busy),
+              h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '离开时段或用完每日预算会停止；时长与请求不因开关重置')),
+            note(state?.video?.reason), note(state?.schedule?.lastError), state?.watch?.lastError && h('p', { role: 'status', className: 'dy-note' }, `上次自主观看停止原因：${state.watch.lastError}`)
+          ),
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '观看时段'), h('span', { className: 'sp' }), h('span', { className: 'dy-foot' }, `周末${video.draft.weekendAll ? '全天允许' : '按工作日'}`)),
+            h('div', { className: 'dy-row' },
+              button('全天', 'all', () => video.edit({ windows: '00:00-24:00', weekendAll: false }, { immediate: true }), false, false),
+              button('谷时段（DeepSeek）', 'valley', () => video.edit({ windows: '00:00-09:00\n12:00-14:00\n18:00-24:00', weekendAll: true }, { immediate: true }), false, false),
+              button('晚间 20–22 点', 'evening', () => video.edit({ windows: '20:00-22:00', weekendAll: false }, { immediate: true }), false, false)),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '时段'), h('input', { className: 'dy-input', style: { width: 260, flex: 'none' }, 'aria-label': '每日允许视频时段', value: video.draft.windows, disabled: !ready, onChange: event => video.edit({ windows: event.target.value }), onBlur: () => { void video.flush(); } }), h('span', { className: 'dy-cap' }, '可多段，斜杠或空格分隔，如 09:00-12:00 / 14:00-18:00')),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '周末全天'), dySwitch(video.draft.weekendAll, { 'aria-label': '周末全天允许', onClick: () => video.edit({ weekendAll: !video.draft.weekendAll }, { immediate: true }) })),
+            h('div', { className: 'dy-row' },
+              h('span', { className: 'dy-label' }, '每日观看上限'), h('input', { className: 'dy-input', style: { width: 90, flex: 'none' }, type: 'number', min: 1, 'aria-label': '每日观看上限（分钟）', value: video.draft.unlimitedMinutes ? '' : video.draft.dailyMinutes, placeholder: video.draft.unlimitedMinutes ? '不限' : '分钟数', disabled: !ready, onChange: event => video.edit({ dailyMinutes: event.target.value, ...(event.target.value !== '' ? { unlimitedMinutes: false } : {}) }) }), h('span', { className: 'dy-cap' }, `分钟${video.draft.unlimitedMinutes ? '（不限）' : ''}`),
+              h('span', { className: 'dy-label' }, '模型请求'), h('input', { className: 'dy-input', style: { width: 90, flex: 'none' }, type: 'number', min: 1, 'aria-label': '每日观看模型请求上限', value: video.draft.unlimitedRequests ? '' : video.draft.dailyRequests, placeholder: video.draft.unlimitedRequests ? '不限' : '次数', disabled: !ready, onChange: event => video.edit({ dailyRequests: event.target.value, ...(event.target.value !== '' ? { unlimitedRequests: false } : {}) }) }), h('span', { className: 'dy-cap' }, `次${video.draft.unlimitedRequests ? '（不限）' : ''}`)),
+            toggle('不限每日观看时长', video.draft.unlimitedMinutes, value => video.edit({ unlimitedMinutes: value }, { immediate: true })),
+            toggle('不限每日模型请求次数', video.draft.unlimitedRequests, value => video.edit({ unlimitedRequests: value }, { immediate: true })),
+            status(video)
+          ),
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '观看主题'), h('span', { className: 'sp' }), h('span', { className: `dy-chip ${topics.draft.mode === 'topic' ? 'info' : 'ok'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), topics.draft.mode === 'topic' ? '围绕指定主题' : '自主挑选推荐')),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '观看方式'), dySel({ 'aria-label': '观看方式', value: topics.draft.mode, onChange: event => topics.edit({ mode: event.target.value }, { immediate: true }) }, [['recommend', '自主挑选推荐'], ['topic', '围绕指定主题观看']])),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '主题'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 200 }, 'aria-label': '想看的主题', value: topics.draft.topics, disabled: !ready, onChange: event => topics.edit({ topics: event.target.value }), onBlur: () => { void topics.flush(); } })),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '排除'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 200 }, 'aria-label': '排除关键词', value: topics.draft.exclude, disabled: !ready, onChange: event => topics.edit({ exclude: event.target.value }), onBlur: () => { void topics.flush(); } })),
+            h('p', { className: 'dy-note' }, '主题之间用斜杠或空格分隔（也可逗号、换行），不按行占位。只推荐与主题相关的视频，找不到时回落推荐流。'),
+            status(topics)
+          ),
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '静默观看'), dySwitch(mode.draft.silent, { 'aria-label': '静默观看', onClick: () => mode.edit({ silent: !mode.draft.silent }, { immediate: true }) })),
+            h('p', { className: 'dy-note' }, '静音播放，核实窗口归属后尝试最小化；仍使用有窗口 Edge。'), status(mode), note(state?.mode?.application?.message || state?.mode?.note)
+          )
+        ),
         category === '好友互动' && section('好友互动', toggle('允许好友互动', friendEnabled, enabled => { void perform('interactions', () => api.request('/interactions/configure', { enabled })); }, typeof state?.interactions?.policy?.enabled !== 'boolean' || busy.has('interactions')), note('只与下方许可的好友和群聊互动，不设人数和次数上限。模型和名单就绪后自动准备回复；观看中可自主分享。群聊仅在被 @ 或叫到响应昵称时回复。'), note(state?.interactions?.friend?.message), state?.interactions?.friend?.lastError && h('p', { role: 'alert' }, state.interactions.friend.lastError),
           state?.interactions?.friend?.waitReason && note(`${state.interactions.friend.preparing ? '正在准备：' : '等待准备：'}${state.interactions.friend.waitReason}${state.interactions.friend.lastErrorCode ? `（${state.interactions.friend.lastErrorCode}）` : ''}${state.interactions.friend.nextRetryAt ? ` · 下次自动检查 ${new Date(state.interactions.friend.nextRetryAt).toLocaleString('zh-CN', { hour12: false })}` : ''}`),
           state?.interactions?.friend?.waitReason && h('div', { style: row }, h(Button, { type: 'button', size: 'sm', variant: 'outline', disabled: !ready || busy.has('chatPrepare') || state.interactions.friend.canPrepare === false, onClick: () => { void perform('chatPrepare', () => api.request('/chat/prepare', {})); } }, busy.has('chatPrepare') || state.interactions.friend.preparing ? '正在准备…' : '准备回复通道/重新连接并重试')),
@@ -382,24 +497,91 @@ window.__ModuleLoader__.load({
               h('p', { className: 'dy-reason' }, '点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。'),
               h('div', { className: 'dy-actions' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); })))))),
           h('details', { className: 'dy-details' }, h('summary', null, '最近分享记录'), ...(state?.share?.recent || []).slice().reverse().map(item => dyRow(item.videoId ? `作品 ${item.videoId}` : '消息', `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}${shareFailureMessage(item) ? ` · 原因：${shareFailureMessage(item)}` : ''}`)))),
-        category === '公开评论' && section('自主公开视频评论', toggle('允许自主发布评论', comments.draft.enabled, value => comments.edit({ enabled: value }, { immediate: true })), field('评论每日尝试上限', comments, 'dailyLimit', { type: 'number', min: 1 }), field('评论每次观看尝试上限', comments, 'perSessionLimit', { type: 'number', min: 1 }), status(comments), note(`今日已尝试 ${state?.comments?.daily?.attempts || 0} 次。`), ...reviewList('comments')),
-        category === '音频与密钥' && section('可选音频', toggle('读取视频声音', media.draft.enabled, value => media.edit({ enabled: value }, { immediate: true })), select('音频后端', media.draft.backend, [['local-whisper', '本机 Whisper'], ['mimo', 'MiMo'], ['minimax', 'MiniMax']], value => media.edit({ backend: value }, { immediate: true })), status(media), note('Key 离开输入框后保存；保存 Key 不会开启音频或下载模型。'), credentialForm('mimo', 'MiMo'), credentialForm('minimax', 'MiniMax')),
-        category === '观看日报' && section('观看日报', note(state?.reports?.folder), button('生成今天日报', 'reportGenerate', () => { void perform('reportGenerate', async () => { const value = await api.request('/reports/generate', {}); setReport(value); return value; }); }), h('label', { style: column }, '日报日期', h('input', { type: 'date', 'aria-label': '日报日期', style: formControl, value: reportDate, onChange: event => setReportDate(event.target.value) })), button('读取所选日报', 'reportRead', () => { void perform('reportRead', async () => { if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw new Error('请选择有效日期。'); const value = await api.request(`/reports/read?date=${reportDate}`); setReport(value); return value; }); }), report && h('pre', { 'aria-label': '日报内容', style: { whiteSpace: 'pre-wrap' } }, report.markdown || '暂无内容')),
-        category === '自检与用量' && section('自检与用量', button('一键自检', 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics', {}); setDiagnostics(value); setRepairResult(''); return value; }); }), diagnostics && h('div', { className: 'dy-panel' },
-          // 自检结果：逐项卡片（✓/!/× 标记），替代原 JSON 文本框；原始报告保留「复制」入口。
-          ...((diagnostics.checks || []).map(item => h('div', { key: item.id, className: 'dy-card' },
-            h('div', { className: 'dy-card-top' },
-              h('span', { className: `dy-mark ${item.status === 'pass' ? 'ok' : item.status === 'warning' ? 'warn' : 'err'}`, 'aria-hidden': 'true' }, item.status === 'pass' ? '✓' : item.status === 'warning' ? '!' : '×'),
-              h('span', { className: 'dy-num', style: { fontSize: 13 } }, item.label),
-              h('span', { className: 'dy-grow' }),
-              h('span', { className: 'dy-cap' }, ({ pass: '通过', warning: '待核对', fail: '未通过' })[item.status] || item.status)),
-            h('p', { className: 'dy-reason' }, `${item.message}${item.code ? `（${item.code}）` : ''}`),
-            ...(item.resolution?.steps || []).map(step => h('p', { className: 'dy-reason' }, step))))),
-          ...(diagnostics.repairableActions || []).map(action => button(`修复：${action.label}`, 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics/repair', { reportId: diagnostics.reportId, action: action.id }); setDiagnostics(value.after); setRepairResult(value.message); return value; }); })),
-          note(repairResult),
-          diagnostics && h('div', { className: 'dy-actions' }, button('复制完整报告', 'copyDiagnostics', () => { copyData(() => JSON.stringify(diagnostics, null, 2)); }), h('span', { className: 'dy-cap' }, '完整报告（含原始数据）只进剪贴板，不在界面铺开。')),
-          diagnostics?.note && h('p', { className: 'dy-reason' }, diagnostics.note)),
-        h('h3', null, '今日用量'), note(`模型响应 ${state?.usage?.today?.requests || 0} 次 · 已报告 ${state?.usage?.today?.totalTokens || 0} Token`), note(`输入 ${state?.usage?.today?.promptTokens || 0} · 输出 ${state?.usage?.today?.completionTokens || 0} · 缓存命中 ${state?.usage?.today?.cacheReportedRequests ? state.usage.today.cachedTokens : '未报告'} · 用量未知 ${state?.usage?.today?.unknownRequests || 0} 次`), state?.usage?.inFlight > 0 && note(`请求中 ${state.usage.inFlight} 次，Token 等模型返回后记录。`), ...(state?.usage?.groups || []).map(item => dyRow(`${item.model}`, `${item.requests} 次响应 · ${item.totalTokens} Token`)), note(state?.usage?.note))
+        // 观看足迹（吞噬新增）：读取 /watched 聚合，按日分组卡片墙；点击在专用浏览器打开原作品。
+        category === '观看足迹' && h('div', { className: 'dy-wrap' },
+          h('div', { className: 'dy-card' },
+            h('div', { className: 'dy-card-top' }, h('h3', null, '观看足迹'), h('span', { className: 'sp' }),
+              dySel({ 'aria-label': '足迹范围', value: watchedDays, onChange: event => setWatchedDays(event.target.value) }, [['14', '最近 14 天'], ['30', '最近 30 天']]),
+              button('刷新足迹', 'watched', () => { void loadWatched(); })),
+            watched ? h('p', { className: 'dy-note' }, `共 ${watched.total} 条已看记录${watched.generatedAt ? ` · 更新于 ${new Date(watched.generatedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}。封面来自本机观察缓存；点击卡片在专用浏览器打开原作品。`) : h('p', { className: 'dy-note' }, '正在读取观看足迹…'),
+            watchedError && h('p', { role: 'alert', className: 'dy-note', style: { color: 'var(--dsw-alias-state-error-primary,#dc2626)' } }, watchedError)),
+          watched && !watched.groups.length && dyCard(h3Card('还没有观看记录'), h('p', { className: 'dy-note' }, '开启自主观看后，看过的作品会按日期出现在这里。')),
+          watched && !!watched.groups.length && h('div', { className: 'dy-wall' }, ...watched.groups.map(group => h('div', { key: group.day },
+            h('div', { className: 'dy-dayhead' }, h('b', null, group.day), h('span', { className: 'dy-cap' }, `${group.count} 条`), h('span', { className: 'ln' })),
+            h('div', { className: 'dy-grid' }, ...group.items.map(item => h('a', { key: item.videoId + item.at, className: 'dy-vitem', href: item.url || '#', target: '_blank', rel: 'noreferrer', onClick: event => { if (!item.url) { event.preventDefault(); return; } event.preventDefault(); void perform('browser', () => api.request('/browser/open', {})); } },
+              h('div', { className: 'dy-thumb', 'aria-hidden': 'true' }, '封面截图'),
+              h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}`)))))))),
+          watched && !!watched.groups.length && h('p', { className: 'dy-note' }, '分层来自实际观看行为：转发 > 停留观看 > 短暂停留 / 跳过；「跳过·超过 60 分钟」类长视频保留跳过标记。')),
+        // 记忆管理（吞噬新增）：走宿主 memory.* RPC（与参考项目同构）；本端只读浏览，清理入口后续按需接入 memory.forget。
+        category === '记忆管理' && h('div', { className: 'dy-wrap' },
+          h('div', { className: 'dy-card' },
+            h('div', { className: 'dy-card-top' }, h('h3', null, '记忆管理'), h('span', { className: 'sp' }),
+              h('div', { className: 'dy-mtabs', role: 'tablist', 'aria-label': '记忆分区' },
+                ...[['character', '角色卡'], ['interests', '兴趣'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label)))),
+            memTab === 'character' && h('div', { className: 'dy-inner' },
+              h('p', { className: 'dy-note' }, '角色卡在「基础设置 → 人格与兴趣」编辑；这里展示记忆侧的自动生成段（agentInterests 的机器可读层），修改仍以人格卡为准。'),
+              ...(state?.persona?.interests || []).slice(0, 12).map(item => dyRow(item.topic, `${({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal} · ${item.basis || ''}`)),
+              !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。')),
+            memTab === 'interests' && h('div', { className: 'dy-tl' },
+              ...(state?.persona?.interests || []).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' }, h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }), h('span', { className: 'dy-tl-text' }, `${({ like: '感兴趣：', dislike: '不感兴趣：', neutral: '待观察：' })[item.signal] || ''}${item.topic} · 正向 ${item.counts?.like ?? 0} / 负向 ${item.counts?.dislike ?? 0} / 待观察 ${item.counts?.neutral ?? 0}`), h('span', { className: 'dy-tl-meta' }, item.privacy === 'internal-reference' ? '内部参考' : '')); }),
+              !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无记录。')),
+            memTab === 'observations' && h('div', { className: 'dy-tl' },
+              ...(state?.persona?.recentObservations || []).slice(-12).reverse().map(item => dyRow(item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', `${item.title || '无文案作品'}${item.author ? ` · @${item.author}` : ''}`)),
+              !(state?.persona?.recentObservations || []).length && h('p', { className: 'dy-note' }, '暂无观察记录。')),
+            memTab === 'raw' && h('div', { className: 'dy-inner' },
+              h('p', { className: 'dy-note' }, `记忆文件夹：${state?.persona?.personaFolder || '读取中…'}`),
+              h('div', { className: 'dy-actions' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); }), state?.persona?.personaFolder && button('打开记忆文件夹', 'openMemory', () => { void perform('openMemory', () => api.request('/reports/generate', {})).catch(() => {}); })),
+              h('p', { className: 'dy-note' }, '原始记录只在剪贴板交付；清理/单条删除走 memory.forget，后续批次接入。')))),
+        category === '公开评论' && h('div', { className: 'dy-wrap' },
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '公开评论'), dySwitch(comments.draft.enabled, { 'aria-label': '允许自主发布评论', onClick: () => comments.edit({ enabled: !comments.draft.enabled }, { immediate: true }) }), h('span', { className: 'dy-cap' }, '默认关闭')),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '每日尝试'), h('input', { className: 'dy-input', style: { width: 70, flex: 'none' }, type: 'number', min: 1, 'aria-label': '评论每日尝试上限', value: comments.draft.dailyLimit, disabled: !ready, onChange: event => comments.edit({ dailyLimit: event.target.value }) }), h('span', { className: 'dy-cap' }, '次'),
+              h('span', { className: 'dy-label' }, '每次观看'), h('input', { className: 'dy-input', style: { width: 70, flex: 'none' }, type: 'number', min: 1, 'aria-label': '评论每次观看尝试上限', value: comments.draft.perSessionLimit, disabled: !ready, onChange: event => comments.edit({ perSessionLimit: event.target.value }) }), h('span', { className: 'dy-cap' }, '次')),
+            status(comments), h('p', { className: 'dy-note' }, `今日已尝试 ${state?.comments?.daily?.attempts || 0} 次。开启后按实际观察决定是否评论；不使用人格原文、私信或 QQ 内容。`),
+            ...(state?.comments?.needsReview || []).length ? [h('h3', { style: { margin: 0, fontSize: 13, fontWeight: 600 } }, '待核对评论'), ...reviewList('comments')] : [])),
+        category === '音频与密钥' && h('div', { className: 'dy-wrap' },
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '音频理解'), dySwitch(media.draft.enabled, { 'aria-label': '读取视频声音', onClick: () => media.edit({ enabled: !media.draft.enabled }, { immediate: true }) }), h('span', { className: 'dy-cap' }, '关闭时密钥区收起')),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '后端'), dySel({ 'aria-label': '音频后端', value: media.draft.backend, onChange: event => media.edit({ backend: event.target.value }, { immediate: true }) }, [['local-whisper', '本机 Whisper'], ['mimo', 'MiMo'], ['minimax', 'MiniMax']]), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, 'Key 密文保存在本机，不回显')),
+            status(media),
+            media.draft.backend !== 'local-whisper' && credentialForm(media.draft.backend === 'mimo' ? 'mimo' : 'minimax', media.draft.backend === 'mimo' ? 'MiMo' : 'MiniMax'),
+            h('p', { className: 'dy-note' }, '保存 Key 不会开启音频或下载模型。')),
+        ),
+        category === '观看日报' && h('div', { className: 'dy-wrap' },
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '观看日报'), h('span', { className: 'sp' }), button('生成今天日报', 'reportGenerate', () => { void perform('reportGenerate', async () => { const value = await api.request('/reports/generate', {}); setReport(value); return value; }); })),
+            h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '日报日期'), h('input', { className: 'dy-input', type: 'date', style: { width: 150, flex: 'none' }, 'aria-label': '日报日期', value: reportDate, onChange: event => setReportDate(event.target.value) }), button('读取所选日报', 'reportRead', () => { void perform('reportRead', async () => { if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw new Error('请选择有效日期。'); const value = await api.request(`/reports/read?date=${reportDate}`); setReport(value); return value; }); }), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '正文见下方')),
+            h('p', { className: 'dy-note' }, state?.reports?.folder),
+            report && h('div', { className: 'dy-inner' }, h('p', { 'aria-label': '日报内容', className: 'dy-note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, report.markdown || '暂无内容')))
+        ),
+        category === '自检与用量' && h('div', { className: 'dy-wrap' },
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '自检'), h('span', { className: 'sp' }), button('一键自检', 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics', {}); setDiagnostics(value); setRepairResult(''); return value; }); }), button('复制完整报告', 'copyDiagnostics', () => { copyData(() => JSON.stringify(diagnostics, null, 2)); })),
+            h('p', { className: 'dy-note' }, '完整报告（含原始数据）只进剪贴板，不在界面铺开。'),
+            diagnostics && h('div', { className: 'dy-inner' },
+              ...((diagnostics.checks || []).map(item => h('div', { key: item.id, className: 'dy-row' },
+                h('span', { className: `dy-chip ${item.status === 'pass' ? 'ok' : item.status === 'warning' ? 'warn' : 'err'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), item.label),
+                h('span', { style: { flex: 1 } }),
+                h('span', { className: 'dy-cap' }, `${item.message}${item.code ? `（${item.code}）` : ''}`)))),
+              ...(item => (item?.resolution?.steps || []).length ? [h('p', { className: 'dy-note' }, item.resolution.steps.join('；'))] : [])((diagnostics.checks || []).find(item => item.status === 'fail')),
+              ...(diagnostics.repairableActions || []).map(action => button(`修复：${action.label}`, 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics/repair', { reportId: diagnostics.reportId, action: action.id }); setDiagnostics(value.after); setRepairResult(value.message); return value; }); })),
+              repairResult && h('p', { className: 'dy-note' }, repairResult),
+              h('p', { className: 'dy-note' }, diagnostics?.note || '')),
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '最近前端错误'), h('span', { className: 'sp' }), button('清空', 'clearErrors', () => { try { globalThis.sessionStorage?.setItem('douyin-panel-errors', '[]'); } catch {} setPanelErrorsTick(x => x + 1); }), h('span', { className: 'dy-cap' }, '本地环形缓存 · 最近 20 条')),
+            ...((() => { try { return JSON.parse(globalThis.sessionStorage?.getItem('douyin-panel-errors') || '[]'); } catch { return []; } })()).slice(0, 8).map((err, index) => dyRow(err.at ? new Date(err.at).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', err.message)),
+            !(() => { try { return JSON.parse(globalThis.sessionStorage?.getItem('douyin-panel-errors') || '[]').length; } catch { return 0; } })() && h('p', { className: 'dy-note' }, '暂无前端错误记录。')),
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, '今日用量'), h('span', { className: 'sp' }), h('span', { className: 'dy-foot' }, state?.usage?.today?.date || '')),
+            h('div', { className: 'dy-stat2' },
+              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.requests || 0)), h('div', { className: 'k' }, '模型响应（次）')),
+              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.totalTokens || 0)), h('div', { className: 'k' }, 'Token')),
+              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, `${Math.floor((state?.video?.daily?.usedSeconds || 0) / 60)} / ${state?.video?.policy?.dailyMinutes ?? '∞'}`), h('div', { className: 'k' }, '观看分钟')),
+              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, `${state?.video?.daily?.requests || 0} / ${state?.video?.policy?.dailyRequests ?? '∞'}`), h('div', { className: 'k' }, '模型请求'))),
+            h('p', { className: 'dy-note' }, `输入 ${state?.usage?.today?.promptTokens || 0} · 输出 ${state?.usage?.today?.completionTokens || 0} · 缓存命中 ${state?.usage?.today?.cacheReportedRequests ? state.usage.today.cachedTokens : '未报告'} · 用量未知 ${state?.usage?.today?.unknownRequests || 0} 次。未报告的用量标为未知，不能据此当作零消耗。`),
+            state?.usage?.inFlight > 0 && h('p', { className: 'dy-note' }, `请求中 ${state.usage.inFlight} 次，Token 等模型返回后记录。`),
+            ...(state?.usage?.groups || []).map(item => dyRow(item.model, `${item.requests} 次响应 · ${item.totalTokens} Token`)),
+            note(state?.usage?.note))))
       );
     }
 

@@ -62,7 +62,7 @@ test('软件统一分类中自动生效静默和评论，失败保留草稿，�
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
 
   await page.getByRole('heading', { name: '大肥鱼抖音助手', exact: true }).waitFor();
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['基础设置','视频观看','好友互动','公开评论','音频与密钥','观看日报','自检与用量']);
+  assert.deepEqual(await page.getByRole('tab').allTextContents(), ['基础设置','视频观看','好友互动','观看足迹','记忆管理','公开评论','音频与密钥','观看日报','自检与用量']);
   assert.equal(await page.locator('.business-sidebar').count(), 0);
   assert.deepEqual(await page.getByRole('navigation',{name:'主导航'}).getByRole('button').allTextContents(),['◌ 对话与视频','☷ 业务设置']);
   await page.waitForFunction(()=>document.querySelector('.brand-icon img')?.naturalWidth>0);
