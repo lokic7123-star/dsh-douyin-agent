@@ -352,12 +352,12 @@ textarea.dy-big{min-height:110px}
         return h('div', { key: item.recordId, className: 'dy-card' },
           h('div', { className: 'dy-card-top' },
             dyChip(STATE_CHIP[state] || 'retry', chipText),
-            h('span', { className: 'dy-grow' }),
+            h('span', { className: 'sp' }),
             h('span', { className: 'dy-cap' }, `${item.contactName}${item.messageCount > 1 ? ` · ${item.messageCount} 条消息` : ''}`),
-            when && h('span', { className: 'dy-at' }, `${when} 到达`)),
-          h('p', { className: 'dy-summary' }, summary),
-          h('p', { className: escalate || state === 'needs-manual' ? 'dy-reason dy-reason--strong' : 'dy-reason' }, escalate && state === 'retrying' ? `${reason}（已连续多次等待，建议人工核对）` : reason),
-          h('div', { className: 'dy-actions' },
+            when && h('span', { className: 'dy-foot' }, `${when} 到达`)),
+          h('p', { className: 'dy-note' }, summary),
+          h('p', { className: 'dy-note' }, escalate && state === 'retrying' ? h('b', { className: 'dy-strong' }, `${reason}（已连续多次等待，建议人工核对）`) : reason),
+          h('div', { className: 'dy-row' },
             actions.includes('open-chat') && button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false),
             actions.includes('open-chat') && h('span', { className: 'dy-cap' }, '（打开抖音后请手动查找原会话核对）'),
             actions.includes('retry-now') && button('安全重新检查', `recheck:${item.recordId.slice(0, 8)}`, () => { void retryUnanswered(item.recordId); }, workerActive),
@@ -366,24 +366,24 @@ textarea.dy-big{min-height:110px}
             actions.includes('end') && !done && button('结束待答，不再回复', key, () => { void endUnanswered(item.recordId, unanswered.snapshot); }, item.canResolve === false),
             done && h('span', { className: 'dy-cap' }, '正在结束待答…'),
             state === 'uncertain' && h('span', { className: 'dy-cap' }, '只读回核对；在原会话核实前不重发。')),
-          (item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && h('details', { className: 'dy-details' }, h('summary', null, '详情'), h('div', null,
+          (item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && h('details', null, h('summary', null, '详情'), h('div', null,
             item.lastCheckedAt && dyRow(`最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}`, reason ? '' : '状态在后台持续更新'),
-            item.reason && item.reason !== reason && h('p', { className: 'dy-reason' }, item.reason),
-            h('p', { className: 'dy-reason' }, '本地保留的文字预览仅用于核对；不会自动补发。'))));
+            item.reason && item.reason !== reason && h('p', { className: 'dy-note' }, item.reason),
+            h('p', { className: 'dy-note' }, '本地保留的文字预览仅用于核对；不会自动补发。'))));
       };
       const groups = unanswered?.groups;
       const checkedAt = unanswered?.checkedAt ? new Date(unanswered.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
       const staleNotice = `显示的是 ${checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。`;
       const history = unanswered?.resolvedHistory;
-      const historyView = history && (history.todayAutoResolved > 0 || history.todayManualEnded > 0) ? h('details', { className: 'dy-details' },
+      const historyView = history && (history.todayAutoResolved > 0 || history.todayManualEnded > 0) ? h('details', null,
         h('summary', null, `处理历史 · 今天已自动补答 ${history.todayAutoResolved} 条，人工结束 ${history.todayManualEnded} 条（不计入待处理）`),
         h('div', null,
           ...(history.items || []).map(entry => dyRow(entry.timeStr, entry.summary)),
-          h('p', { className: 'dy-reason', style: { opacity: 0.7, margin: '6px 0 0' } }, '历史只保留结果与核对方式，不重复展示正文。')
+          h('p', { className: 'dy-note', style: { opacity: 0.7, margin: '6px 0 0' } }, '历史只保留结果与核对方式，不重复展示正文。')
         )
       ) : null;
       const unansweredView = !unanswered ? (unansweredError ? [h('p', { role: 'alert', style: muted }, unansweredError)] : []) : [
-        unanswered.count > 0 && h('div', { role: 'alert', className: 'dy-card-top' }, h('span', { className: 'dy-num', style: { fontSize: 15 } }, `待答消息 · ${unanswered.count} 条`), h('span', { className: 'dy-cap' }, `${groups?.autoRecovering ?? 0} 条自动恢复中 · ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)} 条已转人工，需要你判断`), h('span', { className: 'dy-grow' }), h('span', { className: 'dy-at' }, checkedAt ? `更新于 ${checkedAt}` : '')),
+        unanswered.count > 0 && h('div', { role: 'alert', className: 'dy-card-top' }, h('span', { className: 'dy-num', style: { fontSize: 15 } }, `待答消息 · ${unanswered.count} 条`), h('span', { className: 'dy-cap' }, `${groups?.autoRecovering ?? 0} 条自动恢复中 · ${(groups?.needsManual ?? 0) + (groups?.uncertain ?? 0)} 条已转人工，需要你判断`), h('span', { className: 'sp' }), h('span', { className: 'dy-foot' }, checkedAt ? `更新于 ${checkedAt}` : '')),
         stale && h('p', { role: 'status', style: muted }, staleNotice),
         unansweredError && h('p', { role: 'alert', style: { ...muted, color: 'var(--dsw-alias-signal-danger, #d93025)' } }, unansweredError),
         ...unanswered.items.map(unansweredCard),
@@ -502,15 +502,15 @@ textarea.dy-big{min-height:110px}
             ...reviewList('share')
           ),
           ...unansweredView,
-          h('details', { className: 'dy-details' }, h('summary', null, '回复处理记录'), h('div', { className: 'dy-wrap' },
+          h('details', { className: 'dy-inner' }, h('summary', null, '回复处理记录'), h('div', { className: 'dy-wrap' },
             (() => { const r = state?.chat?.recovery; if (!r) return null; return dyKv('恢复队列', `自动恢复中 ${r.autoPendingCount || 0} · 等待人工 ${r.pendingManualCount || 0} · 可自动恢复 ${r.recoverableCount || 0}${r.requiresUserAction ? ' · 有会话需要你处理' : ''}`); })(),
             ...(state?.chat?.contacts || []).slice(0, 12).map(item => dyKv(item.name || state?.chat?.policy?.allowlist?.find(c => c.id === item.id)?.name || '许可会话', `${({ ready: '正常接收', paused: '已暂停', 'delivery-uncertain': '发送结果待核对' }[item.status]) || item.status || '状态未知'} · 待答 ${(item.unanswered?.length) || 0} 条${item.lastCheckedAt ? ` · 检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}${item.reason ? ` · ${item.reason}` : ''}`)),
             ...(state?.chat?.events || []).slice(-12).reverse().map((event, index) => dyRow(event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false }) : '', event.message || event.type || '运行事件')),
-            !(state?.chat?.contacts || []).length && !(state?.chat?.events || []).length && h('p', { className: 'dy-reason' }, '暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。'),
-            h('details', { className: 'dy-details' }, h('summary', null, '复制原始数据（排查用，界面不展示）'), h('div', null,
-              h('p', { className: 'dy-reason' }, '点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。'),
-              h('div', { className: 'dy-actions' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); })))))),
-          h('details', { className: 'dy-details' }, h('summary', null, '最近分享记录'), ...(state?.share?.recent || []).slice().reverse().map(item => dyRow(item.videoId ? `作品 ${item.videoId}` : '消息', `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}${shareFailureMessage(item) ? ` · 原因：${shareFailureMessage(item)}` : ''}`)))
+            !(state?.chat?.contacts || []).length && !(state?.chat?.events || []).length && h('p', { className: 'dy-note' }, '暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。'),
+            h('details', { className: 'dy-inner' }, h('summary', null, '复制原始数据（排查用，界面不展示）'), h('div', null,
+              h('p', { className: 'dy-note' }, '点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。'),
+              h('div', { className: 'dy-row' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); })))))),
+          h('details', { className: 'dy-inner' }, h('summary', null, '最近分享记录'), ...(state?.share?.recent || []).slice().reverse().map(item => dyRow(item.videoId ? `作品 ${item.videoId}` : '消息', `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}${shareFailureMessage(item) ? ` · 原因：${shareFailureMessage(item)}` : ''}`)))
         ),
         // 观看足迹（吞噬新增）：读取 /watched 聚合，按日分组卡片墙；点击在专用浏览器打开原作品。
         category === '观看足迹' && h('div', { className: 'dy-wrap' },
@@ -546,7 +546,7 @@ textarea.dy-big{min-height:110px}
               !(state?.persona?.recentObservations || []).length && h('p', { className: 'dy-note' }, '暂无观察记录。')),
             memTab === 'raw' && h('div', { className: 'dy-inner' },
               h('p', { className: 'dy-note' }, `记忆文件夹：${state?.persona?.personaFolder || '读取中…'}`),
-              h('div', { className: 'dy-actions' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); })),
+              h('div', { className: 'dy-row' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); })),
               h('p', { className: 'dy-note' }, '原始记录只在剪贴板交付；清理/单条删除走 memory.forget，后续批次接入。')))),
         category === '公开评论' && h('div', { className: 'dy-wrap' },
           dyCard(
