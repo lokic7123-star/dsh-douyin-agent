@@ -213,7 +213,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.deepEqual(state.watchOptions.policy.topics, ['合成天文']);
   await page.getByRole('switch', { name: '静默观看', exact: true }).click(); await page.waitForTimeout(250); assert.equal(state.mode.silent, true);
   await page.getByRole('tab', { name: '好友互动', exact: true }).click();
-  assert.equal(await page.getByRole('checkbox', { name: '允许好友互动', exact: true }).isChecked(), true);
+  assert.equal(await page.getByRole('switch', { name: '允许好友互动', exact: true }).getAttribute('aria-checked'), 'true');
   state.share.recent = [{ operationId: 'synthetic-share-failure', videoId: '11111', status: 'not-sent', failure: { code: 'SHARE_PANEL_UNAVAILABLE', stage: 'open-panel', message: '合成分享面板未显示。' } }, { operationId: 'synthetic-share-legacy', videoId: '22222', status: 'not-sent' }];
   await page.getByRole('button', { name: '刷新插件状态', exact: true }).click();
   await page.getByText('最近分享记录', { exact: true }).click();
@@ -264,9 +264,9 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByRole('button', { name: '读取联系人与群聊', exact: true }).click();
   const fiftySecond = page.getByRole('checkbox', { name: '许可联系人 合成多选好友52', exact: true }); await fiftySecond.waitFor(); assert.equal(await fiftySecond.isEnabled(), true); await fiftySecond.check(); await page.waitForTimeout(300);
   assert.equal(state.chat.policy.allowlist.length, 52);
-  failInteractions = true; await page.getByRole('checkbox', { name: '允许好友互动', exact: true }).click(); await page.getByRole('alert').filter({ hasText: '合成好友互动设置失败' }).waitFor();
-  assert.equal(await page.getByRole('checkbox', { name: '允许好友互动', exact: true }).isChecked(), true);
-  failInteractions = false; await page.getByRole('checkbox', { name: '允许好友互动', exact: true }).click(); await page.waitForFunction(() => !document.querySelector('[aria-label="允许好友互动"]').checked);
+  failInteractions = true; await page.getByRole('switch', { name: '允许好友互动', exact: true }).click(); await page.getByRole('alert').filter({ hasText: '合成好友互动设置失败' }).waitFor();
+  assert.equal(await page.getByRole('switch', { name: '允许好友互动', exact: true }).getAttribute('aria-checked'), 'true', '失败后开关回读仍为开');
+  failInteractions = false; await page.getByRole('switch', { name: '允许好友互动', exact: true }).click(); await page.waitForFunction(() => document.querySelector('[aria-label="允许好友互动"]').getAttribute('aria-checked') !== 'true');
   assert.equal(state.share.enabled, false); assert.equal(state.chat.running, false);
   assert.equal(calls.some(item => /^\/spark\/|^\/chat\/(?:start|stop)$|^\/share\/configure$/.test(item.route)), false);
   await page.getByRole('tab', { name: '公开评论', exact: true }).click(); await page.getByRole('switch', { name: '允许自主发布评论', exact: true }).check(); await page.waitForTimeout(250);
