@@ -270,15 +270,16 @@ textarea.dy-big{min-height:110px}
         try { setWatchedError(''); setWatched(await api.request(`/watched?days=${days}`)); }
         catch (failure) { setWatchedError(failure.message || '观看足迹未读取，稍后重试。'); }
       };
-      const list = text => String(text || '').split(/[\n,;，；]+/).map(item => item.trim()).filter(Boolean);
+      // wide=按方案 v2 的单行分隔语义（斜杠/空格/逗号/换行均切）；昵称等窄语义保持逗号/分号/换行。
+      const list = (text, wide = false) => String(text || '').split(wide ? /[\s,;，；\/]+/ : /[\n,;，；]+/).map(item => item.trim()).filter(Boolean);
       const positive = (value, label) => { const number = Number(value); if (String(value).trim() === '' || !Number.isSafeInteger(number) || number < 1) throw new Error(`${label}请填写正整数。`); return number; };
       const model = useAutosave({ value: state?.model, initial: { provider: '', model: '' }, read: value => ({ provider: value.provider || '', model: value.model || '' }), encode: value => { if (!value.provider || !value.model) throw new Error('请选择提供商和模型。'); return value; }, write: write('/model/configure'), available: ready && !operationActive });
       const persona = useAutosave({ value: state?.persona, initial: { content: '', expectedRevision: null }, read: value => ({ content: value.manualText || '', expectedRevision: value.revision }), encode: value => value, write: write('/persona/configure'), canonical: (saved, payload) => saved?.revision ? { content: saved.manualText || '', expectedRevision: saved.revision } : payload, available: ready && !operationActive });
       const readVideo = snapshot => { const policy = snapshot?.policy || {}, minutes = Object.hasOwn(policy, 'dailyMinutes') ? policy.dailyMinutes : Object.hasOwn(policy, 'sessionMinutes') ? policy.sessionMinutes : 10, requests = Object.hasOwn(policy, 'dailyRequests') ? policy.dailyRequests : 30; return { windows: (policy.windows || ['00:00-24:00']).join('\n'), weekendAll: policy.weekendWindows?.join() === '00:00-24:00', dailyMinutes: minutes ?? '', unlimitedMinutes: minutes === null, dailyRequests: requests ?? '', unlimitedRequests: requests === null }; };
-      const encodeVideo = value => { const windows = list(value.windows); if (!windows.length || windows.some(item => !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(item))) throw new Error('时段请填写完整的 HH:MM-HH:MM。'); return { windows, weekendWindows: value.weekendAll ? ['00:00-24:00'] : null, dailyMinutes: value.unlimitedMinutes ? null : positive(value.dailyMinutes, '每日观看分钟数'), dailyRequests: value.unlimitedRequests ? null : positive(value.dailyRequests, '每日模型请求次数') }; };
+      const encodeVideo = value => { const windows = list(value.windows, true); if (!windows.length || windows.some(item => !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(item))) throw new Error('时段请填写完整的 HH:MM-HH:MM。'); return { windows, weekendWindows: value.weekendAll ? ['00:00-24:00'] : null, dailyMinutes: value.unlimitedMinutes ? null : positive(value.dailyMinutes, '每日观看分钟数'), dailyRequests: value.unlimitedRequests ? null : positive(value.dailyRequests, '每日模型请求次数') }; };
       const video = useAutosave({ value: state?.video, initial: readVideo(null), read: readVideo, encode: encodeVideo, write: write('/video/configure'), canonical: (saved, payload) => saved?.policy ? encodeVideo(readVideo(saved)) : payload, available: ready });
       const readTopics = value => ({ mode: value?.policy?.mode || 'recommend', topics: (value?.policy?.topics || []).join('\n'), exclude: (value?.policy?.exclude || []).join('\n') });
-      const topics = useAutosave({ value: state?.watchOptions, initial: readTopics(null), read: readTopics, encode: value => ({ mode: value.mode, topics: list(value.topics), exclude: list(value.exclude) }), write: write('/watch/options'), canonical: (saved, payload) => saved?.policy ? { mode: saved.policy.mode, topics: saved.policy.topics || [], exclude: saved.policy.exclude || [] } : payload, available: ready });
+      const topics = useAutosave({ value: state?.watchOptions, initial: readTopics(null), read: readTopics, encode: value => ({ mode: value.mode, topics: list(value.topics, true), exclude: list(value.exclude, true) }), write: write('/watch/options'), canonical: (saved, payload) => saved?.policy ? { mode: saved.policy.mode, topics: saved.policy.topics || [], exclude: saved.policy.exclude || [] } : payload, available: ready });
       const mode = useAutosave({ value: state?.mode, initial: { silent: false }, read: value => ({ silent: value?.silent === true }), encode: value => value, write: write('/mode/configure'), canonical: (saved, payload) => typeof saved?.silent === 'boolean' ? { silent: saved.silent } : payload, available: ready });
       const comments = useAutosave({ value: state?.comments, initial: { enabled: false, dailyLimit: 3, perSessionLimit: 1 }, read: value => ({ enabled: value.enabled === true, dailyLimit: value.policy?.dailyLimit ?? 3, perSessionLimit: value.policy?.perSessionLimit ?? 1 }), encode: value => ({ enabled: value.enabled, dailyLimit: positive(value.dailyLimit, '每日评论次数'), perSessionLimit: positive(value.perSessionLimit, '每次观看评论次数') }), write: write('/comments/configure'), canonical: (saved, payload) => saved?.policy ? { enabled: saved.enabled === true, dailyLimit: saved.policy.dailyLimit, perSessionLimit: saved.policy.perSessionLimit } : payload, available: ready });
       const media = useAutosave({ value: state?.media, initial: { enabled: false, backend: 'local-whisper' }, read: value => ({ enabled: value.enabled === true, backend: value.backend || 'local-whisper' }), encode: value => value, write: write('/media/configure'), available: ready });
@@ -357,6 +358,8 @@ textarea.dy-big{min-height:110px}
             when && h('span', { className: 'dy-foot' }, `${when} 到达`)),
           h('p', { className: 'dy-note' }, summary),
           h('p', { className: 'dy-note' }, escalate && state === 'retrying' ? h('b', { className: 'dy-strong' }, `${reason}（已连续多次等待，建议人工核对）`) : reason),
+          // 方案承诺的「已等待时长 + 下次尝试」：nextRetryAt 由 chat-service 在 retrying 态透出，at 为到达时间。
+          state === 'retrying' && (item.nextRetryAt || item.at) && h('p', { className: 'dy-note' }, [item.at ? `已等待 ${Math.max(0, Math.round((Date.now() - new Date(item.at).getTime()) / 60_000))} 分钟` : '', item.nextRetryAt ? `下次尝试 ${new Date(item.nextRetryAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''].filter(Boolean).join(' · ')),
           h('div', { className: 'dy-row' },
             actions.includes('open-chat') && button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false),
             actions.includes('open-chat') && h('span', { className: 'dy-cap' }, '（打开抖音后请手动查找原会话核对）'),
@@ -416,7 +419,7 @@ textarea.dy-big{min-height:110px}
             h('span', { className: `dy-dot ${summary.label === '一切正常' ? '' : 'warn'}`, 'aria-hidden': 'true' }),
             h('span', { className: 'dy-num' }, summary.label),
             h('span', { style: { flex: 1 } }),
-            summary.tab && summary.label !== '一切正常' && button('查看待答', 'statusGoto', () => setCategory(summary.tab))),
+            summary.tab && summary.label !== '一切正常' && button(summary.tab === '好友互动' ? '查看待答' : '去处理', 'statusGoto', () => setCategory(summary.tab))),
           h('p', { className: 'dy-note' }, summary.detail)),
         h('nav', { className: 'dy-nav', role: 'tablist', 'aria-label': '抖音设置分类', tabIndex: 0 }, ...Object.keys(fallbackCategories).map(name => h('button', { key: name, role: 'tab', type: 'button', 'aria-selected': category === name, onClick: () => setCategory(name) }, name))),
         category === '基础设置' && h('div', { className: 'dy-wrap' },
@@ -434,6 +437,11 @@ textarea.dy-big{min-height:110px}
             h('div', { className: 'dy-card-top' }, h('h3', null, '人格与兴趣'), h('span', { className: 'sp' }), persona.status.kind === 'error' && button('载入最新人格（替换草稿）', 'personaReload', () => { void perform('personaReload', async () => { const latest = await refresh(true); if (!latest?.persona?.revision) throw new Error('未读到最新人格，原草稿已保留。'); persona.edit({ content: latest.persona.manualText || '', expectedRevision: latest.persona.revision }, { blurOnly: true }); return latest.persona; }); })),
             h('textarea', { className: 'dy-textarea dy-big', 'aria-label': '大肥鱼人格正文', rows: 9, value: persona.draft.content, disabled: !ready || operationActive, onChange: event => persona.edit({ content: event.target.value }, { blurOnly: true }), onBlur: () => { void persona.flush(); } }),
             h('div', { className: 'dy-row' }, h('p', { className: 'dy-note', style: { margin: 0 } }, '离开输入框后保存。插件与软件共用人格，未保存草稿不会被轮询覆盖。'), h('span', { style: { flex: 1 } }), h('span', { className: 'dy-foot' }, `${[...persona.draft.content].length} 字`)),
+            // 字数/token 预算条（方案 §三 + 预览稿）：2000 转黄、3000 转红，不阻断保存；token 为字符数估算。
+            (() => { const chars = [...persona.draft.content].length, tone = chars > 3000 ? 'err' : chars > 2000 ? 'warn' : 'ok'; return h('div', { className: 'dy-inner' },
+              h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '上下文预算'), h('span', { className: 'dy-strong' }, `${chars.toLocaleString('zh-CN')} / 2,000 字`), h('span', { className: 'sp' }), dyChip(tone, chars > 3000 ? '过长' : chars > 2000 ? '偏长' : '健康')),
+              h('div', { style: { height: 6, borderRadius: 3, background: 'var(--dsw-alias-bg-layer-1)', overflow: 'hidden' } }, h('div', { style: { width: `${Math.min(100, Math.round(chars / 2000 * 100))}%`, height: '100%', borderRadius: 3, background: `var(--dsw-alias-state-${tone === 'ok' ? 'success' : tone === 'warn' ? 'warn' : 'error'}-primary)` } })),
+              h('p', { className: 'dy-note', style: { margin: 0 } }, `约 ${Math.round(chars * 2 / 3).toLocaleString('zh-CN')} token。超过 2,000 字开始压缩回复质量（转黄），超过 3,000 字前端提示精简（转红），不阻断保存——内容去留由你决定。`)); })(),
             status(persona),
             h('div', { className: 'dy-inner' },
               h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '人设自动补写'), dySwitch(false, { 'aria-label': '人设自动补写', title: '后续批次接入：每天按记忆在人格卡末尾补一段观察（带上下文预算检查）' }), h('span', { style: { flex: 1 } }), h('span', { className: 'dy-cap' }, '默认关闭 · 后续批次接入')),
@@ -518,13 +526,13 @@ textarea.dy-big{min-height:110px}
             h('div', { className: 'dy-card-top' }, h('h3', null, '观看足迹'), h('span', { className: 'sp' }),
               dySel({ 'aria-label': '足迹范围', value: watchedDays, onChange: event => setWatchedDays(event.target.value) }, [['14', '最近 14 天'], ['30', '最近 30 天']]),
               button('刷新足迹', 'watched', () => { void loadWatched(); })),
-            watched ? h('p', { className: 'dy-note' }, `共 ${watched.total} 条已看记录${watched.generatedAt ? ` · 更新于 ${new Date(watched.generatedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}。封面来自本机观察缓存；点击卡片在专用浏览器打开原作品。`) : h('p', { className: 'dy-note' }, '正在读取观看足迹…'),
+            watched ? h('p', { className: 'dy-note' }, `共 ${watched.total} 条已看记录${watched.generatedAt ? ` · 更新于 ${new Date(watched.generatedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}。封面缓存尚未接入，缩略图暂显示占位；点击卡片在专用浏览器打开原作品。`) : h('p', { className: 'dy-note' }, '正在读取观看足迹…'),
             watchedError && h('p', { role: 'alert', className: 'dy-note', style: { color: 'var(--dsw-alias-state-error-primary,#dc2626)' } }, watchedError)),
           watched && !watched.groups.length && dyCard(h3Card('还没有观看记录'), h('p', { className: 'dy-note' }, '开启自主观看后，看过的作品会按日期出现在这里。')),
           watched && !!watched.groups.length && h('div', { className: 'dy-wall' }, ...watched.groups.map(group => h('div', { key: group.day },
             h('div', { className: 'dy-dayhead' }, h('b', null, group.day), h('span', { className: 'dy-cap' }, `${group.count} 条`), h('span', { className: 'ln' })),
             h('div', { className: 'dy-grid' }, ...group.items.map(item => h('a', { key: item.videoId + item.at, className: 'dy-vitem', href: item.url || '#', onClick: event => { event.preventDefault(); if (item.url) void perform('browser', () => api.request('/browser/navigate', { url: item.url })); } },
-              h('div', { className: 'dy-thumb', 'aria-hidden': 'true' }, '封面截图'),
+              h('div', { className: 'dy-thumb', 'aria-hidden': 'true' }, '暂无封面'),
               h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}`)))))))),
           watched && !!watched.groups.length && h('p', { className: 'dy-note' }, '分层来自实际观看行为：转发 > 停留观看 > 短暂停留 / 跳过；「跳过·超过 60 分钟」类长视频保留跳过标记。')),
         // 记忆管理（吞噬新增）：走宿主 memory.* RPC（与参考项目同构）；本端只读浏览，清理入口后续按需接入 memory.forget。
