@@ -47,6 +47,20 @@ test('自主观看和人格HTTP校验token；允许开关、共享互斥与手�
   assert.equal(JSON.stringify({ started, persona, stopped, saved }).includes(f.config.apiKey), false); assert.equal(f.actions.some(name => /forward|chat/.test(name)), false);
 });
 
+test('软件端足迹路由 /api/douyin-browser/watched 与插件端同聚合，days 边界一致', async t => {
+  const f = await fixture(t);
+  assert.equal((await fetch(`${f.base}/api/douyin-browser/watched`)).status, 403, '足迹与其它接口一样校验 token');
+  f.personaMemory.initialize({ importLegacy: false });
+  f.personaMemory.recordObservation({ url: 'https://www.douyin.com/video/7579432563794584933', loginRequired: false, verificationRequired: false, privateChatVisible: false, video: { id: '7579432563794584933', url: 'https://www.douyin.com/video/7579432563794584933', title: '合成画面', author: '合成作者', time: 1, duration: 100, readyState: 4, paused: false } }, { source: 'api' });
+  const watched = await f.request('/api/douyin-browser/watched?days=14');
+  assert.equal(watched.status, 200); assert.equal(watched.body.protocol, 'douyin-watched-v1');
+  assert.ok(watched.body.total >= 1, '观察记录进入足迹聚合');
+  assert.equal(watched.body.groups[0].items[0].videoId, '7579432563794584933');
+  assert.equal(watched.body.groups[0].items[0].tier, '短暂停留', '无行为记录时按短暂停留分层');
+  assert.equal((await f.request('/api/douyin-browser/watched?days=999')).status, 400, 'days 超 90 由服务端拒绝');
+  assert.equal((await f.request('/api/douyin-browser/watched?days=abc')).status, 200, '非法 days 回落默认 14');
+});
+
 test('软件服务关闭保留另一个DSH入口的owner循环及其视频，显式合作停止才结束它', async t => {
   const f = await fixture(t), nativeEntered = Promise.withResolvers(); let nativePauses = 0;
   const controller = { ...f.controller, source: 'dsh', pauseForLimits: async () => { nativePauses++; return {}; } };
