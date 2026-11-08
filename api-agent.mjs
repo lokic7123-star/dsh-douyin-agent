@@ -8,7 +8,7 @@ import { TOOL_DEFINITIONS, validateToolArguments } from './tool-definitions.mjs?
 export const DEFAULT_QQ_ROOT = 'D:/codex分局/聊天机器人';
 export const DEFAULT_MODEL = 'deepseek-flash';
 export const DEFAULT_LIMITS = Object.freeze({ maxSteps: 20, maxToolCalls: 20, apiTimeoutMs: 60_000, taskTimeoutMs: 180_000, maxTokens: 2_048, maxFrames: 4, maxFrameBytes: 2_000_000 });
-export const HARD_LIMITS = Object.freeze({ ...DEFAULT_LIMITS, maxSteps: 10000, maxToolCalls: 10000, taskTimeoutMs: 604_800_000 });
+export const HARD_LIMITS = Object.freeze({ ...DEFAULT_LIMITS, maxSteps: 10000, maxToolCalls: 10000, taskTimeoutMs: 604_800_000, apiTimeoutMs: 600_000 });
 
 export function normalizeApiConfig(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['apiKey', 'baseUrl', 'model', 'keySource'].includes(key))) throw new Error('API 设置只接受密钥、接口地址和模型。');
@@ -206,7 +206,7 @@ export class ApiAgent {
     this.lastVisualPacking=packed.manifest;
     messages[1].content=[messages[1].content[0],...packed.parts];
     if (!decisionProvider && !this.config.apiKey) throw new Error('自主观看需要先配置 API Key。');
-    const timeout = new AbortController(); const timer = setTimeout(() => timeout.abort(new Error('自主观看单次模型请求超时。')), this.apiTimeoutMs);
+    const timeout = new AbortController(); const timer = setTimeout(() => timeout.abort(Object.assign(new Error('自主观看单次模型请求超时。'), { code: 'WATCH_DECISION_TIMEOUT' })), this.apiTimeoutMs);
     const actualSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
     let usageRecorded = false;
     const recordUsage = usage => { this.usageLedger?.record({ source: this.source, kind: 'watch', model: this.config.model, usage }); usageRecorded = true; };

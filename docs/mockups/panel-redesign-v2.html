@@ -130,6 +130,14 @@ textarea.dy-big{min-height:110px}
 .dy-tl-bar.pref{background:#f0a35e}.dy-tl-bar.fact{background:var(--dsw-alias-state-success-primary)}
 .dy-tl-bar.habit{background:#7c3aed}.dy-tl-bar.mention{background:var(--dsw-alias-state-warn-primary)}
 .dy-tl-text{font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.dy-tl-main{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.dy-tl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-tl-topic{font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary,#111827)}
+.dy-tl-count{font-size:11.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+/* 自检行：标签左、说明中、错误码右 */
+.dy-checkrow{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.dy-checkrow:last-child{border-bottom:0}
+.dy-checkmsg{flex:1;min-width:0;font-size:12.5px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dy-tl-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none;margin-left:auto}
 .dy-stat2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .dy-stat{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px}

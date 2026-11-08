@@ -109,6 +109,14 @@ textarea.dy-big{min-height:110px}
 .dy-tl-bar.pref{background:#f0a35e}.dy-tl-bar.fact{background:var(--dsw-alias-state-success-primary,#16a34a)}
 .dy-tl-bar.habit{background:#7c3aed}.dy-tl-bar.mention{background:var(--dsw-alias-state-warn-primary,#d97706)}
 .dy-tl-text{font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.dy-tl-main{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.dy-tl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-tl-topic{font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary,#111827)}
+.dy-tl-count{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#6b7280);font-variant-numeric:tabular-nums}
+/* 自检行：标签左、说明中、错误码右（用户反馈旧版消息挤在右侧显得散乱） */
+.dy-checkrow{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2))}
+.dy-checkrow:last-child{border-bottom:0}
+.dy-checkmsg{flex:1;min-width:0;font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563);overflow-wrap:anywhere}
 .dy-tl-meta{font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280);flex:none;margin-left:auto}
 .dy-stat2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .dy-stat{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;padding:10px 12px}
@@ -228,8 +236,8 @@ textarea.dy-big{min-height:110px}
         async request(route, input) {
           if (!routes.has(route) && !/^\/reports\/read\?date=\d{4}-\d{2}-\d{2}$/.test(route) && !/^\/watched\?days=\d{1,2}$/.test(route)) throw new Error('只允许本插件的原生设置接口。');
           if (!fetcher && typeof rpc?.call !== 'function') throw new Error('当前 DSH 页面没有可用的插件设置通信接口。请更新插件后完全退出并重开 DSH；若仍失败，请核对 DSH 版本与来源。可点击“刷新插件状态”重试。');
-          if (input !== undefined && !token) throw new Error('请先刷新原生设置页，核实当前状态。');
-          if (route === '/chat/unanswered' && !token) throw new Error('请先刷新原生设置页，核实当前状态。');
+          if (input !== undefined && !token) throw new Error('设置会话未建立：请点击右上角「刷新插件状态」按钮后重试。');
+          if (route === '/chat/unanswered' && !token) throw new Error('设置会话未建立：请点击右上角「刷新插件状态」按钮后重试。');
           const operation = requestOperation(route, input), write = input !== undefined, timeoutMs = route === '/state' ? 20_000 : 65_000;
           if (write && writing.has(route)) throw Object.assign(new Error(`${operation}正在处理，请等待当前请求完成。`), { operation, code: 'UI_OPERATION_BUSY' });
           if (write) writing.add(route);
@@ -526,7 +534,7 @@ textarea.dy-big{min-height:110px}
             status(video)
           ),
           dyCard(
-            h('div', { className: 'dy-card-top' }, h('h3', null, '观看主题'), h('span', { className: 'sp' }), h('span', { className: `dy-chip ${topics.draft.mode === 'topic' ? 'info' : 'ok'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), topics.draft.mode === 'topic' ? '围绕指定主题' : '自主挑选推荐')),
+            h('div', { className: 'dy-card-top' }, h('h3', null, '观看主题'), h('span', { className: 'sp' }), h('span', { className: `dy-chip ${topics.draft.mode === 'topic' ? 'info' : 'ok'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), topics.draft.mode === 'topic' ? '围绕指定主题观看' : '自主挑选推荐')),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '观看方式'), dySel({ 'aria-label': '观看方式', value: topics.draft.mode, onChange: event => topics.edit({ mode: event.target.value }, { immediate: true }) }, [['recommend', '自主挑选推荐'], ['topic', '围绕指定主题观看']])),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '主题'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 200 }, 'aria-label': '想看的主题', value: topics.draft.topics, disabled: !ready, onChange: event => topics.edit({ topics: event.target.value }), onBlur: () => { void topics.flush(); } })),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '排除'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 200 }, 'aria-label': '排除关键词', value: topics.draft.exclude, disabled: !ready, onChange: event => topics.edit({ exclude: event.target.value }), onBlur: () => { void topics.flush(); } })),
@@ -599,7 +607,14 @@ textarea.dy-big{min-height:110px}
               ...(state?.persona?.interests || []).slice(0, 12).map(item => dyRow(item.topic, `${({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal} · ${item.basis || ''}`)),
               !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。')),
             memTab === 'interests' && h('div', { className: 'dy-tl' },
-              ...(state?.persona?.interests || []).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' }, h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }), h('span', { className: 'dy-tl-text' }, `${({ like: '感兴趣：', dislike: '不感兴趣：', neutral: '待观察：' })[item.signal] || ''}${item.topic} · 正向 ${item.counts?.like ?? 0} / 负向 ${item.counts?.dislike ?? 0} / 待观察 ${item.counts?.neutral ?? 0}`), h('span', { className: 'dy-tl-meta' }, item.privacy === 'internal-reference' ? '内部参考' : '')); }),
+              ...(state?.persona?.interests || []).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' },
+                h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }),
+                h('span', { className: 'dy-tl-main' },
+                  h('span', { className: 'dy-tl-head' },
+                    h('b', { className: 'dy-tl-topic' }, item.topic),
+                    h('span', { className: `dy-chip ${item.signal === 'like' ? 'ok' : item.signal === 'dislike' ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal),
+                    h('span', { className: 'dy-tl-meta' }, item.privacy === 'internal-reference' ? '内部参考' : '')),
+                  h('span', { className: 'dy-tl-count' }, `正向 ${item.counts?.like ?? 0} · 负向 ${item.counts?.dislike ?? 0} · 待观察 ${item.counts?.neutral ?? 0}`))); }),
               !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无记录。')),
             memTab === 'observations' && h('div', { className: 'dy-tl' },
               ...(state?.persona?.recentObservations || []).slice(-12).reverse().map(item => dyRow(item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', `${item.title || '无文案作品'}${item.author ? ` · @${item.author}` : ''}`)),
@@ -644,10 +659,10 @@ textarea.dy-big{min-height:110px}
             h('div', { className: 'dy-card-top' }, h('h3', null, '自检'), h('span', { className: 'sp' }), button('一键自检', 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics', {}); setDiagnostics(value); setRepairResult(''); return value; }); }), button('复制完整报告', 'copyDiagnostics', () => { copyData(() => JSON.stringify(diagnostics, null, 2)); })),
             h('p', { className: 'dy-note' }, '完整报告（含原始数据）只进剪贴板，不在界面铺开。'),
             diagnostics && h('div', { className: 'dy-inner' },
-              ...((diagnostics.checks || []).map(item => h('div', { key: item.id, className: 'dy-row' },
+              ...((diagnostics.checks || []).map(item => h('div', { key: item.id, className: 'dy-checkrow' },
                 h('span', { className: `dy-chip ${item.status === 'pass' ? 'ok' : item.status === 'warning' ? 'warn' : 'err'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), item.label),
-                h('span', { style: { flex: 1 } }),
-                h('span', { className: 'dy-cap' }, `${item.message}${item.code ? `（${item.code}）` : ''}`)))),
+                h('span', { className: 'dy-checkmsg' }, item.message),
+                item.code ? h('span', { className: 'dy-cap' }, `（${item.code}）`) : null))),
               ...(item => (item?.resolution?.steps || []).length ? [h('p', { className: 'dy-note' }, item.resolution.steps.join('；'))] : [])((diagnostics.checks || []).find(item => item.status === 'fail')),
               ...(diagnostics.repairableActions || []).map(action => button(`修复：${action.label}`, 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics/repair', { reportId: diagnostics.reportId, action: action.id }); setDiagnostics(value.after); setRepairResult(value.message); return value; }); })),
               repairResult && h('p', { className: 'dy-note' }, repairResult),

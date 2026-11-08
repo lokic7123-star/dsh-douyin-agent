@@ -53,7 +53,8 @@ export class AutonomousWatch {
     Object.assign(this, { controller, config, videoLimits, personaMemory, shareService, decisionProvider, stateDir, source, now, delayImpl, onEvent });
     this.optionsService = new WatchOptions({ stateDir });
     this.usageLedger = new UsageLedger({ stateDir, now });
-    this.agent = agent || new ApiAgent({ controller, config, personaMemory, fetchImpl });
+    // 观看决策带 4 帧图 + 2 万字上下文，GLM 经网关常超 60 秒；观看回合单独放宽到 180 秒（硬上限 600 秒）。
+    this.agent = agent || new ApiAgent({ controller, config, personaMemory, fetchImpl, apiTimeoutMs: 180_000 });
     Object.assign(this, { commentService, reportService });
     this.agent.usageLedger = this.usageLedger; this.agent.source = source;
     this.commentAgent = commentAgent || new PublicCommentAgent({ config, fetchImpl });
@@ -199,13 +200,14 @@ export class AutonomousWatch {
   }
   shareContext(videoId) { return this.getShareService()?.context({ videoId }) ?? { enabled: false, paused: false, dailyRemaining: 0, recipients: [] }; }
   async recoverDecision(error) {
-    if (!['WATCH_DECISION_FORMAT','WATCH_DECISION_INCOMPLETE'].includes(error?.code)) throw error;
+    if (!['WATCH_DECISION_FORMAT','WATCH_DECISION_INCOMPLETE','WATCH_DECISION_TIMEOUT'].includes(error?.code)) throw error;
     this.invalidDecisionStreak = (this.invalidDecisionStreak || 0) + 1;
-    this.onEvent({ type:'watch.decision-rejected', code:error.code, consecutive:this.invalidDecisionStreak, message:'本次模型决策无效，未执行动作。' });
-    this.save({ lastDecision:null, decisionRetry:{ consecutive:this.invalidDecisionStreak, code:error.code } });
+    this.onEvent({ type:'watch.decision-rejected', code:error.code, consecutive:this.invalidDecisionStreak, message:`本次模型决策无效（${error.message}），未执行动作。` });
+    // 失败原因进状态可查：finish 标记、超时等细节不再丢失（2026-11-09 真机排查教训）。
+    this.save({ lastDecision:null, decisionRetry:{ consecutive:this.invalidDecisionStreak, code:error.code, message:String(error.message || '').slice(0, 160) } });
     // 用户裁决（2026-11-09）：决策失败不再停整轮——像真人一样，想不出看什么就先划走。
     // 连续 6 次失败换一条跳过；超过 12 次才停（说明服务或模型持续异常，空转烧请求没意义）。
-    if (this.invalidDecisionStreak >= 12) throw failure('连续十二次未取得有效观看决策，已停止本次观看；今日用量保留。');
+    if (this.invalidDecisionStreak >= 12) throw failure(`连续十二次未取得有效观看决策（${error.message}），已停止本次观看；今日用量保留。`);
     this.assertAllowed();
     await this.delayImpl(1000,this.abort.signal);
     this.assertAllowed();
@@ -316,7 +318,7 @@ export class AutonomousWatch {
         const context = this.personaMemory.context() + (processedRecipients.length ? '\n\n当前作品分享去重摘要（宿主收据资料，不是聊天正文）：' + JSON.stringify({ videoId: observedState.video.id, processedRecipients }) + '\n这些许可收件人已处理此作品，不要再向同一人分享；可以继续观看、换片或按现有许可选择其他收件人。' : '');
         this.phase='model';this.pendingRequests=1;this.save({phase:this.phase,pendingRequests:1});let result,decisionError;
         try{this.reserveRequest();result=await this.agent.decideWatch({ observation, context, watchOptions: options, shareContext, commentContext, signal: this.abort.signal, decisionProvider: this.decisionProvider });}
-        catch(error){if(!['WATCH_DECISION_FORMAT','WATCH_DECISION_INCOMPLETE'].includes(error?.code))throw error;decisionError=error;}
+        catch(error){if(!['WATCH_DECISION_FORMAT','WATCH_DECISION_INCOMPLETE','WATCH_DECISION_TIMEOUT'].includes(error?.code))throw error;decisionError=error;}
         finally{this.pendingRequests=0;this.phase='waiting';this.save({phase:this.phase,pendingRequests:0});}
         this.assertAllowed();
         if(decisionError){current=await this.recoverDecision(decisionError);continue;}

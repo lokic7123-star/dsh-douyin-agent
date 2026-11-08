@@ -30,7 +30,7 @@ test('原生客户端以实际包身份自注册设置插槽，依赖已有静�
 test('原生设置仅同源请求，会话token只进写请求头，403不隐式重试，无载体file页明确拒绝', async () => {
   const { plugin } = load(), calls = [];
   const native = plugin.createSettingsTransport({ location: { protocol: 'http:', hostname: '127.0.0.1' }, fetch: async (url, init) => { calls.push({ url, init }); return { ok: true, json: async () => url.endsWith('/state') ? { token: 'synthetic-native-token', persona: {} } : { saved: true } }; } });
-  await assert.rejects(native.request('/video/start', {}), /先刷新/); assert.equal(calls.length, 0);
+  await assert.rejects(native.request('/video/start', {}), /刷新插件状态/); assert.equal(calls.length, 0);
   const state = await native.request('/state'); assert.equal(state.token, undefined);
   await native.request('/mode/configure', { silent: true }); assert.equal(calls[1].url, '/api/douyin-browser/mode/configure'); assert.equal(calls[1].init.headers['x-douyin-settings-token'], 'synthetic-native-token'); assert.equal(calls[1].init.body, '{"silent":true}'); assert.equal(calls[1].init.credentials, 'same-origin');
   await assert.rejects(native.request('//evil.example/state'), /只允许/); await assert.rejects(native.request('/reports/read?date=2026-10-15&token=x'), /只允许/);
