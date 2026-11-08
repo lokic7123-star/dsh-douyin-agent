@@ -53,6 +53,37 @@ test('观看足迹只读聚合：按日分组、天数过滤与分层标记，�
   assert.equal(after.observations.length, 2, 'watched 是只读聚合，不写入状态');
 });
 
+test('观察注入上下文开关：默认开启，关闭后 context 不含观察且需用户明确切换', t => {
+  const f = fixture(t); f.store.initialize();
+  f.store.recordObservation(state('100001'), { source: 'api', kind: 'dom' });
+  const digestOfObservation = (store, videoId) => {
+    const raw = JSON.parse(fs.readFileSync(store.stateFile, 'utf8'));
+    return raw.observations.find(row => row.videoId === videoId).id;
+  };
+  // 默认开启：context 含观察 URL，snapshot 标记 true
+  assert.equal(f.store.snapshot().contextObservations, true);
+  assert.match(f.store.context(), /100001/);
+  // 有兴趣证据时开启态带 latestEvidence（先登记一个真实兴趣；id 已含 video: 前缀）
+  f.store.recordBehavior({ evidenceId: digestOfObservation(f.store, '100001'), action: 'stay', sampleId: 'probe-1', confirmed: true }, { source: 'api' });
+  f.store.updateAgentInterests({ evidenceId: digestOfObservation(f.store, '100001'), topics: [{ topic: '纸船', signal: 'like' }], reflection: '兴趣证据合成' }, { source: 'api' });
+  assert.match(f.store.context(), /latestEvidence/);
+  // 关闭必须显式（面板/用户操作），不能被模型或默认流程改写
+  assert.throws(() => f.store.setContextObservations(false), { code: 'PERSONA_EXPLICIT_REQUIRED' });
+  const off = f.store.setContextObservations(false, { explicit: true });
+  assert.equal(off.contextObservations, false);
+  // 关闭后：生成区不再携带观察行与 URL，interests 不带 latestEvidence；卡上保留说明段
+  const context = f.store.context();
+  assert.doesNotMatch(context, /100001/);
+  assert.doesNotMatch(context, /latestEvidence/);
+  assert.match(context, /观察注入上下文已关闭/);
+  // 开关持久化：重新读文件状态一致；再开启恢复
+  assert.equal(JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8')).contextObservations, false);
+  assert.equal(f.store.setContextObservations(true, { explicit: true }).contextObservations, true);
+  assert.match(f.store.context(), /100001/);
+  // 观察数据本身不删：关闭只是不注入，state.observations 原样保留
+  assert.equal(JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8')).observations.length, 1);
+});
+
 test('人格快照与上下文只读，不创建目录或默认读取旧人格', t => {
   const f = fixture(t), before = fs.readdirSync(f.root);
   const snapshot = f.store.snapshot();

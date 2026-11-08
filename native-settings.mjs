@@ -77,6 +77,7 @@ export function createNativeSettingsRoute({ getController, getComments, getRepor
           persona.saveManualText({ text: input.content, expectedRevision: input.expectedRevision }, { explicit: true });
           value = persona.initialize({ importLegacy: false }); break;
         }
+        case '/persona/context-observations': { if (input.enabled !== true && input.enabled !== false) throw Object.assign(new Error('观察注入开关只接受布尔值。'), { status: 400 }); value = controller.getPersonaMemory().setContextObservations(input.enabled, { explicit: true }); break; }
         case '/interactions/configure': { if(!getFriends)throw new Error('好友互动模块尚未加载。');const friends=await getFriends();await friends.configure(input,{explicit:true});value=interactionStatus({friend:friends.state(),chat:(await getChat()).state(),share:(await getShare()).state(),comments:(await getComments()).state(),watch:(await getWatch()).state(),modelReady:modelSettings.state().configured});break; }
         case '/model/configure': {
           const assertStopped = async () => {

@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const Button = primitives.Button, Input = primitives.Input || 'input', MarkdownText = primitives.MarkdownText;
     const markdownLabels = { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' };
     const PREFIX = '/api/douyin-browser';
-    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched']);
+    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
     // 导航行与通用 row 解耦：单行自然溢出滚动（内容自然宽约 559px，见 docs/mockups/nav-measurement.md），不折行不硬编码断点。
@@ -144,7 +144,7 @@ textarea.dy-big{min-height:110px}
       '/chat/state': '读取自动回复状态', '/chat/contacts': '读取当前会话列表', '/chat/configure': '保存许可名单', '/chat/start': '启动自动回复', '/chat/stop': '停止自动回复', '/chat/prepare': '准备回复通道', '/chat/resolve': '解除会话暂停', '/chat/unanswered': '读取遗留待处理消息', '/chat/unanswered/resolve': '标记遗留待处理消息', '/chat/unanswered/end': '结束待答，不再回复', '/chat/unanswered/retry': '安全重新检查',
       '/share/state': '读取分享状态', '/share/configure': '设置自主分享', '/share/resolve': '核对分享结果', '/comments/state': '读取评论状态', '/comments/configure': '保存评论设置', '/comments/resolve': '核对评论结果',
       '/mode/state': '读取静默观看设置', '/mode/configure': '保存静默观看设置', '/media/state': '读取音频设置', '/media/configure': '保存音频设置', '/media/credentials': '保存音频密钥',
-      '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
+      '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/persona/context-observations': '切换观察注入上下文', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
       '/task': '提交对话任务', '/stop': '停止对话任务', '/forward/contacts': '读取转发会话', '/forward': '转发作品', '/memory': '检索共享记忆',
       '/usage': '读取用量', '/diagnostics': '一键自检', '/diagnostics/repair': '修复自检问题', '/reports/generate': '生成观看日报', '/reports/read': '读取观看日报', '/reports/state': '读取日报目录',
     };
@@ -447,8 +447,8 @@ textarea.dy-big{min-height:110px}
               h('p', { className: 'dy-note', style: { margin: 0 } }, `约 ${Math.round(chars * 2 / 3).toLocaleString('zh-CN')} token。超过 2,000 字开始压缩回复质量（转黄），超过 3,000 字前端提示精简（转红），不阻断保存——内容去留由你决定。`)); })(),
             status(persona),
             h('div', { className: 'dy-inner' },
-              h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '人设自动补写'), dySwitch(false, { 'aria-label': '人设自动补写', title: '后续批次接入：每天按记忆在人格卡末尾补一段观察（带上下文预算检查）' }), h('span', { style: { flex: 1 } }), h('span', { className: 'dy-cap' }, '默认关闭 · 后续批次接入')),
-              h('p', { className: 'dy-note', style: { margin: 0 } }, '开启后每天根据记忆自动补写人格卡；补写前检查上下文预算，接近上限自动停写。')),
+              h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '观察注入上下文'), dySwitch(state?.persona?.contextObservations !== false, { 'aria-label': '观察注入上下文', onClick: () => { void perform('contextObservations', () => api.request('/persona/context-observations', { enabled: state?.persona?.contextObservations === false })); } }), h('span', { style: { flex: 1 } }), h('span', { className: 'dy-cap' }, '默认开启')),
+              h('p', { className: 'dy-note', style: { margin: 0 } }, '开启=最近的抖音作品观察与兴趣证据随人设进入模型上下文；关闭=只保留手编正文与兴趣要点，观察留在本机不喂给模型。')),
             h('p', { className: 'dy-note' }, state?.persona?.personaFolder)
           )
         ),
