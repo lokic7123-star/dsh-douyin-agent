@@ -90,6 +90,8 @@ export function createNativeSettingsRoute({ getController, getComments, getRepor
           value = persona.initialize({ importLegacy: false }); break;
         }
         case '/persona/context-observations': { if (input.enabled !== true && input.enabled !== false) throw Object.assign(new Error('观察注入开关只接受布尔值。'), { status: 400 }); value = controller.getPersonaMemory().setContextObservations(input.enabled, { explicit: true }); break; }
+        case '/memory/search': { const query = input?.query; if (typeof query !== 'string') throw Object.assign(new Error('记忆搜索只接受关键词。'), { status: 400 }); value = controller.getPersonaMemory().searchObservations({ query }); break; }
+        case '/memory/forget': { if (Object.keys(input).some(key => key !== 'evidenceId')) throw Object.assign(new Error('记忆删除只接受证据编号。'), { status: 400 }); value = controller.getPersonaMemory().forgetObservation(input, { explicit: true }); break; }
         case '/interactions/configure': { if(!getFriends)throw new Error('好友互动模块尚未加载。');const friends=await getFriends();await friends.configure(input,{explicit:true});value=interactionStatus({friend:friends.state(),chat:(await getChat()).state(),share:(await getShare()).state(),comments:(await getComments()).state(),watch:(await getWatch()).state(),modelReady:modelSettings.state().configured});break; }
         case '/model/configure': {
           const assertStopped = async () => {

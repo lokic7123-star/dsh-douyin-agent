@@ -107,6 +107,31 @@ test('封面缓存：visual 首帧落盘 thumbs、读取按编号、3 天过期�
   assert.throws(() => f.store.pruneThumbs({ maxAgeDays: 0 }), { code: 'PERSONA_ARGUMENT' });
 });
 
+test('记忆搜索与删除：关键词命中、显式删除级联清理兴趣证据并写快照', t => {
+  const f = fixture(t); f.store.initialize();
+  f.store.recordObservation(state('100001'), { source: 'api', kind: 'dom' });
+  const evidenceId = JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8')).observations[0].id;
+  f.store.recordBehavior({ evidenceId, action: 'stay', sampleId: 'p1', confirmed: true }, { source: 'api' });
+  f.store.updateAgentInterests({ evidenceId, topics: [{ topic: '纸船', signal: 'like' }], reflection: '合成' }, { source: 'api' });
+  // 搜索：标题/作者/编号命中；空关键词与超长拒绝
+  assert.equal(f.store.searchObservations({ query: '蓝色纸船' }).items.length, 1);
+  assert.equal(f.store.searchObservations({ query: '合成作者' }).items.length, 1);
+  assert.equal(f.store.searchObservations({ query: '100001' }).items.length, 1);
+  assert.throws(() => f.store.searchObservations({ query: '' }), { code: 'PERSONA_ARGUMENT' });
+  assert.throws(() => f.store.searchObservations({ query: 'x'.repeat(81) }), { code: 'PERSONA_ARGUMENT' });
+  // 删除必须显式；删除后级联：观察、兴趣（含空证据主题）、behavior、封面；快照文件存在
+  assert.throws(() => f.store.forgetObservation({ evidenceId }), { code: 'PERSONA_EXPLICIT_REQUIRED' });
+  const result = f.store.forgetObservation({ evidenceId }, { explicit: true });
+  assert.equal(result.forgotten, true);
+  assert.ok(fs.existsSync(result.snapshotFile), '删除前快照已写盘');
+  const after = JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8'));
+  assert.equal(after.observations.length, 0, '观察已删除');
+  assert.equal(after.interests.length, 0, '只剩该证据的兴趣主题被级联清掉');
+  assert.equal(after.behavior.actions.length, 0, '互动样本级联删除');
+  assert.equal(f.store.forgetObservation({ evidenceId }, { explicit: true }).forgotten, false, '重复删除返回不存在');
+  assert.equal(f.store.readThumb('100001'), null, '封面同步清理');
+});
+
 test('人格快照与上下文只读，不创建目录或默认读取旧人格', t => {
   const f = fixture(t), before = fs.readdirSync(f.root);
   const snapshot = f.store.snapshot();

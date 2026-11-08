@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const Button = primitives.Button, Input = primitives.Input || 'input', MarkdownText = primitives.MarkdownText;
     const markdownLabels = { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' };
     const PREFIX = '/api/douyin-browser';
-    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched', '/thumb']);
+    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/memory/search', '/memory/forget', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched', '/thumb']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
     // 导航行与通用 row 解耦：单行自然溢出滚动（内容自然宽约 559px，见 docs/mockups/nav-measurement.md），不折行不硬编码断点。
@@ -163,7 +163,7 @@ textarea.dy-big{min-height:110px}
       '/chat/state': '读取自动回复状态', '/chat/contacts': '读取当前会话列表', '/chat/configure': '保存许可名单', '/chat/start': '启动自动回复', '/chat/stop': '停止自动回复', '/chat/prepare': '准备回复通道', '/chat/resolve': '解除会话暂停', '/chat/unanswered': '读取遗留待处理消息', '/chat/unanswered/resolve': '标记遗留待处理消息', '/chat/unanswered/end': '结束待答，不再回复', '/chat/unanswered/retry': '安全重新检查',
       '/share/state': '读取分享状态', '/share/configure': '设置自主分享', '/share/resolve': '核对分享结果', '/comments/state': '读取评论状态', '/comments/configure': '保存评论设置', '/comments/resolve': '核对评论结果',
       '/mode/state': '读取静默观看设置', '/mode/configure': '保存静默观看设置', '/media/state': '读取音频设置', '/media/configure': '保存音频设置', '/media/credentials': '保存音频密钥',
-      '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/persona/context-observations': '切换观察注入上下文', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
+      '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/persona/context-observations': '切换观察注入上下文', '/memory/search': '搜索记忆', '/memory/forget': '删除记忆', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
       '/task': '提交对话任务', '/stop': '停止对话任务', '/forward/contacts': '读取转发会话', '/forward': '转发作品', '/memory': '检索共享记忆',
       '/usage': '读取用量', '/diagnostics': '一键自检', '/diagnostics/repair': '修复自检问题', '/reports/generate': '生成观看日报', '/reports/read': '读取观看日报', '/reports/state': '读取日报目录',
     };
@@ -268,6 +268,7 @@ textarea.dy-big{min-height:110px}
       const [credentials, setCredentials] = useState({ mimo: '', minimax: '' }), [keyStatus, setKeyStatus] = useState({}), [reviews, setReviews] = useState(new Set());
       // 观看足迹与记忆管理（吞噬新增栏目）的本地状态；足迹数据懒加载，进入栏目时拉取。
       const [watched, setWatched] = useState(null), [watchedError, setWatchedError] = useState(''), [watchedDays, setWatchedDays] = useState('14'), [memTab, setMemTab] = useState('character'), [panelErrorsTick, setPanelErrorsTick] = useState(0);
+      const [memoryQuery, setMemoryQuery] = useState(''), [memoryResults, setMemoryResults] = useState(null), [memoryConfirm, setMemoryConfirm] = useState('');
       useEffect(() => { if (category === '观看足迹' && ready) { void loadWatched(watchedDays); } }, [category, ready, watchedDays]);
       const existingAuthorization = useRef(false); const alive = useRef(true), refreshing = useRef(null), refreshAgain = useRef(false), locks = useRef(new Set()), submitted = useRef(new Set()), keyValues = useRef(credentials);
       const active = value => value?.running || value?.starting || value?.busy || value?.worker?.alive;
@@ -578,7 +579,13 @@ textarea.dy-big{min-height:110px}
             memTab === 'raw' && h('div', { className: 'dy-inner' },
               h('p', { className: 'dy-note' }, `记忆文件夹：${state?.persona?.personaFolder || '读取中…'}`),
               h('div', { className: 'dy-row' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); })),
-              h('p', { className: 'dy-note' }, '原始记录只在剪贴板交付；清理/单条删除走 memory.forget，后续批次接入。')))),
+              h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '搜索记忆'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 160 }, 'aria-label': '记忆搜索关键词', value: memoryQuery, placeholder: '文案 / 作者 / 作品编号', disabled: !ready, onChange: event => setMemoryQuery(event.target.value), onKeyDown: event => { if (event.key === 'Enter') void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); } }), button('搜索', 'memorySearch', () => { void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); })),
+              ...(memoryResults?.items || []).map(item => h('div', { key: item.evidenceId, className: 'dy-row' },
+                h('span', { className: 'dy-note', style: { flex: 1, minWidth: 0 } }, `${item.title}${item.author ? ` · @${item.author}` : ''} · ${item.tier}`),
+                memoryConfirm === item.evidenceId ? h('button', { type: 'button', className: 'dy-btn primary', disabled: busy.has('memoryForget'), onClick: () => { setMemoryConfirm(''); void perform('memoryForget', async () => { const result = await api.request('/memory/forget', { evidenceId: item.evidenceId }); setMemoryResults(old => old ? { ...old, items: old.items.filter(row => row.evidenceId !== item.evidenceId) } : old); void refresh(true); return result; }); } }, '确认删除') : h('button', { type: 'button', className: 'dy-btn', disabled: busy.has('memoryForget'), onClick: () => setMemoryConfirm(item.evidenceId) }, '删除'))),
+              memoryResults && !memoryResults.items.length && h('p', { className: 'dy-note' }, '没有匹配的记忆记录。'),
+              memoryConfirm && h('p', { className: 'dy-note' }, '再点一次「确认删除」才会执行；删除前自动写快照到 forget-snapshots。'),
+              h('p', { className: 'dy-note' }, '删除会级联清理该作品关联的兴趣证据与观看/互动样本，并同步人格卡生成区；快照保留在记忆文件夹里可查。')))),
         category === '公开评论' && h('div', { className: 'dy-wrap' },
           dyCard(
             h('div', { className: 'dy-card-top' }, h('h3', null, '公开评论'), dySwitch(comments.draft.enabled, { 'aria-label': '允许自主发布评论', onClick: () => comments.edit({ enabled: !comments.draft.enabled }, { immediate: true }) }), h('span', { className: 'dy-cap' }, '默认关闭')),

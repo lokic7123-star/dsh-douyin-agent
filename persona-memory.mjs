@@ -524,4 +524,47 @@ export class PersonaMemory {
       return this.snapshot();
     });
   }
+  // 记忆管理（D4）：搜索与删除走插件自身 PersonaMemory，不依赖宿主 memory.* 通道（settings webview 无该通道，已核实）。
+  searchObservations({ query } = {}) {
+    const keyword = String(query ?? '').trim();
+    if (!keyword || keyword.length > 80) throw error('PERSONA_ARGUMENT', '搜索关键词需要 1 至 80 个字符。');
+    const needle = keyword.toLowerCase();
+    const files = this.readFiles(), state = files.state ?? initial(0);
+    const summaries = behaviorByVideo(state);
+    return {
+      query: keyword,
+      items: state.observations.filter(item => [item.title, item.author, item.videoId, item.url].some(field => typeof field === 'string' && field.toLowerCase().includes(needle)))
+        .slice(-50).reverse()
+        .map(item => ({ evidenceId: item.id, videoId: item.videoId, url: item.url, title: item.title || '无文案作品', author: item.author || '', observedAt: item.observedAt, kind: item.kind, tier: (summary => summary.actions?.share > 0 ? '已转发' : summary.actions?.skip > 0 && !summary.actions?.stay ? '跳过' : summary.actions?.stay > 0 ? '停留观看' : '短暂停留')(summaries.get(item.videoId) || {}) })),
+      privacy: 'internal-reference', visibility: 'account-visible-unverified',
+    };
+  }
+  forgetObservation({ evidenceId } = {}, { explicit = false } = {}) {
+    if (explicit !== true) throw error('PERSONA_EXPLICIT_REQUIRED', '记忆删除只能由用户在本机面板明确执行。');
+    if (typeof evidenceId !== 'string' || !/^video:[a-f0-9]{64}$/.test(evidenceId)) throw error('PERSONA_ARGUMENT', '记忆删除只接受有效的观察证据编号。');
+    return this.locked(() => {
+      const files = this.readFiles(), data = files.state;
+      if (!data) throw error('PERSONA_NOT_INITIALIZED', '共享人格尚未初始化。');
+      const observation = data.observations.find(row => row.id === evidenceId);
+      if (!observation) return { forgotten: false, reason: '记录不存在或已删除。', snapshot: null };
+      // 删除前快照（用户裁决：删前自动快照，可在原始记录查看）。
+      const snapshotFolder = path.join(this.personaFolder, 'forget-snapshots');
+      fs.mkdirSync(snapshotFolder, { recursive: true });
+      const snapshotFile = path.join(snapshotFolder, `${new Date(this.clock()).toISOString().replace(/[:.]/g, '-')}-${evidenceId.slice(6, 18)}.json`);
+      fs.writeFileSync(snapshotFile, JSON.stringify({ forgotten: observation, stateBefore: data }, null, 2), { mode: 0o600 });
+      // 级联清理：观察、引用它的兴趣证据、引用它的观看/互动样本。
+      data.observations = data.observations.filter(row => row.id !== evidenceId);
+      for (const interest of data.interests) interest.evidence = interest.evidence.filter(ref => ref.evidenceId !== evidenceId);
+      data.interests = data.interests.filter(interest => interest.evidence.length > 0);
+      if (data.behavior) {
+        data.behavior.viewings = data.behavior.viewings.filter(row => row.evidenceId !== evidenceId);
+        data.behavior.actions = data.behavior.actions.filter(row => row.evidenceId !== evidenceId);
+      }
+      data.generation += 1;
+      this.writeState(data);
+      this.syncCard(data);
+      try { fs.rmSync(this.thumbFile(observation.videoId), { force: true }); } catch {}
+      return { forgotten: true, videoId: observation.videoId, snapshotFile, snapshot: this.snapshot() };
+    });
+  }
 }
