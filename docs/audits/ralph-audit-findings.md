@@ -90,6 +90,9 @@
 ## 五、剩余覆盖范围
 
 - 维度 0-7 首轮核对完成：矩阵 35 项无「未核实」；F1-F6/F8/F9 已修；D1-D7 待用户裁决（清单见上）。
-- 待办：全量基线对照（≈1381 pass / 10 fail，失败须全为环境性）后 push origin。
+- 全量基线（2026-11-08，含新增 3 测试）：1404 tests / 1385 pass / 9 fail / 3 cancelled / 7 skipped；12 个非通过项全部为三类环境性失败（真实 Edge×5、ffmpeg×5、外部 QQ 目录 `D:\总数据库\聊天机器人` 路径×2 含 3 cancelled），失败数不高于基线（10），无回归。
+- 维度 4 setter 核对：26 组 useState 解构与全部 setXxx 引用配对（setInterval/setItem/setTimeout 为宿主 API 误报）。
+- 维度 2 三方一致性机械核对：client routes ↔ transport writes ↔ native-settings case 零断链。
+- 交付链路：提交已 push origin（ea3e930..ece3496）；live junction `C:\Users\LoKi\.dsh\profiles\desktop\node_modules\dsh-douyin-browser-local` 指回仓库，native-settings-transport.mjs / client.js / app.mjs 与 HEAD 字节一致。
 - 环境性不碰：真实 Edge、ffmpeg、F:\codex（verification/native-settings.test.mjs、settings-transport.test.mjs 因 SDK 路径整文件跳过属正常）。
 - 后续轮次候选：D1-D7 等用户裁决；desktop 记忆管理页（main.jsx:442）仅为跳转占位与插件端漂移核对。
