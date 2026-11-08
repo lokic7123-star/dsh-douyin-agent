@@ -203,10 +203,13 @@ export class AutonomousWatch {
     this.invalidDecisionStreak = (this.invalidDecisionStreak || 0) + 1;
     this.onEvent({ type:'watch.decision-rejected', code:error.code, consecutive:this.invalidDecisionStreak, message:'本次模型决策无效，未执行动作。' });
     this.save({ lastDecision:null, decisionRetry:{ consecutive:this.invalidDecisionStreak, code:error.code } });
-    if (this.invalidDecisionStreak >= 3) throw failure('连续三次未取得有效观看决策，已停止本次观看；今日用量保留。');
+    // 用户裁决（2026-11-09）：决策失败不再停整轮——像真人一样，想不出看什么就先划走。
+    // 连续 6 次失败换一条跳过；超过 12 次才停（说明服务或模型持续异常，空转烧请求没意义）。
+    if (this.invalidDecisionStreak >= 12) throw failure('连续十二次未取得有效观看决策，已停止本次观看；今日用量保留。');
     this.assertAllowed();
     await this.delayImpl(1000,this.abort.signal);
     this.assertAllowed();
+    if (this.invalidDecisionStreak % 6 === 0) return this.execute('douyin_next');
     return this.execute('douyin_status');
   }
   async shareDecision(decision, { evidenceId, videoId }) {

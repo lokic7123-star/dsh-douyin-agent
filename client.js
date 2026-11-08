@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
     const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/memory/search', '/memory/forget', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched', '/thumb']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
-    // 导航行与通用 row 解耦：单行自然溢出滚动（内容自然宽约 559px，见 docs/mockups/nav-measurement.md），不折行不硬编码断点。
+    // 导航胶囊窄面板折行显示（用户裁决 2026-11-09：被右缘截掉不如断行），旧单行滚动方案废弃。
     const tabRow = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', overflowX: 'auto', scrollbarWidth: 'thin', paddingBottom: 2 };
     const tab = { flex: 'none', whiteSpace: 'nowrap' };
     const muted = { color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, margin: 0 };
@@ -32,8 +32,7 @@ window.__ModuleLoader__.load({
 .dy-num{font-size:13px;font-weight:600;white-space:nowrap}
 .dy-cap{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px}
 .dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
-.dy-nav{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
-.dy-nav::-webkit-scrollbar{display:none}
+.dy-nav{display:flex;gap:6px;flex-wrap:wrap}
 .dy-nav button{flex:none;font:inherit;font-size:12px;padding:4px 12px;border-radius:999px;cursor:pointer;
   border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary,#4b5563)}
 .dy-nav button:hover{background:var(--dsw-alias-bg-layer-1,#f7f8fa)}

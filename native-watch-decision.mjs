@@ -48,7 +48,10 @@ export function createNativeWatchDecision({ llm, attachments, agent, maxTokens =
       if (chunk.type === 'usage') usage = { ...chunk.usage, prompt_tokens: chunk.usage.inputTokens ?? null, completion_tokens: chunk.usage.outputTokens ?? null, total_tokens: chunk.usage.totalTokens ?? (Number.isSafeInteger(chunk.usage.inputTokens) && Number.isSafeInteger(chunk.usage.outputTokens) ? chunk.usage.inputTokens + chunk.usage.outputTokens : null) };
       if (chunk.type === 'finish') finish = chunk.reason;
     }
-    if (finish?.kind !== 'stop' || !text.trim()) throw Object.assign(new Error(`DSH 自主观看决策未完整返回（${finish?.kind || '缺少完成标记'}），未执行动作。`), { usage, code:'WATCH_DECISION_INCOMPLETE' });
+    // 用户裁决（2026-11-09）：GLM-5.3-Flash 经 Magpie 正常返回完整 JSON 时 finish 常为 length/max-tokens 而非 stop，
+    // 按「响应不完整」误判会连续停车。修正：stop 与 length/max-tokens 且正文非空即收，JSON 合法性由上层严格校验兜底；
+    // error/aborted 等异常完成标记仍拒绝，真正截断（JSON 解析失败）由上层按 WATCH_DECISION_FORMAT 拒绝。
+    if (!['stop','length','max-tokens'].includes(finish?.kind) || !text.trim()) throw Object.assign(new Error(`DSH 自主观看决策未有效完成（${finish?.kind || '缺少完成标记'}），未执行动作。`), { usage, code:'WATCH_DECISION_INCOMPLETE' });
     return {text,usage};
   };
 }

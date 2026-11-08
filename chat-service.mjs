@@ -734,7 +734,11 @@ export class ChatService {
         contact = verifiedAuthorizedContact(contact, snapshot.contact);
         verifiedAllowlist.push(contact);
         this.qualifyNativeBacklog(contact, old, snapshot, messages);
-        const next={status:'ready',seen:messages.map(item=>item.id).slice(-2000),context:[],unanswered:structuredClone(old?.unanswered||[]),autoBacklog:structuredClone(old?.autoBacklog||null),startedAt:new Date().toISOString(),lastCheckedAt:new Date().toISOString()};
+        // 用户裁决（2026-11-09）：关服/重启期间收到的私信不再静默吞进基线——真人不会装作没看见。
+        // 上次服务停止之后到达的未回消息进入待答清单（phase=unqualified），由自动补答流程按证据链回复；
+        // 找不到上次停止时间或消息时间存疑的，保守留在基线（宁缺毋滥边界不变）。
+        const offlineIncoming = this.offlineUnanswered(contact, old, messages);
+        const next={status:'ready',seen:messages.map(item=>item.id).slice(-2000),context:[],unanswered:[...structuredClone(old?.unanswered||[]),...offlineIncoming],autoBacklog:structuredClone(old?.autoBacklog||null),startedAt:new Date().toISOString(),lastCheckedAt:new Date().toISOString()};
         const pending=old?.recoveryQueue||old?.pending;
         if(['inflight','delivery-uncertain'].includes(old?.status)&&!pending?.incoming?.length)archivePending(next,{...(pending||{}),phase:'delivery-uncertain',incoming:pending?.incoming||[],legacyUncertain:true},'原发送不明证据不完整，保留自动读回，不重发。');
         if (Array.isArray(old?.retry) && old.retry.length && !pending?.incoming?.length) archivePending(next, { phase: 'superseded', incoming: structuredClone(old.retry) }, '旧重答队列缺少完整恢复证据，仅留人工待答，不自动补发。');
@@ -839,6 +843,30 @@ export class ChatService {
       const evidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, stopRequest);
       if (evidence) { record.recoveryEvidence = evidence; mark.autoBacklog = null; this.log('backlog.native_arrival_qualified', { recipientId: contact.id, count: 1 }); }
     }
+  }
+  // 关服期间到达的未回消息（用户裁决 2026-11-09）：上次停止之后、且消息早于本次启动基线的原生来信进待答清单。
+  // 只收带 native 服务端时间戳的纯文字来信；没有上次水位（首次运行）或消息时间存疑的保守跳过，不猜。
+  offlineUnanswered(contact, old, messages) {
+    try {
+      if (!old?.startedAt || !Array.isArray(messages) || !messages.length) return [];
+      const stoppedAt = Date.parse(old.startedAt);
+      if (!Number.isFinite(stoppedAt)) return [];
+      const outgoing = new Set((old.context || []).concat(old.seen || []).filter(Boolean));
+      const records = [];
+      for (const message of messages) {
+        const created = Date.parse(message.nativeCreatedAt);
+        if (!(message.sender === 'incoming' && Number.isFinite(created) && created > stoppedAt)) continue;
+        if (message.kind !== 'text' || message.media || message.reference) continue;
+        if (message.nativeServerMessageBound !== true || message.identitySource !== 'dom-message-id') continue;
+        const mark={unanswered:[]};
+        const record={phase:'unqualified',at:new Date().toISOString(),incoming:[structuredClone(message)],reason:'服务离线期间收到，未回复；已进入待答，按证据链补答。'};
+        const evidence=qualifyNativeUnanswered(record,{...mark,startedAt:old.startedAt,context:[],seen:[...outgoing]},messages,structuredClone(messages.length?{contact,messageCount:messages.length}:{}),contact,load(this.stopFile,null));
+        if (evidence) record.recoveryEvidence = evidence;
+        records.push(record);
+      }
+      if (records.length) this.log('backlog.offline_incoming', { recipientId: contact.id, count: records.length, message: '服务离线期间收到的私信已进入待答清单。' });
+      return records;
+    } catch (error) { this.log('backlog.offline_incoming_failed', { recipientId: contact.id, message: error.message?.slice(0, 120) || '离线来信核对失败，保守留在基线。' }); return []; }
   }
   autoDue(mark) { return Boolean(mark && (this.autoRecords(mark).some(record => record.needsManual !== true) || this.autoRecords(mark).some(record => this.mixedRecordHasTextInFlight(record)) || mark.autoBacklog?.receipt?.confirmed === true || ['inflight', 'delivery-uncertain'].includes(mark.status) && mark.pending?.incoming?.length) && Date.now() >= (Date.parse(mark.autoBacklog?.nextRetryAt) || 0)); }
   backlogPause(mark, reason) {

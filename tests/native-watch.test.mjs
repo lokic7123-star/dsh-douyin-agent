@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {createNativeWatchDecision} from '../native-watch-decision.mjs';
-import {WATCH_SYSTEM_PROMPT,watchDecisionMessages} from '../api-agent.mjs';
+import {WATCH_SYSTEM_PROMPT,watchDecisionMessages,parseWatchDecision} from '../api-agent.mjs';
 import {AutonomousWatch} from '../autonomous-watch.mjs';
 import {PersonaMemory} from '../persona-memory.mjs';
 import {VideoLimits} from '../video-limits.mjs';
@@ -34,8 +34,13 @@ test('没有图像能力或system不一致时不发起原生模型生成',async(
   await assert.rejects(f.provider({system:WATCH_SYSTEM_PROMPT,messages:watchDecisionMessages(observation())}),/画面/);assert.equal(f.requests.length,0);assert.equal(f.saved.length,0);
   const g=fixture();await assert.rejects(g.provider({system:WATCH_SYSTEM_PROMPT,messages:[{role:'system',content:'合成替换系统指令'}]}),/不一致/);assert.equal(g.requests.length,0);
 });
-test('原生失败或截断返回不当作成功决策，block-end正文也能完整返回',async()=>{
-  for(const kind of ['error','max-tokens','aborted']){const f=fixture({async *stream(){yield{type:'text-delta',index:0,text:JSON.stringify(decision())};yield{type:'finish',reason:{kind}};}});await assert.rejects(f.provider({system:WATCH_SYSTEM_PROMPT,messages:watchDecisionMessages(observation())}),/未完整返回/);}
+test('error/aborted 完成标记仍拒绝；max-tokens 且正文完整按有效决策收（用户裁决：Magpie+GLM 实测 finish 常为 length，不再误判截断）',async()=>{
+  for(const kind of ['error','aborted']){const f=fixture({async *stream(){yield{type:'text-delta',index:0,text:JSON.stringify(decision())};yield{type:'finish',reason:{kind}};}});await assert.rejects(f.provider({system:WATCH_SYSTEM_PROMPT,messages:watchDecisionMessages(observation())}),/未有效完成/);}
+  const lengthOk=fixture({async *stream(){yield{type:'text-delta',index:0,text:JSON.stringify(decision())};yield{type:'finish',reason:{kind:'max-tokens'}};}});
+  assert.deepEqual(JSON.parse((await lengthOk.provider({system:WATCH_SYSTEM_PROMPT,messages:watchDecisionMessages(observation())})).text),decision());
+  const truncated=fixture({async *stream(){yield{type:'text-delta',index:0,text:'{"action":"st'};yield{type:'finish',reason:{kind:'max-tokens'}};}});
+  const truncText=(await truncated.provider({system:WATCH_SYSTEM_PROMPT,messages:watchDecisionMessages(observation())})).text;
+  assert.throws(()=>parseWatchDecision(truncText),/没有返回有效 JSON/, '真截断的残缺 JSON 由上层严格校验拒绝，不再由 finish 标记放过或拒绝');
   const f=fixture({async *stream(){yield{type:'block-end',index:0,block:{type:'text',text:JSON.stringify(decision())}};yield{type:'finish',reason:{kind:'stop'}};}});
   assert.deepEqual(JSON.parse((await f.provider({system:WATCH_SYSTEM_PROMPT,messages:watchDecisionMessages(observation())})).text),decision());
 });
@@ -61,15 +66,14 @@ test('没有off能力不猜参数，能力每次重新核对，不缓存上一�
   await f.provider(request); assert.equal(Object.hasOwn(f.requests[2], 'reasoningEffort'), false);
 });
 
-test('关闭思考后max-tokens仍拒绝，保留真实用量且不会自动重试', async () => {
+test('关闭思考后 provider 收下截断残文并保留真实用量，由上层 JSON 校验拒绝', async () => {
   let calls = 0;
   const f = fixture({ resolveModelInfo: async () => ({ inputModalities: ['text'], reasoning: { efforts: [{ id: 'off', name: 'Off' }] } }),
     async *stream(input) { calls++; assert.equal(input.reasoningEffort, 'off'); yield { type: 'text-delta', index: 0, text: '{"action":"st' };
       yield { type: 'usage', usage: { inputTokens: 30, outputTokens: 1200, reasoningTokens: 1100, totalTokens: 1230 } }; yield { type: 'finish', reason: { kind: 'max-tokens' } }; } });
-  await assert.rejects(f.provider({ system: '合成系统提示', messages: [{ role: 'user', content: '合成文字消息' }] }), error => {
-    assert.match(error.message, /未完整返回（max-tokens）/); assert.equal(error.usage.reasoningTokens, 1100);
-    assert.equal(error.usage.completion_tokens, 1200); assert.equal(error.usage.total_tokens, 1230); return true;
-  });
+  const result = await f.provider({ system: '合成系统提示', messages: [{ role: 'user', content: '合成文字消息' }] });
+  assert.equal(result.text, '{"action":"st'); assert.equal(result.usage.completion_tokens, 1200); assert.equal(result.usage.total_tokens, 1230);
+  assert.throws(() => parseWatchDecision(result.text), /没有返回有效 JSON/, '残缺 JSON 由上层拒绝，计数为 WATCH_DECISION_FORMAT');
   assert.equal(calls, 1);
 });
 test('原生自主循环把观察写入同一人格文件，停止前的有限画面不直接学成喜欢',async t=>{

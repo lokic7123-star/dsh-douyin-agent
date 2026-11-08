@@ -82,10 +82,18 @@ test('处理首位对象后停止观看，不继续分享给剩余对象，保�
   assert.equal((await f.run()).status,'stopped');assert.deepEqual(f.sent,[ids[0]]);assert.deepEqual(f.share.ledger().operations.map(x=>x.status),['confirmed']);assert.equal(f.actions.includes('douyin_next'),false);
 });
 
-test('一次坏决策丢弃后重新观察，连续三次坏决策停止且每次记入原请求预算',async t=>{
+test('一次坏决策丢弃后重新观察，决策失败降级跳过（用户裁决：不因模型瑕疵停整轮）且每次记入原请求预算',async t=>{
   const good=fixture(t,{decisions:[decision('skip',{unknown:'不执行此字段'}),decision('skip'),decision('stop')]});
   assert.equal((await good.run()).status,'stopped');assert.equal(good.actions.filter(x=>x==='douyin_observe').length,3);assert.equal(good.actions.filter(x=>x==='douyin_next').length,1);assert.equal(good.videoLimits.state().daily.requests,3);
-  const bad=fixture(t,{decisions:['not-json','not-json','not-json',decision('skip')]});assert.equal((await bad.run()).status,'failed');assert.equal(bad.requests.length,3);assert.equal(bad.videoLimits.state().daily.requests,3);assert.equal(bad.actions.includes('douyin_next'),false);
+  // 用户裁决 2026-11-09：坏决策每满 6 次换一条跳过（douyin_next），不再 3 次停车；7 次后第 8 次请求前会换片。
+  const bad=fixture(t,{decisions:['not-json','not-json','not-json','not-json','not-json','not-json',decision('stop')]});assert.equal((await bad.run()).status,'stopped');assert.equal(bad.requests.length,7);assert.equal(bad.videoLimits.state().daily.requests,7);assert.equal(bad.actions.filter(x=>x==='douyin_next').length,1);
+});
+
+test('决策连续失败达十二次才停止，且每次失败都计入原请求预算',async t=>{
+  const f=fixture(t,{decisions:[]});let attempts=0;
+  f.watch.decisionProvider=async()=>{attempts++;throw Object.assign(new Error('合成模型持续坏决策'),{code:'WATCH_DECISION_INCOMPLETE',usage:{total_tokens:2}});};
+  assert.equal((await f.run()).status,'failed');assert.equal(attempts,12);assert.equal(f.videoLimits.state().daily.requests,12);
+  assert.ok(f.events.some(e=>e.type==='watch.decision-rejected'&&e.consecutive===12));
 });
 
 test('截断决策按真实失败调用计数，原每日请求预算先到就停止，不多调用一次',async t=>{
