@@ -578,9 +578,9 @@ textarea.dy-big{min-height:110px}
             h('div', { className: 'dy-card-top' }, h('h3', null, '观看日报'), h('span', { className: 'sp' }), button('生成今天日报', 'reportGenerate', () => { void perform('reportGenerate', async () => { const value = await api.request('/reports/generate', {}); setReport(value); return value; }); })),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '日报日期'), h('input', { className: 'dy-input', type: 'date', style: { width: 150, flex: 'none' }, 'aria-label': '日报日期', value: reportDate, onChange: event => setReportDate(event.target.value) }), button('读取所选日报', 'reportRead', () => { void perform('reportRead', async () => { if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw new Error('请选择有效日期。'); const value = await api.request(`/reports/read?date=${reportDate}`); setReport(value); return value; }); }), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '正文见下方')),
             h('p', { className: 'dy-note' }, state?.reports?.folder),
-            report && h('div', { className: 'dy-inner' }, MarkdownText
-              ? h(MarkdownText, { text: report.markdown || '暂无内容', 'aria-label': '日报内容', labels: markdownLabels })
-              : h('p', { 'aria-label': '日报内容', className: 'dy-note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, report.markdown || '暂无内容')))
+            report && h('div', { className: 'dy-inner', 'aria-label': '日报内容' }, MarkdownText
+              ? h(MarkdownText, { text: report.markdown || '暂无内容', labels: markdownLabels })
+              : h('p', { className: 'dy-note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, report.markdown || '暂无内容')))
         ),
         category === '自检与用量' && h('div', { className: 'dy-wrap' },
           dyCard(
