@@ -134,6 +134,8 @@ textarea.dy-big{min-height:110px}
     const ERR_KEY = 'douyin-panel-errors';
     const recordPanelError = message => { try { const list = JSON.parse(globalThis.sessionStorage?.getItem(ERR_KEY) || '[]'); list.unshift({ at: new Date().toISOString(), message: String(message).slice(0, 300) }); globalThis.sessionStorage?.setItem(ERR_KEY, JSON.stringify(list.slice(0, 20))); } catch {} };
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !window.__douyinPanelErrHooked) { window.__douyinPanelErrHooked = true; window.addEventListener('error', ev => recordPanelError(ev?.message || '未知脚本错误')); }
+    // 模块级状态缓存（对标官方插件 store 常驻模式）：面板关闭后数据仍在，重开面板首帧即渲染上次内容，后台刷新——不再每次冷启动空白等 /state 往返。
+    let stateStore = null;
 
     const OPERATIONS = {
       '/bootstrap': '连接本机服务', '/state': '刷新运行状态', '/interactions/state': '读取好友在线状态', '/interactions/configure': '设置好友互动',
@@ -240,7 +242,7 @@ textarea.dy-big{min-height:110px}
 
     function SettingsPage({ rpc } = {}) {
       const [api] = useState(() => createSettingsTransport(globalThis, rpc));
-      const [state, setState] = useState(null), [ready, setReady] = useState(false), [connectionError, setConnectionError] = useState(''), [notice, setNotice] = useState(''), [category, setCategory] = useState('基础设置');
+      const [state, setState] = useState(stateStore), [ready, setReady] = useState(stateStore !== null), [connectionError, setConnectionError] = useState(''), [notice, setNotice] = useState(''), [category, setCategory] = useState('基础设置');
       const [operationErrors, setOperationErrors] = useState({});
       const [busy, setBusy] = useState(new Set()), [contacts, setContacts] = useState(null), [discovery, setDiscovery] = useState(null), [diagnostics, setDiagnostics] = useState(null), [repairResult, setRepairResult] = useState(''), [report, setReport] = useState(null), [reportDate, setReportDate] = useState('');
       const [credentials, setCredentials] = useState({ mimo: '', minimax: '' }), [keyStatus, setKeyStatus] = useState({}), [reviews, setReviews] = useState(new Set());
@@ -256,7 +258,7 @@ textarea.dy-big{min-height:110px}
           let latest;
           do {
             refreshAgain.current = false;
-            try { const value = await api.request('/state'); if (alive.current && !refreshAgain.current) { latest = value; setState(value); setReady(true); setConnectionError(''); } }
+            try { const value = await api.request('/state'); if (alive.current && !refreshAgain.current) { latest = value; stateStore = value; setState(value); setReady(true); setConnectionError(''); } }
             catch (failure) { if (alive.current && !refreshAgain.current) { setReady(false); setConnectionError(failure.message); } }
           } while (alive.current && refreshAgain.current);
           return latest;
