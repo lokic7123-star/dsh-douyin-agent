@@ -67,10 +67,10 @@
 
 | 编号 | 内容 | 裁决 | 说明 |
 | --- | --- | --- | --- |
-| D1 | persona.autowrite 定时补写 | ⏸ 挂起待语义裁决 | 发现设计冲突：原契约「在人格卡末尾补一段观察」与「只有用户明确保存才能修改手编区」（saveManualText explicit 防线，persona-memory.mjs:339）冲突；生成区本已随观察自动同步（syncCard:262），再追加即重复。两个可行语义：a) 改为「控制 context() 是否注入生成区观察列表」（防上下文膨胀，不写卡，只影响喂给模型的上下文）；b) 生成区内新增专用补写段（需新标记区+预算检查+同步保护）。等用户选定后实施。 |
+| D1 | persona.autowrite 定时补写 | ✅ 已修（3873e2d，语义 a） | 用户选方案 a：开关更名「观察注入上下文」——关=context 只给手编正文+兴趣要点（无观察行/无 latestEvidence），观察数据保留本机不删除；显式操作防线（explicit 必须为 true）；快照透出 contextObservations；路由三方接线。原「写卡末尾」语义与手编防线冲突已记录。 |
 | D2 | 「换一批推荐」按钮 | 🚫 不做 | 预览稿与方案文档矛盾、语义未定，维持现状。 |
-| D3 | 足迹封面链路（/thumb） | ⏸ 暂缓（下一批） | 250-400 行 + 帧缓存持久化有隐私面（磁盘落盘、清理上限），需单独批次与隐私评估。 |
-| D4 | 记忆管理对齐预览稿（清理/时间线搜索/结构化编辑） | ⏸ 暂缓 | 依赖宿主 memory.* 能力核实；信息架构漂移不阻塞使用。 |
+| D3 | 足迹封面链路（/thumb） | ✅ 已修（bf53d0b） | 用户定参数：插件目录缓存+3 天清理+只存照片。实现：visual 观察首帧 JPEG 落盘 persona/thumbs/（≤2MB 已有校验）、/thumb 只读路由（token header 或 query，img 标签可达）、watched() 惰性 3 天清理、前端 ThumbImg 无缓存保占位；webp 不转码不落盘。 |
+| D4 | 记忆管理对齐预览稿（清理/搜索） | ✅ 最小可用已修（7900f23） | 核实结论：settings webview 的 rpc 只有一条 /douyin-settings 通道，宿主未给插件暴露 memory.*——改为用插件自身 PersonaMemory 实现：/memory/search（标题/作者/编号，≤50 条）、/memory/forget（显式删除，级联清理兴趣证据/互动样本/封面，删前自动快照到 forget-snapshots/）；UI 搜索框+两击确认。时间线搜索与结构化编辑可在此基础迭代。 |
 | D5 | 「打开记忆文件夹」按钮 | ✅ D5a 已修（ba2c28a） | 文案诚实化为「打开抖音」+ 说明改为「记忆文件在抖音页面旁的本机目录」；OPERATIONS 标签同步。 |
 | D6 | Magpie 音频后端 | 🚫 不做（裁决性测试已完成） | 本机实测（2026-11-08）：Magpie 本机网关 127.0.0.1:3425 免鉴权可达，`/v1/models` 全部模型 input modality 仅 text,image；对 `group/glm-5-3-flash` 发 input_audio 静音 wav 探测，HTTP 200 但模型明确回答「无法接收或听到任何音频内容」——网关**静默剥离**音频输入（prompt_tokens 含 base64 长度但模型未收到）。比报错更糟：实装会造成「看似成功、实际没听」的假功能。裁决：Magpie 无音频输入能力，UI 不加该选项；预览稿该行同步修订。探测脚本与临时 wav 已清理。 |
 | D7 | 日报 Markdown 渲染 | ✅ 已修（ba2c28a） | 复用 DSH 原生 `MarkdownText` 原语（与 Button 同一 primitives 包，无需自写渲染器，GFM+TeX+不信任内容防护自带）；labels 中文化；原语不可用时回落纯文本 pre-wrap。 |
