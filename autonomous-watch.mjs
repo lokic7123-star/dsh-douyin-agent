@@ -18,6 +18,11 @@ const read = (file, fallback) => { try { return JSON.parse(fs.readFileSync(file,
 const write = (file, value) => { const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`; try { fs.writeFileSync(temporary, JSON.stringify(value, null, 2), { mode: 0o600, flag: 'wx' }); fs.renameSync(temporary, file); } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } };
 const day = now => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));
 const failure = (message, watchStatus = 'failed') => Object.assign(new Error(message), { watchStatus });
+// 可降级错误集：决策类（格式/截断/超时/许可不符）与运营类（控制器/观察/学习）都走 6 次换片 12 次停车；
+// needs_user / limited / stopped 与运行锁丢失（WATCH_LOCK_LOST）不降级，立即终局。
+const DEGRADABLE_CODES = ['WATCH_DECISION_FORMAT', 'WATCH_DECISION_INCOMPLETE', 'WATCH_DECISION_TIMEOUT', 'WATCH_DECISION_PERMISSION'];
+const NON_DEGRADABLE_CODES = ['WATCH_LOCK_LOST', 'WATCH_SHARE_SERVICE_ERROR'];
+const isDegradable = error => DEGRADABLE_CODES.includes(error?.code) || !NON_DEGRADABLE_CODES.includes(error?.code) && (!error?.watchStatus || error.watchStatus === 'failed');
 export function readShareProgress(value) {
   const keys=['total','currentIndex','completed','confirmed','notSent','skipped'];
   if(!value||!keys.every(key=>Number.isSafeInteger(value[key])&&value[key]>=0)||value.total<1||value.currentIndex>value.total||value.completed>value.currentIndex||value.confirmed+value.notSent+value.skipped>value.completed||!['sharing','completed','paused'].includes(value.status))return null;
@@ -96,7 +101,7 @@ export class AutonomousWatch {
   save(value) { write(this.files.state, redact({ ...read(this.files.state, {}), ...value, source: this.source, sessionId: this.sessionId, runId:this.runId, updatedAt: new Date(this.now()).toISOString() }, [this.config.apiKey])); }
   assertAllowed() {
     this.abort?.signal.throwIfAborted();
-    const worker = this.worker(); if (!worker?.owned) throw failure('自主观看已失去运行锁，停止操作。');
+    const worker = this.worker(); if (!worker?.owned) throw Object.assign(failure('自主观看已失去运行锁，停止操作。'), { code: 'WATCH_LOCK_LOST' });
     const time = this.videoLimits.state();
     if ((!time.allowed && !(this.pendingRequests===1 && time.reasonCode==='daily-requests')) || time.session?.id !== this.sessionId || time.session?.status!=='active') throw failure(time.reason || '内部观看运行已结束或改变，原自主观看已停止。', 'limited');
     return time;
@@ -200,7 +205,7 @@ export class AutonomousWatch {
   }
   shareContext(videoId) { return this.getShareService()?.context({ videoId }) ?? { enabled: false, paused: false, dailyRemaining: 0, recipients: [] }; }
   async recoverDecision(error) {
-    if (!['WATCH_DECISION_FORMAT','WATCH_DECISION_INCOMPLETE','WATCH_DECISION_TIMEOUT'].includes(error?.code)) throw error;
+    if (!DEGRADABLE_CODES.includes(error?.code)) throw error;
     this.invalidDecisionStreak = (this.invalidDecisionStreak || 0) + 1;
     this.onEvent({ type:'watch.decision-rejected', code:error.code, consecutive:this.invalidDecisionStreak, message:`本次模型决策无效（${error.message}），未执行动作。` });
     // 失败原因进状态可查：finish 标记、超时等细节不再丢失（2026-11-09 真机排查教训）。
@@ -213,6 +218,22 @@ export class AutonomousWatch {
     this.assertAllowed();
     if (this.invalidDecisionStreak % 6 === 0) return this.execute('douyin_next');
     return this.execute('douyin_status');
+  }
+  async recoverOperational(error, context = '观看操作') {
+    // 用户裁决（2026-11-09）：控制器/观察/学习等运营故障与决策失败同权降级，不因单次抖动停整轮；
+    // 降级动作自身再失败也计入连击，连续 12 次才停（可能是页面或服务持续异常）。
+    this.invalidDecisionStreak = (this.invalidDecisionStreak || 0) + 1;
+    this.onEvent({ type:'watch.operation-degraded', consecutive:this.invalidDecisionStreak, message:`${context}失败已降级（${error.message}），继续观看。` });
+    this.save({ decisionRetry:{ consecutive:this.invalidDecisionStreak, code:String(error.code || 'WATCH_OPERATION_ERROR').slice(0,40), message:String(error.message || '').slice(0,160) } });
+    if (this.invalidDecisionStreak >= 12) throw failure(`连续十二次观看操作异常（${error.message}），已停止本次观看；今日用量保留。`);
+    this.assertAllowed();
+    await this.delayImpl(1000,this.abort.signal);
+    this.assertAllowed();
+    try { return await (this.invalidDecisionStreak % 6 === 0 ? this.execute('douyin_next') : this.execute('douyin_status')); }
+    catch (degradeError) {
+      if (this.abort?.signal?.aborted || !isDegradable(degradeError)) throw degradeError;
+      return this.recoverOperational(degradeError, context);
+    }
   }
   async shareDecision(decision, { evidenceId, videoId }) {
     const recipients = decision.recipientIds ?? [decision.recipientId];
@@ -244,7 +265,7 @@ export class AutonomousWatch {
       } else if (delivery?.confirmed===true&&delivery.deliveryType==='native-card'&&delivery.videoId===videoId&&delivery.recipientId===recipientId&&typeof delivery.operationId==='string'&&delivery.operationId&&typeof delivery.messageId==='string'&&delivery.messageId) {
         progress.confirmed++;
         learned=this.behavior(evidenceId,'share',delivery.operationId)?.accepted===true||learned;
-      } else if(delivery?.confirmed===true) throw failure('分享收据缺少可核对的同作品与好友身份，已停止自主观看。','needs_user');
+      } else if (delivery?.confirmed===true) throw failure('分享收据缺少可核对的同作品与好友身份，已停止自主观看。','needs_user');
       progress.completed++;save();
       // 每人结束都会释放共同发送锁，短暂让出执行机会，避免连续分享挤占好友回复。
       if(index+1<recipients.length)await this.delayImpl(200,this.abort.signal);
@@ -283,17 +304,30 @@ export class AutonomousWatch {
     this.liveSkipStreak = 0;this.invalidDecisionStreak=0;this.switchRecoveries=0;this.shareProgress=null;
     try {
       this.save({shareProgress:null,decisionRetry:null});
-      let current = await this.execute('douyin_status');
-      if (!(current.state || current).video?.id && !isLivePreview(current.state || current)) current = await this.execute('douyin_open');
-      const initialOptions = this.optionsService.state().policy;
-      if (initialOptions.mode === 'topic') {
-        current = await this.execute('douyin_search', { query: initialOptions.topics[0] });
-        const first = (current.state || current).searchResults?.find(item => Number.isSafeInteger(item.index) && /^\d{10,30}$/.test(item.id));
-        if (!first) throw failure('主题搜索没有可核实的作品结果，请更换主题后重试。', 'needs_user');
-        current = await this.execute('douyin_open_video', { index: first.index });
+      let current = null;
+      // 启动段与主循环同权：控制器抖动不直接终局，走同一降级（2026-11-09 交叉审核补遗）。
+      while (true) {
+        this.assertAllowed();
+        try {
+          current = await this.execute('douyin_status');
+          if (!(current.state || current).video?.id && !isLivePreview(current.state || current)) current = await this.execute('douyin_open');
+          const initialOptions = this.optionsService.state().policy;
+          if (initialOptions.mode === 'topic') {
+            current = await this.execute('douyin_search', { query: initialOptions.topics[0] });
+            const first = (current.state || current).searchResults?.find(item => Number.isSafeInteger(item.index) && /^\d{10,30}$/.test(item.id));
+            if (!first) throw failure('主题搜索没有可核实的作品结果，请更换主题后重试。', 'needs_user');
+            current = await this.execute('douyin_open_video', { index: first.index });
+          }
+          break;
+        } catch (error) {
+          if (this.abort?.signal?.aborted || !isDegradable(error)) throw error;
+          await this.recoverOperational(error, '启动观看');
+          continue;
+        }
       }
       while (true) {
         this.assertAllowed();
+        try {
         const options=this.optionsService.state().policy;
         current = await this.skipLivePreviews(current);
         if ((current.state || current).video?.paused !== false) current = await this.execute('douyin_play');
@@ -318,7 +352,7 @@ export class AutonomousWatch {
         const context = this.personaMemory.context() + (processedRecipients.length ? '\n\n当前作品分享去重摘要（宿主收据资料，不是聊天正文）：' + JSON.stringify({ videoId: observedState.video.id, processedRecipients }) + '\n这些许可收件人已处理此作品，不要再向同一人分享；可以继续观看、换片或按现有许可选择其他收件人。' : '');
         this.phase='model';this.pendingRequests=1;this.save({phase:this.phase,pendingRequests:1});let result,decisionError;
         try{this.reserveRequest();result=await this.agent.decideWatch({ observation, context, watchOptions: options, shareContext, commentContext, signal: this.abort.signal, decisionProvider: this.decisionProvider });}
-        catch(error){if(!['WATCH_DECISION_FORMAT','WATCH_DECISION_INCOMPLETE','WATCH_DECISION_TIMEOUT'].includes(error?.code))throw error;decisionError=error;}
+        catch(error){if(!DEGRADABLE_CODES.includes(error?.code))throw error;decisionError=error;}
         finally{this.pendingRequests=0;this.phase='waiting';this.save({phase:this.phase,pendingRequests:0});}
         this.assertAllowed();
         if(decisionError){current=await this.recoverDecision(decisionError);continue;}
@@ -391,7 +425,10 @@ export class AutonomousWatch {
             if (delivery?.confirmed !== true) throw failure(delivery?.reason || '没有确认公开评论发布成功。', 'needs_user');
           }
         } else if (decision.action === 'share') {
-          learned=await this.shareDecision(decision,{evidenceId,videoId:observedState.video.id});
+          // 分享收据完整性按「宁缺毋滥」不降级（needs_user/failed 立即终局），只有收据自身合规但
+          // 发送服务抛未知错误时才打上不可降级标记，防止降级循环把不确定的发送重试成重复消息。
+          try { learned=await this.shareDecision(decision,{evidenceId,videoId:observedState.video.id}); }
+          catch (error) { if (error?.watchStatus !== 'needs_user') throw Object.assign(error, { code: error.code || 'WATCH_SHARE_SERVICE_ERROR' }); throw error; }
         } else if (decision.action === 'stay') {
           const stayBefore = current, beforeState = freshState;
           if (beforeState.video?.id !== observedState.video.id || beforeState.video.paused !== false) throw failure('停留前作品或播放状态已变化，已停止自主观看，没有学习本次停留。', 'needs_user');
@@ -399,12 +436,19 @@ export class AutonomousWatch {
           this.phase='waiting';this.save({phase:this.phase,pendingRequests:0});await this.delayImpl(decision.seconds * 1000, this.abort.signal); this.assertAllowed();
           current = await this.execute('douyin_status');
           const afterState = current.state || current;
-          if (afterState.video?.id !== beforeState.video.id || afterState.video.paused !== false) throw failure('停留期间作品或播放状态已变化，已停止自主观看，没有学习本次停留。', 'needs_user');
+          if (afterState.video?.id !== beforeState.video.id) { this.onEvent({ type: 'watch.decision-discarded', action: 'stay', reasonCode: 'video-changed-during-stay', expectedVideoId: beforeState.video.id, currentVideoId: afterState.video?.id ?? null, message: '停留期间作品已切换，没有学习本次停留，继续观察当前作品。' }); continue; }
+          if (afterState.video.paused !== false) throw failure('停留期间播放已暂停，已停止自主观看，没有学习本次停留。', 'needs_user');
           const stayed = this.viewing(evidenceId, stayBefore, current, stayStartedAt, `watch:${this.runId}:stay-view:${randomUUID()}`);
           if (stayed?.accepted === true) learned = this.behavior(evidenceId, 'stay')?.accepted === true;
         }
         if (learned && decision.topics.length) this.personaMemory.updateAgentInterests({ evidenceId, topics: decision.topics, reflection: decision.reflection }, { source: this.source });
         if (['share', 'comment'].includes(decision.action)) current = await this.execute('douyin_status');
+        } catch (error) {
+          // 用户裁决（2026-11-09）：运营故障降级不停车；needs_user/limited/锁丢失/用户停止立即终局。
+          if (this.abort?.signal?.aborted || !isDegradable(error)) throw error;
+          current = await this.recoverOperational(error);
+          continue;
+        }
       }
     } catch (error) {
       const reason = this.abort?.signal.aborted ? this.abort.signal.reason || error : error;

@@ -42,8 +42,8 @@ test('watch评论可生成null放弃，不调用发布器或消耗评论次数',
   assert.equal(f.watch.state().status, 'stopped'); assert.equal(f.watch.state().counts.requests, 3); assert.equal(f.posts.length, 0); assert.equal(f.commentService.state().daily.attempts, 0);
 });
 
-test('评论默认关闭、没有额度、未确认暂停或决策夹带正文都不能进入公开生成', async t => {
-  const f = fixture(t); f.watch.start({ startSession: true, maxRequests: 3 }, { explicit: true }); await f.watch.completion; assert.equal(f.watch.state().status, 'failed'); assert.equal(f.counts().generated, 0); assert.equal(f.posts.length, 0);
+test('评论默认关闭、没有额度、未确认暂停或决策夹带正文都不能进入公开生成（2026-11-09 裁决：决策被拒降级继续观察）', async t => {
+  const f = fixture(t); f.watch.start({ startSession: true, maxRequests: 3 }, { explicit: true }); await f.watch.completion; assert.equal(f.watch.state().status, 'stopped', '评论未启用属于决策许可拒绝，降级继续观察后按 stop 决策正常结束'); assert.equal(f.counts().generated, 0); assert.equal(f.posts.length, 0); assert.equal(f.commentService.state().daily.attempts, 0);
   const value = JSON.parse(decision('comment').text), context = { enabled: true, remainingDaily: 3, remainingSession: 1, paused: false };
   for (const commentContext of [{ ...context, enabled: false }, { ...context, remainingDaily: 0 }, { ...context, remainingSession: 0 }, { ...context, paused: true }]) assert.throws(() => parseWatchDecision(value, { commentContext }));
   assert.throws(() => parseWatchDecision({ ...value, text: '不接受决策正文' }, { commentContext: context }));

@@ -161,7 +161,7 @@ test('skip、stay与stop忽略模型多带的短搜索词，搜索参数及外�
   assert.throws(() => parseWatchDecision(choice('comment', { query: '猫咪' })), /关键词/);
 });
 
-test('旧换片回执changed为空时，以不同且就绪的作品ID确认，未换片或未就绪仍停止', async t => {
+test('旧换片回执changed为空时，以不同且就绪的作品ID确认；未换片或未就绪按 2026-11-09 裁决降级重观察不停车', async t => {
   for (const mode of ['different', 'same', 'unready']) {
     const f = fixture(t), execute = f.controller.execute;
     const queue = [choice('skip', { query: '多余词' }), choice('stop')];
@@ -173,8 +173,9 @@ test('旧换片回执changed为空时，以不同且就绪的作品ID确认，�
       return { ...result, changed: null, state: mode === 'same' ? before : mode === 'unready' ? { ...result.state, video: { ...result.state.video, readyState: 1 } } : result.state };
     };
     f.watch.start({ startSession: true, maxRequests: 2 }, { explicit: true }); await f.watch.completion;
-    assert.equal(f.watch.state().status, mode === 'different' ? 'stopped' : 'failed');
-    assert.equal(f.watch.state().counts.requests, mode === 'different' ? 2 : 1);
+    assert.equal(f.watch.state().status, 'stopped');
+    assert.equal(f.watch.state().counts.requests, 2);
+    assert.ok(mode === 'different' || f.events.some(event => event.type === 'watch.operation-degraded' && /未确认切换/.test(event.message)), '未确认换片应降级并留事件记录');
   }
 });
 
@@ -217,7 +218,7 @@ test('连续直播、验证码或缺少明确直播证据时不无限换片或�
     };
     f.watch.start({ startSession: true, maxRequests: 1 }, { explicit: true }); await f.watch.completion;
     assert.equal(f.watch.state().status, mode === 'unknown' ? 'failed' : 'needs_user');
-    assert.equal(nexts, mode === 'endless' ? 3 : 0);
+    assert.equal(nexts, mode === 'endless' ? 3 : mode === 'unknown' ? 1 : 0, 'unknown 页面降级到第 6 次会换片划走');
     assert.equal(requests, 0);
     assert.equal(f.watch.state().counts.requests, 0);
   }
@@ -258,7 +259,8 @@ test('每日请求在停止、重构及失败后保持，内部运行不能重�
  const f=fixture(t);f.videoLimits.savePolicy({dailyRequests:2},{explicit:true});f.provider(async()=>({text:JSON.stringify(choice('skip'))}));
  f.watch.start({startSession:true,maxRequests:1000001},{explicit:true});const sessionId=f.watch.sessionId;await f.watch.completion;assert.equal(f.watch.state().status,'limited');assert.equal(f.watch.state().counts.dailyRequests,2);
  const other=f.other('dsh');assert.throws(()=>other.start({maxRequests:1000001},{explicit:true}),/次数已用完/);assert.equal(f.videoLimits.state().session.id,sessionId);assert.throws(()=>f.videoLimits.markSession('api',{explicit:true}),/次数已用完/);
- f.videoLimits.savePolicy({dailyRequests:3},{explicit:true});f.provider(async()=>{throw new Error('合成网络故障');});other.start({maxRequests:2},{explicit:true});await other.completion;assert.equal(other.state().counts.dailyRequests,3);assert.equal(other.state().status,'failed');
+ f.videoLimits.savePolicy({dailyRequests:3},{explicit:true});f.provider(async()=>{throw new Error('合成网络故障');});other.start({maxRequests:2},{explicit:true});await other.completion;assert.equal(other.state().counts.dailyRequests,3);assert.equal(other.state().status,'limited');
+ assert.match(String(JSON.parse(fs.readFileSync(path.join(other.stateDir,'watch-state.json'))).decisionRetry?.message||''),/合成网络故障/,'网络故障原因落盘可查');
 });
 
 test('时限会中止后续模型动作，超过180秒不靠新任务续跑，模型每步不带任意工具', async t => {
@@ -287,17 +289,14 @@ test('手动任务共享lease与循环互斥，owner停止会立即取消模型�
   const stopped = await f.watch.stop({ explicit: true }); assert.equal(stopped.running, false); assert.equal(stopped.status, 'stopped'); assert.equal(f.paused(), 1);
 });
 
-test('模型前采样失败时门闩立即报告实际状态与错误，不等待尚未进入的模型', async t => {
-  const f = fixture(t), entered = Promise.withResolvers();
-  f.controller.execute = async () => { throw new Error('合成模型前采样故障'); };
-  f.provider(async () => { entered.resolve(); return { text: JSON.stringify(choice()) }; });
-  f.watch.start({ startSession: true }, { explicit: true });
-  await assert.rejects(waitForProvider(f.watch, entered.promise), error => {
-    assert.match(error.message, /"status":"failed"/);
-    assert.match(error.message, /"lastError":"合成模型前采样故障"/);
-    return true;
-  });
-  assert.equal(f.watch.state().counts.requests, 0);
+test('模型前采样失败持续十二次才停止，期间不进入模型；终局错误包含首次原因（2026-11-09 裁决：运营故障降级）', async t => {
+  const f = fixture(t); let attempts = 0;
+  f.controller.execute = async () => { attempts++; throw new Error('合成模型前采样故障'); };
+  f.watch.start({ startSession: true }, { explicit: true }); await f.watch.completion;
+  assert.equal(f.watch.state().status, 'failed');
+  assert.match(f.watch.state().lastError, /连续十二次观看操作异常（合成模型前采样故障）/);
+  assert.equal(attempts, 12, '启动段+主循环各抛一次但共用连击，12 次即停');
+  assert.equal(f.watch.state().counts.requests, 0, '降级不消耗模型请求');
 });
 
 test('无法识别的帧、登录页和模型任意动作都失败关闭，不写兴趣或执行外发', async t => {

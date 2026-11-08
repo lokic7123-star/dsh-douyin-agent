@@ -42,11 +42,14 @@ export class ScheduledWatch {
         return;
       }
       if(ledger.runs.some(item=>item.key===slot.key&&item.status==='failed')){
-        // 普通失败同时段不永久趴窝：15 分钟退避后再试，此时段至多三次。
+        // 普通失败同时段不永久趴窝：15 分钟退避后再试。
         const failedAt=Date.parse(ledger.runs.filter(item=>item.key===slot.key&&item.status==='failed').at(-1)?.completedAt||'');
         if(Number.isSafeInteger(failedAt)&&this.now()-failedAt<15*60_000)return;
         const attempts=ledger.runs.filter(item=>item.key===slot.key&&['failed','acknowledged'].includes(item.status)).length;
-        if(attempts>=3)return;
+        // 用户裁决（2026-11-09）：24/7 单时段策略下固定 3 次会让全天趴窝；上限随时段时长缩放
+        //（每 15 分钟退避一次、覆盖整个时段），短时段仍不低于原 3 次。
+        const maxAttempts=Math.max(3,Math.floor((slot.expiresAt-slot.startAt)/(15*60_000)));
+        if(attempts>=maxAttempts)return;
       }
       if(last?.key===slot.key&&last.status==='starting')return;
       if(last?.key===slot.key&&last.status==='started'&&['failed','needs_user'].includes(watch?.status)){const needsUser=watch?.status==='needs_user';last.status=needsUser?'occupied':'failed';if(needsUser)last.requiresUser=true;last.completedAt=new Date(this.now()).toISOString();last.error=explain(watch.lastError||(needsUser?'自主观看等待人工处理，请处理后重新开启允许观看。':'自主观看异常停止，请处理后重新开启允许观看。'));ledger.lastError=last.error;write(this.ledgerFile,ledger);this.error=last.error;return;}

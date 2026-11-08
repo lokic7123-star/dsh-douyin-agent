@@ -85,7 +85,8 @@ test('进行中的模型请求立即占用每日次数并显示phase，finally�
   const watch=new AutonomousWatch({stateDir:f.directory,videoLimits:f.limits,now:f.now,config:{apiKey:'synthetic'},personaMemory:{context:()=>'',recordViewing:()=>null},controller:{execute:async name=>name==='douyin_observe'?{state:playing,frames:[{videoId:playing.video.id,mimeType:'image/png',data:'eA=='}],personaEvidenceId:'synthetic-evidence'}:playing,pauseForLimits:async()=>{}},agent:{decideWatch:async()=>{entered.resolve();await release.promise;throw new Error('合成HTTP失败');}}});
   t.after(()=>watch.close());watch.start({startSession:true,maxRequests:1},{explicit:true});await entered.promise;const pending=watch.state();assert.equal(pending.phase,'model');assert.equal(pending.pendingRequests,1);assert.equal(pending.counts.dailyRequests,1);assert.equal(pending.counts.dailyLimit,2);assert.equal(pending.counts.maxRequests,null);
   const other=new AutonomousWatch({stateDir:f.directory,videoLimits:new VideoLimits({stateDir:f.directory,now:f.now}),now:f.now,source:'dsh',config:{},personaMemory:{context:()=>''},controller:{execute:async()=>playing}});assert.equal(other.state().phase,'model');assert.equal(other.state().pendingRequests,1);assert.equal(other.state().owned,false);await other.close();
-  release.resolve();await watch.completion;assert.equal(watch.state().pendingRequests,0);assert.equal(watch.state().phase,'idle');assert.equal(f.limits.state().daily.requests,1);assert.equal(watch.state().status,'failed');
+  release.resolve();await watch.completion;assert.equal(watch.state().pendingRequests,0);assert.equal(watch.state().phase,'idle');assert.equal(f.limits.state().daily.requests,2,'HTTP 失败按裁决降级重试一次，两次真实请求都计数');assert.equal(watch.state().status,'limited','降级重试第二次后额度耗尽，按额度规则结束');
+  // 2026-11-09 裁决：HTTP 失败降级重试而非停车；额度按真实请求计数不回退。本用例额度 2，重试后额度耗尽转 limited。
 });
 
 test('旧入口失去owner后不暂停或结束新owner的内部运行',async t=>{

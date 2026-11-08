@@ -313,7 +313,7 @@ textarea.dy-big{min-height:110px}
           do {
             refreshAgain.current = false;
             try { const value = await api.request('/state'); if (alive.current && !refreshAgain.current) { latest = value; setState(value); setReady(true); setConnectionError(''); } }
-            catch (failure) { if (alive.current && !refreshAgain.current) { setReady(false); setConnectionError(failure.message); } }
+            catch (failure) { if (alive.current && !refreshAgain.current) { if (!stateStore) setReady(false); setConnectionError(failure.message); } }
           } while (alive.current && refreshAgain.current);
           return latest;
         })();
@@ -355,6 +355,9 @@ textarea.dy-big{min-height:110px}
         finally { locks.current.delete(key); if (alive.current) setBusy(new Set(locks.current)); }
       }
       const button = (label, key, action, disabled = false, needsReady = true, variant = 'outline') => h('button', { type: 'button', className: `dy-btn${variant === 'primary' ? ' primary' : ''}`, disabled: (needsReady && !ready) || busy.has(key) || disabled, onClick: action }, busy.has(key) ? '处理中…' : label);
+      // 手动刷新走轻量 busy 包装而不是 perform：refresh 键需要未就绪时也可点击（needsReady=false），且要有「处理中…」反馈。
+      // 放在 button 之后——ui-request-feedback 按 perform→const button 切片验证，期间不能插入其他声明。
+      const manualRefresh = () => { if (locks.current.has('refresh')) return; locks.current.add('refresh'); setBusy(new Set(locks.current)); void syncState(true).finally(() => { locks.current.delete('refresh'); if (alive.current) setBusy(new Set(locks.current)); }); };
       const note = text => text ? h('p', { style: muted }, text) : null;
       const status = form => form.status.message && h('p', { role: form.status.kind === 'error' ? 'alert' : 'status', style: muted }, form.status.message);
       const section = (title, ...children) => h('section', { role: 'tabpanel', 'aria-label': title, style: { ...column, marginBottom: 24 } }, h('h3', null, title), ...children);
@@ -462,7 +465,7 @@ textarea.dy-big{min-height:110px}
         return { label: '一切正常', detail: [replyPresence?.label, watchState?.active ? watchState.label : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。' };
       })();
       return h('div', { className: 'dy-wrap', style: { maxWidth: 900, paddingBottom: 32 } },
-        h('div', { className: 'dy-head' }, h('h2', null, '大肥鱼抖音助手'), h('span', { className: 'sp' }), button('刷新插件状态', 'refresh', () => { void syncState(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
+        h('div', { className: 'dy-head' }, h('h2', null, '大肥鱼抖音助手'), h('span', { className: 'sp' }), button('刷新插件状态', 'refresh', manualRefresh, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
         !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
         ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
         h('div', { role: 'status', 'aria-live': 'polite', className: 'dy-statusline', style: { position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
@@ -604,7 +607,14 @@ textarea.dy-big{min-height:110px}
               state?.persona?.personaFolder && button('打开抖音', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} })),
             memTab === 'character' && h('div', { className: 'dy-inner' },
               h('p', { className: 'dy-note' }, '这里展示观看后自动整理的兴趣记忆（内部参考，不对外）；人格正文在「基础设置 → 人格与兴趣」编辑。'),
-              ...(state?.persona?.interests || []).slice(0, 12).map(item => dyRow(item.topic, `${({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal} · ${item.basis || ''}`)),
+              ...(state?.persona?.interests || []).slice(0, 12).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' },
+                h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }),
+                h('span', { className: 'dy-tl-main' },
+                  h('span', { className: 'dy-tl-head' },
+                    h('b', { className: 'dy-tl-topic' }, item.topic),
+                    h('span', { className: `dy-chip ${item.signal === 'like' ? 'ok' : item.signal === 'dislike' ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal),
+                    h('span', { className: 'dy-tl-meta' }, item.privacy === 'internal-reference' ? '内部参考' : '')),
+                  h('span', { className: 'dy-tl-count' }, item.basis || '按不同作品汇总的观看与互动记录。'))); }),
               !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。')),
             memTab === 'interests' && h('div', { className: 'dy-tl' },
               ...(state?.persona?.interests || []).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' },

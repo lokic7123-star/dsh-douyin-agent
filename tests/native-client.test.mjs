@@ -297,7 +297,10 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByRole('tab', { name: '观看日报', exact: true }).click(); await page.getByRole('button', { name: '读取所选日报', exact: true }).click(); await page.getByLabel('日报内容').filter({ hasText: '合成观看日报' }).waitFor();
   // v2 面板：用量改为指标卡（dy-stat 数值），文案断言改为「今日用量」卡内的数值
   state.usage.today.totalTokens = 6789; await page.getByRole('tab', { name: '自检与用量', exact: true }).click(); await page.getByText('今日用量', { exact: true }).waitFor(); await page.getByText('6789', { exact: true }).waitFor();
-  failState = true; await page.getByText('正在核实插件状态。', { exact: true }).waitFor(); failState = false;
+  // 2026-11-09 裁决：瞬态拉取失败不再锁死面板——已有缓存内容时保持控件可用，只显示红字错误；恢复后错误消失。
+  // 文案带 requestFailure 前缀（刷新运行状态：…），用子串匹配。
+  failState = true; await page.getByText(/合成原生状态暂不可用。/).waitFor(); await page.getByRole('button', { name: '一键自检', exact: true }).isEnabled(); failState = false;
+  await page.getByText(/合成原生状态暂不可用。/).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '刷新插件状态', exact: true }).click(); await page.getByText('正在核实插件状态。', { exact: true }).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '一键自检', exact: true }).click(); await page.getByText('合成修复建议', { exact: true }).waitFor(); await page.getByRole('button', { name: '修复：重新应用静默设置', exact: true }).click(); await page.getByText('合成修复已回读', { exact: true }).waitFor();
   state.watch.running = true; state.interactions.presence = { status: 'attention', online: false, label: '回复未就绪', reason: '合成许可联系人需要核对' };

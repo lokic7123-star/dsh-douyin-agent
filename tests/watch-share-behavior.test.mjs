@@ -94,10 +94,12 @@ test('API与DSH循环把宿主当前证据绑定到分享，成功卡片才记�
   }
 });
 
-test('分享关闭、名单外、模型等待期间撤回许可时不进入发送器，也不学习like', async t => {
+test('分享关闭、名单外、模型等待期间撤回许可时不进入发送器，也不学习like（2026-11-09 裁决：许可不符降级换片不停车）', async t => {
   for (const options of [{}, { sharing: true, disableDuringModel: true }, { sharing: true, target: `conv:${'d'.repeat(64)}` }]) {
     const f = fixture(t, { ...options, decisions: [decision('share', { recipientId: options.target || recipientId })] }); const final = await f.run();
-    assert.equal(final.status, 'failed'); assert.equal(f.sends.length, 0); assert.equal(f.shareService.state().daily.attempts, 0); assert.equal(f.personaMemory.snapshot().interests.length, 0);
+    assert.equal(final.status, 'stopped'); assert.equal(f.sends.length, 0); assert.equal(f.shareService.state().daily.attempts, 0); assert.equal(f.personaMemory.snapshot().interests.length, 0);
+    assert.equal(f.actions.filter(item => item.name === 'douyin_observe').length, 2, '许可不符应降级继续观察而不是停车');
+    assert.ok(f.events.some(event => event.type === 'watch.decision-rejected'), '应有决策被拒记录');
   }
 });
 
@@ -185,12 +187,16 @@ test('模型等待长于可信窗口后仍可换片，但不把漏记的长停�
   const records = JSON.parse(fs.readFileSync(short.personaMemory.stateFile)), waited = records.behavior.viewings.find(row => row.sampleId.includes(':model-wait:')); assert.equal(waited.wallSeconds, 2); assert.equal(waited.from.time, 3); assert.equal(waited.to.time, 5);
 });
 
-test('模型等待暂停或停留期间换片与暂停仍停止学习，到视频截止立即结束', async t => {
-  for (const options of [{ pauseDuringModel: true }, { switchDuringStay: true }, { pauseDuringStay: true }]) {
+test('模型等待暂停或停留期间暂停仍停止学习；停留中自动换片按 2026-11-09 裁决继续观察不学习', async t => {
+  for (const options of [{ pauseDuringModel: true }, { pauseDuringStay: true }]) {
     const f = fixture(t, { ...options, modelDelayMs: 31000, duration: 100, decisions: [decision('stay', { seconds: 2 })] }); const result = await f.run();
     assert.equal(result.status, 'needs_user', JSON.stringify({ options, result })); assert.equal(f.personaMemory.snapshot().interests.length, 0); assert.equal(f.personaMemory.snapshot().recentObservations.find(row => row.videoId === ID).actions.stay, 0);
-    if (options.switchDuringModel || options.pauseDuringModel) assert.equal(f.delays.length, 0);
+    if (options.pauseDuringModel) assert.equal(f.delays.length, 0);
   }
+  const switched = fixture(t, { switchDuringStay: true, modelDelayMs: 31000, duration: 100, decisions: [decision('stay', { seconds: 2 })] }); const switchedResult = await switched.run();
+  assert.equal(switchedResult.status, 'stopped', '停留中换片继续观察而不是停车'); assert.equal(switched.personaMemory.snapshot().interests.length, 0); assert.equal(switched.personaMemory.snapshot().recentObservations.find(row => row.videoId === ID).actions.stay, 0);
+  assert.ok(switched.events.some(event => event.type === 'watch.decision-discarded' && event.reasonCode === 'video-changed-during-stay'), '应有停留中换片丢弃记录');
+  assert.equal(switched.actions.filter(item => item.name === 'douyin_observe').length, 2, '换片后应重新采样新作品');
   const expired = fixture(t, { liveAccounting:true,modelDelayMs: 31000, delayMs: 27000, duration: 1000, decisions: [decision('stay', { seconds: 2 })] });
   expired.videoLimits.savePolicy({ windows: ['00:00-24:00'], sessionMinutes: 1 }, { explicit: true }); const result = await expired.run();
   assert.equal(result.status, 'limited', JSON.stringify(result)); assert.equal(expired.requests.length, 1); assert.equal(expired.videoLimits.state().allowed, false); assert.equal(expired.personaMemory.snapshot().interests.length, 0); assert.equal(expired.personaMemory.snapshot().recentObservations[0].actions.stay, 0);
