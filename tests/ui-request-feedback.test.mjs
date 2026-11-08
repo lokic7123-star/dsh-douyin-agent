@@ -41,7 +41,7 @@ for(const [label,source,isNative] of [['软件',software,false],['插件',native
   let perform;
   if(isNative){
     const code=between(source,'async function perform(key, action)','\n      const button');
-    perform=new Function('ready','locks','setBusy','setNotice','setOperationErrors','requestFailure','operationLabel','alive','refresh',`return (${code});`)(true,locks,()=>{},()=>{},setOperationErrors,requestFailure,operationLabel,alive,async()=>{});
+    perform=new Function('ready','locks','setBusy','setNotice','setOperationErrors','requestFailure','operationLabel','alive','syncState',`return (${code});`)(true,locks,()=>{},()=>{},setOperationErrors,requestFailure,operationLabel,alive,async()=>{});
   }else{
     const code=between(source,'const run = useCallback(async (name, action)','\n  useEffect(');
     perform=new Function('useCallback','lock','setBusy','setOperationErrors','requestFailure','operationLabel','pollRef',`${code};return run;`)(fn=>fn,locks,()=>{},setOperationErrors,requestFailure,operationLabel,{current:async()=>{}});

@@ -34,9 +34,12 @@ test('原生设置仅同源请求，会话token只进写请求头，403不隐式
   const state = await native.request('/state'); assert.equal(state.token, undefined);
   await native.request('/mode/configure', { silent: true }); assert.equal(calls[1].url, '/api/douyin-browser/mode/configure'); assert.equal(calls[1].init.headers['x-douyin-settings-token'], 'synthetic-native-token'); assert.equal(calls[1].init.body, '{"silent":true}'); assert.equal(calls[1].init.credentials, 'same-origin');
   await assert.rejects(native.request('//evil.example/state'), /只允许/); await assert.rejects(native.request('/reports/read?date=2026-10-15&token=x'), /只允许/);
+  // 观看足迹 GET 白名单：带 days 查询串放行，越界天数或附加参数仍拒绝（足迹页此前因白名单漏配整页报错）
+  await native.request('/watched?days=14'); assert.equal(calls.some(item => item.url.endsWith('/watched?days=14')), true);
+  await assert.rejects(native.request('/watched?days=144'), /只允许/); await assert.rejects(native.request('/watched?days=14&x=1'), /只允许/);
   let leaked = false; const unavailable = plugin.createSettingsTransport({ location: { protocol: 'file:', hostname: '' }, fetch: () => { leaked = true; } }); await assert.rejects(unavailable.request('/state'), /没有可用的插件设置通信接口/); assert.equal(leaked, false);
   const denied = plugin.createSettingsTransport({ location: { protocol: 'http:', hostname: '127.0.0.1' }, fetch: async () => ({ ok: false, status: 403, json: async () => ({ error: '合成授权已过期。' }) }) });
-  await assert.rejects(denied.request('/state'), error => error.status === 403); assert.equal(calls.length, 2);
+  await assert.rejects(denied.request('/state'), error => error.status === 403); assert.equal(calls.length, 3);
   let carried = false; const carrier = plugin.createSettingsTransport({ location: { protocol: 'file:', hostname: '' }, __DSH_TRANSPORT__: { fetch: async () => { carried = true; return { ok: true, json: async () => ({ token: 'synthetic-carrier' }) }; } } });
   await carrier.request('/state'); assert.equal(carried, true);
   const pendingCalls = []; const pendingTransport = plugin.createSettingsTransport({ location: { protocol: 'http:', hostname: '127.0.0.1' }, fetch: async (url, init) => { pendingCalls.push({ url, init }); return { ok: true, json: async () => url.endsWith('/state') ? { token: 'synthetic-pending-token' } : { protocol: 'chat-unanswered-v1', count: 2, snapshot: 'a'.repeat(64), items: [] } }; } });
@@ -159,7 +162,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   state.interactions.presence = { status: 'watching', online: false, label: '正在挑选视频 · 回复已关闭', reason: '好友互动已关闭。', watch: { active: true, phase: 'model', label: '正在挑选视频', reason: '自主观看正在挑选下一条视频。' }, reply: { status: 'offline', online: false, label: '回复已关闭', reason: '好友互动已关闭。' }, review: { active: true, manualCount: 2, label: '有 2 条未答消息', reason: '有 2 条已保留消息需要人工核对；处理后不会补发。' } };
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   const persona = page.getByRole('textbox', { name: '大肥鱼人格正文', exact: true }); await persona.waitFor();
-  assert.equal(await persona.inputValue(), '合成人格初始正文。'); assert.equal(calls.some(item => item.method === 'POST'), false);
+  await page.waitForFunction(() => document.querySelector('[aria-label="大肥鱼人格正文"]').value === '合成人格初始正文。'); assert.equal(calls.some(item => item.method === 'POST'), false);
   // 方案 §三 + 预览稿承诺的字数/token 预算条：初始 9 字 → 健康
   await page.getByText('上下文预算', { exact: true }).waitFor();
   await page.getByText('9 / 2,000 字', { exact: true }).waitFor();
@@ -221,6 +224,8 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.deepEqual(state.watchOptions.policy.topics, ['合成天文']);
   await page.getByRole('textbox', { name: '想看的主题', exact: true }).fill('合成天文 / 合成鲸鱼'); await page.getByRole('textbox', { name: '想看的主题', exact: true }).press('Tab'); await page.waitForTimeout(850);
   assert.deepEqual(state.watchOptions.policy.topics, ['合成天文', '合成鲸鱼'], '主题按文案承诺支持斜杠分隔');
+  // 保存回读后分隔符仍可见（回显用 ' / ' 拼接，此前 join('\n') 在单行输入框里不可见，用户看到主题挤成一团）
+  await page.waitForFunction(() => document.querySelector('[aria-label="想看的主题"]').value === '合成天文 / 合成鲸鱼');
   await page.getByRole('switch', { name: '静默观看', exact: true }).click(); await page.waitForTimeout(250); assert.equal(state.mode.silent, true);
   await page.getByRole('tab', { name: '好友互动', exact: true }).click();
   assert.equal(await page.getByRole('switch', { name: '允许好友互动', exact: true }).getAttribute('aria-checked'), 'true');
@@ -372,6 +377,17 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   // P2-3 缓存介质断言：重载前 sessionStorage 已写入 v2 有效载荷（宿主页面生命周期内的跨面板缓存）。
   const cachedRaw = await page.evaluate(() => globalThis.sessionStorage.getItem('douyin-unanswered-cache'));
   assert.match(cachedRaw || '', /chat-unanswered-v2/, '待答缓存已写入 sessionStorage');
+
+  // 冷启动状态缓存（问题回归：重启 DSH 后打开面板，人格文字先消失卡一帧再出现）——
+  // /state 被闸住时，首帧即呈现 localStorage 缓存的上次内容，不再空白等往返；刷新失败不清空已渲染内容。
+  let releaseColdState;
+  stateReadGate = { wait: new Promise(resolve => { releaseColdState = resolve; }) };
+  await page.reload(); await page.waitForSelector('[role="tablist"]');
+  await page.getByRole('tab', { name: '基础设置', exact: true }).click();
+  assert.equal(await page.getByRole('textbox', { name: '大肥鱼人格正文', exact: true }).inputValue(), '合成人格明确保存的新正文。', '冷启动首帧渲染 localStorage 缓存的人格正文');
+  assert.equal(await page.getByText('正在核实插件状态。', { exact: true }).count(), 0, '有缓存时不再显示核实中空态');
+  stateReadGate = null; releaseColdState();
+  await page.getByRole('textbox', { name: '大肥鱼人格正文', exact: true }).waitFor();
 
   // 行为用例 1：延迟响应时先显示缓存（阻断后台成功响应，证明重开立即呈现缓存卡片及 stale 说明，不等后台响应）
   let releaseUnanswered;

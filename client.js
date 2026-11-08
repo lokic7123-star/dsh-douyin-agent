@@ -30,7 +30,7 @@ window.__ModuleLoader__.load({
 .dy-dot.err{background:var(--dsw-alias-state-error-primary,#dc2626)}
 .dy-dot.idle{background:var(--dsw-alias-label-tertiary,#6b7280)}
 .dy-num{font-size:13px;font-weight:600;white-space:nowrap}
-.dy-cap{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;white-space:nowrap}
+.dy-cap{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px}
 .dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
 .dy-nav{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .dy-nav::-webkit-scrollbar{display:none}
@@ -72,9 +72,9 @@ textarea.dy-big{min-height:110px}
 .dy-chip.err{color:var(--dsw-alias-state-error-primary,#dc2626);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 10%,transparent)}
 .dy-chip.info{color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));background:color-mix(in srgb,var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb)) 10%,transparent)}
 .dy-chip.violet{color:#7c3aed;background:color-mix(in srgb,#7c3aed 10%,transparent)}
-.dy-kv{display:flex;gap:8px;font-size:12.5px;flex-wrap:wrap;min-width:0}
+.dy-kv{display:flex;gap:8px;font-size:12.5px;flex-wrap:wrap;min-width:0;margin:0}
 .dy-kv .k{color:var(--dsw-alias-label-tertiary,#6b7280);flex:none}
-.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:12.5px;min-width:0;overflow-wrap:anywhere;margin:0}
 .dy-rowline .t{flex:none;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11.5px;font-variant-numeric:tabular-nums}
 .dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));min-width:0}
 .dy-perm:last-child{border-bottom:0}
@@ -84,6 +84,10 @@ textarea.dy-big{min-height:110px}
 .dy-switch.on{background:var(--dsw-alias-state-success-primary,#16a34a)}
 .dy-switch.on::after{left:16px}
 .dy-foot{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11.5px;font-variant-numeric:tabular-nums}
+/* 布尔勾选：accent-color 跟随主题强调色（预览稿 v2.5 同步）；数字输入去原生加减箭头 */
+.dy-wrap input[type=checkbox]{width:15px;height:15px;margin:0;flex:none;cursor:pointer;accent-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
+.dy-wrap input[type=number]{-moz-appearance:textfield;appearance:textfield}
+.dy-wrap input[type=number]::-webkit-inner-spin-button,.dy-wrap input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .dy-wall{display:flex;flex-direction:column;gap:12px}
 .dy-dayhead{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563)}
 .dy-dayhead b{color:var(--dsw-alias-label-primary);font-weight:600}
@@ -114,7 +118,7 @@ textarea.dy-big{min-height:110px}
 `;
     function injectStyles() {
       if (typeof document === 'undefined') return;
-      const tag = 'dsh-douyin-browser-local/panel.css';
+      const tag = 'dsh-douyin-browser-local/panel.css#2';
       if (document.querySelector(`style[data-plugin-css="${tag}"]`)) return;
       const node = document.createElement('style');
       node.dataset.plugin = 'dsh-douyin-browser-local';
@@ -122,6 +126,8 @@ textarea.dy-big{min-height:110px}
       node.textContent = PANEL_CSS;
       document.head.appendChild(node);
     }
+    // 模块加载即注入样式：不在 render 里做 DOM 副作用，首帧不因样式迟到重排闪烁。
+    injectStyles();
     // 面板通用积木（对应预览稿 dy-* 规格 v2.4）。dyCard 只接 children；带 key 的用法直接写 h('div', {className:'dy-card', key}) 。
     const dyCard = (...children) => h('div', { className: 'dy-card' }, ...children);
     const dyChip = (kind, text) => h('span', { className: `dy-chip ${kind}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), text);
@@ -135,8 +141,26 @@ textarea.dy-big{min-height:110px}
     const ERR_KEY = 'douyin-panel-errors';
     const recordPanelError = message => { try { const list = JSON.parse(globalThis.sessionStorage?.getItem(ERR_KEY) || '[]'); list.unshift({ at: new Date().toISOString(), message: String(message).slice(0, 300) }); globalThis.sessionStorage?.setItem(ERR_KEY, JSON.stringify(list.slice(0, 20))); } catch {} };
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !window.__douyinPanelErrHooked) { window.__douyinPanelErrHooked = true; window.addEventListener('error', ev => recordPanelError(ev?.message || '未知脚本错误')); }
-    // 模块级状态缓存（对标官方插件 store 常驻模式）：面板关闭后数据仍在，重开面板首帧即渲染上次内容，后台刷新——不再每次冷启动空白等 /state 往返。
-    let stateStore = null;
+    // 面板状态缓存（对标官方插件 store 常驻模式）：重开面板/重启 DSH 首帧即渲染上次内容，后台刷新覆盖。
+    // 只缓存展示用的稳定子集（去掉用量、在线状态、每日计数等易变字段），数据仍以 /state 回读为准；令牌永不落缓存。
+    const STATE_CACHE_KEY = 'douyin-state-cache-v1';
+    let stateCacheSig = '';
+    const readStateCache = () => { try { const value = JSON.parse(globalThis.localStorage?.getItem(STATE_CACHE_KEY) || 'null'); return value && value.protocol === 'douyin-state-cache-v1' ? value : null; } catch { return null; } };
+    const cacheableState = value => {
+      if (!value || typeof value !== 'object') return null;
+      const interests = (value.persona?.interests || []).map(({ evidence, ...item }) => item);
+      return { protocol: 'douyin-state-cache-v1',
+        persona: value.persona ? { ...value.persona, interests } : null,
+        model: value.model ?? null,
+        video: value.video ? { allowed: value.video.allowed, reason: value.video.reason ?? '', policy: value.video.policy ?? null } : null,
+        watchOptions: value.watchOptions ?? null, schedule: value.schedule ?? null, mode: value.mode ?? null,
+        comments: value.comments ? { enabled: value.comments.enabled, policy: value.comments.policy ?? null } : null,
+        media: value.media ?? null, reports: value.reports ? { date: value.reports.date ?? '', folder: value.reports.folder ?? '' } : null,
+        chat: value.chat ? { policy: value.chat.policy ?? null, unansweredCount: value.chat.unansweredCount ?? 0, unansweredGroups: value.chat.unansweredGroups ?? null } : null,
+        share: value.share ? { enabled: value.share.enabled, recent: value.share.recent ?? [] } : null };
+    };
+    let stateStore = readStateCache();
+    const persistStateCache = value => { try { const next = JSON.stringify(cacheableState(value)); if (next && next !== stateCacheSig) { stateCacheSig = next; globalThis.localStorage?.setItem(STATE_CACHE_KEY, next); } } catch { /* 隐私模式或超限就存不进，行为退回直连。 */ } };
 
     // 足迹封面（D3）：从本机缓存取观察首帧；无缓存时保持续占位，不伪造封面。
     function ThumbImg({ api, videoId }) {
@@ -165,7 +189,7 @@ textarea.dy-big{min-height:110px}
       '/mode/state': '读取静默观看设置', '/mode/configure': '保存静默观看设置', '/media/state': '读取音频设置', '/media/configure': '保存音频设置', '/media/credentials': '保存音频密钥',
       '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/persona/context-observations': '切换观察注入上下文', '/memory/search': '搜索记忆', '/memory/forget': '删除记忆', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
       '/task': '提交对话任务', '/stop': '停止对话任务', '/forward/contacts': '读取转发会话', '/forward': '转发作品', '/memory': '检索共享记忆',
-      '/usage': '读取用量', '/diagnostics': '一键自检', '/diagnostics/repair': '修复自检问题', '/reports/generate': '生成观看日报', '/reports/read': '读取观看日报', '/reports/state': '读取日报目录',
+      '/usage': '读取用量', '/watched': '读取观看足迹', '/diagnostics': '一键自检', '/diagnostics/repair': '修复自检问题', '/reports/generate': '生成观看日报', '/reports/read': '读取观看日报', '/reports/state': '读取日报目录',
     };
 
     function requestOperation(route, body) {
@@ -203,7 +227,7 @@ textarea.dy-big{min-height:110px}
       const writing = new Set();
       return {
         async request(route, input) {
-          if (!routes.has(route) && !/^\/reports\/read\?date=\d{4}-\d{2}-\d{2}$/.test(route)) throw new Error('只允许本插件的原生设置接口。');
+          if (!routes.has(route) && !/^\/reports\/read\?date=\d{4}-\d{2}-\d{2}$/.test(route) && !/^\/watched\?days=\d{1,2}$/.test(route)) throw new Error('只允许本插件的原生设置接口。');
           if (!fetcher && typeof rpc?.call !== 'function') throw new Error('当前 DSH 页面没有可用的插件设置通信接口。请更新插件后完全退出并重开 DSH；若仍失败，请核对 DSH 版本与来源。可点击“刷新插件状态”重试。');
           if (input !== undefined && !token) throw new Error('请先刷新原生设置页，核实当前状态。');
           if (route === '/chat/unanswered' && !token) throw new Error('请先刷新原生设置页，核实当前状态。');
@@ -273,22 +297,27 @@ textarea.dy-big{min-height:110px}
       const existingAuthorization = useRef(false); const alive = useRef(true), refreshing = useRef(null), refreshAgain = useRef(false), locks = useRef(new Set()), submitted = useRef(new Set()), keyValues = useRef(credentials);
       const active = value => value?.running || value?.starting || value?.busy || value?.worker?.alive;
       const operationActive = active(state?.watch) || state?.chat?.starting || state?.chat?.busy || state?.share?.busy;
+      // refresh 只做拉取与应用（friend-ui-races 按源码抽取验证单飞语义，不得引用沙箱外变量）；
+      // 状态缓存落库由 syncState 包装负责，所有调用点统一走它。
       async function refresh(fresh = false) {
         if (refreshing.current) { if (fresh) refreshAgain.current = true; return refreshing.current; }
         const work = (async () => {
           let latest;
           do {
             refreshAgain.current = false;
-            try { const value = await api.request('/state'); if (alive.current && !refreshAgain.current) { latest = value; stateStore = value; setState(value); setReady(true); setConnectionError(''); } }
+            try { const value = await api.request('/state'); if (alive.current && !refreshAgain.current) { latest = value; setState(value); setReady(true); setConnectionError(''); } }
             catch (failure) { if (alive.current && !refreshAgain.current) { setReady(false); setConnectionError(failure.message); } }
           } while (alive.current && refreshAgain.current);
           return latest;
         })();
         refreshing.current = work; try { return await work; } finally { if (refreshing.current === work) refreshing.current = null; }
       }
-      useEffect(() => { alive.current = true; void refresh(); const timer = setInterval(() => { void refresh(); }, 2500); return () => { alive.current = false; clearInterval(timer); }; }, [api]);
+      useEffect(() => { alive.current = true; void syncState(); const timer = setInterval(() => { void syncState(); }, 2500); return () => { alive.current = false; clearInterval(timer); }; }, [api]);
+      // syncState：拉取成功后落模块级缓存与 localStorage（展示用），失败不清空已渲染内容。
+      // 放在首个 useEffect 之后——friend-ui-races 按源码抽取 refresh→首个 useEffect 段验证单飞语义，其间只能有 refresh 本体。
+      const syncState = async (fresh = false) => { const value = await refresh(fresh); if (value) { stateStore = value; setTimeout(() => persistStateCache(value), 0); } return value; };
       useEffect(() => { if (!reportDate && state?.reports?.date) setReportDate(state.reports.date); }, [state]);
-      const write = route => async payload => { const result = await api.request(route, payload); void refresh(true); return result; };
+      const write = route => async payload => { const result = await api.request(route, payload); void syncState(true); return result; };
       const loadWatched = async (days = watchedDays) => {
         if (!ready) return;
         try { setWatchedError(''); setWatched(await api.request(`/watched?days=${days}`)); }
@@ -299,23 +328,23 @@ textarea.dy-big{min-height:110px}
       const positive = (value, label) => { const number = Number(value); if (String(value).trim() === '' || !Number.isSafeInteger(number) || number < 1) throw new Error(`${label}请填写正整数。`); return number; };
       const model = useAutosave({ value: state?.model, initial: { provider: '', model: '' }, read: value => ({ provider: value.provider || '', model: value.model || '' }), encode: value => { if (!value.provider || !value.model) throw new Error('请选择提供商和模型。'); return value; }, write: write('/model/configure'), available: ready && !operationActive });
       const persona = useAutosave({ value: state?.persona, initial: { content: '', expectedRevision: null }, read: value => ({ content: value.manualText || '', expectedRevision: value.revision }), encode: value => value, write: write('/persona/configure'), canonical: (saved, payload) => saved?.revision ? { content: saved.manualText || '', expectedRevision: saved.revision } : payload, available: ready && !operationActive });
-      const readVideo = snapshot => { const policy = snapshot?.policy || {}, minutes = Object.hasOwn(policy, 'dailyMinutes') ? policy.dailyMinutes : Object.hasOwn(policy, 'sessionMinutes') ? policy.sessionMinutes : 10, requests = Object.hasOwn(policy, 'dailyRequests') ? policy.dailyRequests : 30; return { windows: (policy.windows || ['00:00-24:00']).join('\n'), weekendAll: policy.weekendWindows?.join() === '00:00-24:00', dailyMinutes: minutes ?? '', unlimitedMinutes: minutes === null, dailyRequests: requests ?? '', unlimitedRequests: requests === null }; };
+      const readVideo = snapshot => { const policy = snapshot?.policy || {}, minutes = Object.hasOwn(policy, 'dailyMinutes') ? policy.dailyMinutes : Object.hasOwn(policy, 'sessionMinutes') ? policy.sessionMinutes : 10, requests = Object.hasOwn(policy, 'dailyRequests') ? policy.dailyRequests : 30; return { windows: (policy.windows || ['00:00-24:00']).join(' / '), weekendAll: policy.weekendWindows?.join() === '00:00-24:00', dailyMinutes: minutes ?? '', unlimitedMinutes: minutes === null, dailyRequests: requests ?? '', unlimitedRequests: requests === null }; };
       const encodeVideo = value => { const windows = list(value.windows, true); if (!windows.length || windows.some(item => !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(item))) throw new Error('时段请填写完整的 HH:MM-HH:MM。'); return { windows, weekendWindows: value.weekendAll ? ['00:00-24:00'] : null, dailyMinutes: value.unlimitedMinutes ? null : positive(value.dailyMinutes, '每日观看分钟数'), dailyRequests: value.unlimitedRequests ? null : positive(value.dailyRequests, '每日模型请求次数') }; };
       const video = useAutosave({ value: state?.video, initial: readVideo(null), read: readVideo, encode: encodeVideo, write: write('/video/configure'), canonical: (saved, payload) => saved?.policy ? encodeVideo(readVideo(saved)) : payload, available: ready });
-      const readTopics = value => ({ mode: value?.policy?.mode || 'recommend', topics: (value?.policy?.topics || []).join('\n'), exclude: (value?.policy?.exclude || []).join('\n') });
+      const readTopics = value => ({ mode: value?.policy?.mode || 'recommend', topics: (value?.policy?.topics || []).join(' / '), exclude: (value?.policy?.exclude || []).join(' / ') });
       const topics = useAutosave({ value: state?.watchOptions, initial: readTopics(null), read: readTopics, encode: value => ({ mode: value.mode, topics: list(value.topics, true), exclude: list(value.exclude, true) }), write: write('/watch/options'), canonical: (saved, payload) => saved?.policy ? { mode: saved.policy.mode, topics: saved.policy.topics || [], exclude: saved.policy.exclude || [] } : payload, available: ready });
       const mode = useAutosave({ value: state?.mode, initial: { silent: false }, read: value => ({ silent: value?.silent === true }), encode: value => value, write: write('/mode/configure'), canonical: (saved, payload) => typeof saved?.silent === 'boolean' ? { silent: saved.silent } : payload, available: ready });
       const comments = useAutosave({ value: state?.comments, initial: { enabled: false, dailyLimit: 3, perSessionLimit: 1 }, read: value => ({ enabled: value.enabled === true, dailyLimit: value.policy?.dailyLimit ?? 3, perSessionLimit: value.policy?.perSessionLimit ?? 1 }), encode: value => ({ enabled: value.enabled, dailyLimit: positive(value.dailyLimit, '每日评论次数'), perSessionLimit: positive(value.perSessionLimit, '每次观看评论次数') }), write: write('/comments/configure'), canonical: (saved, payload) => saved?.policy ? { enabled: saved.enabled === true, dailyLimit: saved.policy.dailyLimit, perSessionLimit: saved.policy.perSessionLimit } : payload, available: ready });
       const media = useAutosave({ value: state?.media, initial: { enabled: false, backend: 'local-whisper' }, read: value => ({ enabled: value.enabled === true, backend: value.backend || 'local-whisper' }), encode: value => value, write: write('/media/configure'), available: ready });
-      const readChat = value => ({ recipientIds: (value?.policy?.allowlist || []).map(item => item.id), allowConversationOnly: existingAuthorization.current || (value?.policy?.allowlist || []).some(item => ['existing-conversation', 'existing-group'].includes(item.authorizationKind)), groupMentionNamesText: (value?.policy?.groupMentionNames || ['大肥鱼']).join('\n') });
+      const readChat = value => ({ recipientIds: (value?.policy?.allowlist || []).map(item => item.id), allowConversationOnly: existingAuthorization.current || (value?.policy?.allowlist || []).some(item => ['existing-conversation', 'existing-group'].includes(item.authorizationKind)), groupMentionNamesText: (value?.policy?.groupMentionNames || ['大肥鱼']).join(', ') });
       const encodeChat = value => ({ recipientIds: value.recipientIds, allowConversationOnly: value.allowConversationOnly, groupMentionNames: list(value.groupMentionNamesText) });
       const chat = useAutosave({ value: state?.chat, initial: readChat(null), read: readChat, encode: encodeChat, write: write('/chat/configure'), canonical: (saved, payload) => saved?.policy ? encodeChat(readChat(saved)) : payload, available: ready });
       const shownContacts = [...new Map([...(state?.chat?.policy?.allowlist || []).map(item => ({ ...item, notListed: Boolean(contacts) && !contacts.some(found => found.id === item.id) })), ...(contacts || [])].map(item => [item.id, item])).values()];
       async function perform(key, action) {
         if (!ready || locks.current.has(key)) return; locks.current.add(key); setBusy(new Set(locks.current)); setNotice('');
         setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; });
-        try { const value = await action(); if (alive.current) setNotice(`${operationLabel(key)}已完成。`); await refresh(true); return value; }
-        catch (failure) { if (alive.current) { const detail = requestFailure(failure, operationLabel(key)); setOperationErrors(old => ({ ...old, [key]: { message: detail.message, requestError: detail.requestError === true, unconfirmed: detail.unconfirmed === true } })); } await refresh(true); }
+        try { const value = await action(); if (alive.current) setNotice(`${operationLabel(key)}已完成。`); await syncState(true); return value; }
+        catch (failure) { if (alive.current) { const detail = requestFailure(failure, operationLabel(key)); setOperationErrors(old => ({ ...old, [key]: { message: detail.message, requestError: detail.requestError === true, unconfirmed: detail.unconfirmed === true } })); } await syncState(true); }
         finally { locks.current.delete(key); if (alive.current) setBusy(new Set(locks.current)); }
       }
       const button = (label, key, action, disabled = false, needsReady = true, variant = 'outline') => h('button', { type: 'button', className: `dy-btn${variant === 'primary' ? ' primary' : ''}`, disabled: (needsReady && !ready) || busy.has(key) || disabled, onClick: action }, busy.has(key) ? '处理中…' : label);
@@ -426,8 +455,7 @@ textarea.dy-big{min-height:110px}
         return { label: '一切正常', detail: [replyPresence?.label, watchState?.active ? watchState.label : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。' };
       })();
       return h('div', { className: 'dy-wrap', style: { maxWidth: 900, paddingBottom: 32 } },
-        injectStyles(),
-        h('div', { className: 'dy-head' }, h('h2', null, '大肥鱼抖音助手'), h('span', { className: 'sp' }), button('刷新插件状态', 'refresh', () => { void refresh(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
+        h('div', { className: 'dy-head' }, h('h2', null, '大肥鱼抖音助手'), h('span', { className: 'sp' }), button('刷新插件状态', 'refresh', () => { void syncState(); }, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
         !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
         ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
         h('div', { role: 'status', 'aria-live': 'polite', className: 'dy-statusline', style: { position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
@@ -458,7 +486,7 @@ textarea.dy-big{min-height:110px}
             h('p', { className: 'dy-note' }, '选择已配置的 DSH 模型。配置后观看、回复、分享等自动能力按各自的开关运行。')
           ),
           dyCard(
-            h('div', { className: 'dy-card-top' }, h('h3', null, '人格与兴趣'), h('span', { className: 'sp' }), persona.status.kind === 'error' && button('载入最新人格（替换草稿）', 'personaReload', () => { void perform('personaReload', async () => { const latest = await refresh(true); if (!latest?.persona?.revision) throw new Error('未读到最新人格，原草稿已保留。'); persona.edit({ content: latest.persona.manualText || '', expectedRevision: latest.persona.revision }, { blurOnly: true }); return latest.persona; }); })),
+            h('div', { className: 'dy-card-top' }, h('h3', null, '人格与兴趣'), h('span', { className: 'sp' }), persona.status.kind === 'error' && button('载入最新人格（替换草稿）', 'personaReload', () => { void perform('personaReload', async () => { const latest = await syncState(true); if (!latest?.persona?.revision) throw new Error('未读到最新人格，原草稿已保留。'); persona.edit({ content: latest.persona.manualText || '', expectedRevision: latest.persona.revision }, { blurOnly: true }); return latest.persona; }); })),
             h('textarea', { className: 'dy-textarea dy-big', 'aria-label': '大肥鱼人格正文', rows: 9, value: persona.draft.content, disabled: !ready || operationActive, onChange: event => persona.edit({ content: event.target.value }, { blurOnly: true }), onBlur: () => { void persona.flush(); } }),
             h('div', { className: 'dy-row' }, h('p', { className: 'dy-note', style: { margin: 0 } }, '离开输入框后保存。插件与软件共用人格，未保存草稿不会被轮询覆盖。'), h('span', { style: { flex: 1 } }), h('span', { className: 'dy-foot' }, `${[...persona.draft.content].length} 字`)),
             // 字数/token 预算条（方案 §三 + 预览稿）：2000 转黄、3000 转红，不阻断保存；token 为字符数估算。
@@ -487,7 +515,7 @@ textarea.dy-big{min-height:110px}
             h('div', { className: 'dy-card-top' }, h('h3', null, '观看时段'), h('span', { className: 'sp' }), h('span', { className: 'dy-foot' }, `周末${video.draft.weekendAll ? '全天允许' : '按工作日'}`)),
             h('div', { className: 'dy-row' },
               button('全天', 'all', () => video.edit({ windows: '00:00-24:00', weekendAll: false }, { immediate: true }), false, false, String(video.draft.windows).trim() === '00:00-24:00' && video.draft.weekendAll === false ? 'primary' : 'outline'),
-              button('谷时段（DeepSeek）', 'valley', () => video.edit({ windows: '00:00-09:00\n12:00-14:00\n18:00-24:00', weekendAll: true }, { immediate: true }), false, false, String(video.draft.windows).trim() === '00:00-09:00\n12:00-14:00\n18:00-24:00' && video.draft.weekendAll === true ? 'primary' : 'outline'),
+              button('谷时段（DeepSeek）', 'valley', () => video.edit({ windows: '00:00-09:00 / 12:00-14:00 / 18:00-24:00', weekendAll: true }, { immediate: true }), false, false, String(video.draft.windows).trim() === '00:00-09:00 / 12:00-14:00 / 18:00-24:00' && video.draft.weekendAll === true ? 'primary' : 'outline'),
               button('晚间 20–22 点', 'evening', () => video.edit({ windows: '20:00-22:00', weekendAll: false }, { immediate: true }), false, false, String(video.draft.windows).trim() === '20:00-22:00' && video.draft.weekendAll === false ? 'primary' : 'outline')),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '时段'), h('input', { className: 'dy-input', style: { width: 260, flex: 'none' }, 'aria-label': '每日允许视频时段', value: video.draft.windows, disabled: !ready, onChange: event => video.edit({ windows: event.target.value }), onBlur: () => { void video.flush(); } }), h('span', { className: 'dy-cap' }, '可多段，斜杠或空格分隔，如 09:00-12:00 / 14:00-18:00')),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '周末全天'), dySwitch(video.draft.weekendAll, { 'aria-label': '周末全天允许', onClick: () => video.edit({ weekendAll: !video.draft.weekendAll }, { immediate: true }) })),
@@ -550,7 +578,7 @@ textarea.dy-big{min-height:110px}
             h('div', { className: 'dy-card-top' }, h('h3', null, '观看足迹'), h('span', { className: 'sp' }),
               dySel({ 'aria-label': '足迹范围', value: watchedDays, onChange: event => setWatchedDays(event.target.value) }, [['14', '最近 14 天'], ['30', '最近 30 天']]),
               button('刷新足迹', 'watched', () => { void loadWatched(); })),
-            watched ? h('p', { className: 'dy-note' }, `共 ${watched.total} 条已看记录${watched.generatedAt ? ` · 更新于 ${new Date(watched.generatedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}。封面缓存尚未接入，缩略图暂显示占位；点击卡片在专用浏览器打开原作品。`) : h('p', { className: 'dy-note' }, '正在读取观看足迹…'),
+            watched ? h('p', { className: 'dy-note' }, `共 ${watched.total} 条已看记录${watched.generatedAt ? ` · 更新于 ${new Date(watched.generatedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}。封面来自本机帧缓存（观察首帧，3 天过期），旧记录可能显示占位；点击卡片在专用浏览器打开原作品。`) : h('p', { className: 'dy-note' }, '正在读取观看足迹…'),
             watchedError && h('p', { role: 'alert', className: 'dy-note', style: { color: 'var(--dsw-alias-state-error-primary,#dc2626)' } }, watchedError)),
           watched && !watched.groups.length && dyCard(h3Card('还没有观看记录'), h('p', { className: 'dy-note' }, '开启自主观看后，看过的作品会按日期出现在这里。')),
           watched && !!watched.groups.length && h('div', { className: 'dy-wall' }, ...watched.groups.map(group => h('div', { key: group.day },
@@ -562,12 +590,13 @@ textarea.dy-big{min-height:110px}
         // 记忆管理（吞噬新增）：走宿主 memory.* RPC（与参考项目同构）；本端只读浏览，清理入口后续按需接入 memory.forget。
         category === '记忆管理' && h('div', { className: 'dy-wrap' },
           h('div', { className: 'dy-card' },
-            h('div', { className: 'dy-card-top' }, h('h3', null, '记忆管理'), h('span', { className: 'sp' }),
-              state?.persona?.personaFolder && button('打开抖音', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} }), h('span', { className: 'dy-cap' }, '记忆文件在抖音页面旁的本机目录'),
+            h('div', { className: 'dy-card-top' },
               h('div', { className: 'dy-mtabs', role: 'tablist', 'aria-label': '记忆分区' },
-                ...[['character', '角色卡'], ['interests', '兴趣'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label)))),
+                ...[['character', '角色卡'], ['interests', '兴趣'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label))),
+              h('span', { className: 'sp' }),
+              state?.persona?.personaFolder && button('打开抖音', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} })),
             memTab === 'character' && h('div', { className: 'dy-inner' },
-              h('p', { className: 'dy-note' }, '角色卡在「基础设置 → 人格与兴趣」编辑；这里展示记忆侧的自动生成段（agentInterests 的机器可读层），修改仍以人格卡为准。'),
+              h('p', { className: 'dy-note' }, '这里展示观看后自动整理的兴趣记忆（内部参考，不对外）；人格正文在「基础设置 → 人格与兴趣」编辑。'),
               ...(state?.persona?.interests || []).slice(0, 12).map(item => dyRow(item.topic, `${({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal} · ${item.basis || ''}`)),
               !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。')),
             memTab === 'interests' && h('div', { className: 'dy-tl' },

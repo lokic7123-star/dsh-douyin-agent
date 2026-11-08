@@ -45,7 +45,7 @@ h2.demo{font-size:15px;margin:0;color:var(--dsw-alias-label-secondary)}
 .dy-dot.err{background:var(--dsw-alias-state-error-primary)}
 .dy-dot.idle{background:var(--dsw-alias-label-tertiary)}
 .dy-num{font-size:13px;font-weight:600;white-space:nowrap}
-.dy-cap{color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}
+.dy-cap{color:var(--dsw-alias-label-tertiary);font-size:12px}
 .dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
 .dy-nav{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .dy-nav::-webkit-scrollbar{display:none}
@@ -94,6 +94,8 @@ textarea.dy-big{min-height:110px}
 .dy-kv .k{color:var(--dsw-alias-label-tertiary);flex:none}
 .dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:12.5px;min-width:0;overflow-wrap:anywhere}
 .dy-rowline .t{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11.5px;font-variant-numeric:tabular-nums}
+/* 布尔勾选：accent-color 跟随主题强调色，保留原生 role=checkbox 语义与键盘操作 */
+.dy-wrap input[type=checkbox]{width:15px;height:15px;margin:0;flex:none;cursor:pointer;accent-color:var(--dy-accent)}
 .dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1);min-width:0}
 .dy-perm:last-child{border-bottom:0}
 .dy-perm .nm{font-weight:500;font-size:13px;width:150px;flex:none;overflow-wrap:anywhere}
@@ -102,6 +104,9 @@ textarea.dy-big{min-height:110px}
 .dy-switch.on{background:var(--dsw-alias-state-success-primary)}
 .dy-switch.on::after{left:16px}
 .dy-foot{color:var(--dsw-alias-label-tertiary);font-size:11.5px;font-variant-numeric:tabular-nums}
+/* 数字输入：去原生加减箭头（保留 role=spinbutton 语义，键盘上下仍可调） */
+.dy-input[type=number]{-moz-appearance:textfield;appearance:textfield}
+.dy-input[type=number]::-webkit-inner-spin-button,.dy-input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 /* 观看足迹 */
 .dy-wall{display:flex;flex-direction:column;gap:12px}
 .dy-dayhead{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dsw-alias-label-secondary)}
