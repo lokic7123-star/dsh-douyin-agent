@@ -72,7 +72,7 @@
 | D3 | 足迹封面链路（/thumb） | ⏸ 暂缓（下一批） | 250-400 行 + 帧缓存持久化有隐私面（磁盘落盘、清理上限），需单独批次与隐私评估。 |
 | D4 | 记忆管理对齐预览稿（清理/时间线搜索/结构化编辑） | ⏸ 暂缓 | 依赖宿主 memory.* 能力核实；信息架构漂移不阻塞使用。 |
 | D5 | 「打开记忆文件夹」按钮 | ✅ D5a 已修（ba2c28a） | 文案诚实化为「打开抖音」+ 说明改为「记忆文件在抖音页面旁的本机目录」；OPERATIONS 标签同步。 |
-| D6 | Magpie 音频后端 | ⏸ 挂起待前置核实 | 前置事实无法本机核实：Magpie（GLM 系）chat API 是否支持音频输入（input_audio content part）不能凭猜测实现（AGENTS.md 不编造 API）。需先在真实 Magpie 端点验证音频请求合同，再决定走 OpenAI 兼容 chat-audio 还是宿主 llm 服务桥接。 |
+| D6 | Magpie 音频后端 | 🚫 不做（裁决性测试已完成） | 本机实测（2026-11-08）：Magpie 本机网关 127.0.0.1:3425 免鉴权可达，`/v1/models` 全部模型 input modality 仅 text,image；对 `group/glm-5-3-flash` 发 input_audio 静音 wav 探测，HTTP 200 但模型明确回答「无法接收或听到任何音频内容」——网关**静默剥离**音频输入（prompt_tokens 含 base64 长度但模型未收到）。比报错更糟：实装会造成「看似成功、实际没听」的假功能。裁决：Magpie 无音频输入能力，UI 不加该选项；预览稿该行同步修订。探测脚本与临时 wav 已清理。 |
 | D7 | 日报 Markdown 渲染 | ✅ 已修（ba2c28a） | 复用 DSH 原生 `MarkdownText` 原语（与 Button 同一 primitives 包，无需自写渲染器，GFM+TeX+不信任内容防护自带）；labels 中文化；原语不可用时回落纯文本 pre-wrap。 |
 
 ## 四、修复记录（第 1 轮，2026-11-08）
