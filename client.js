@@ -4,7 +4,8 @@ window.__ModuleLoader__.load({
     const React = require('react');
     const primitives = require('@deepseek-ai/dsh-client-ui-primitives');
     const { createElement: h, useEffect, useRef, useState } = React;
-    const Button = primitives.Button, Input = primitives.Input || 'input';
+    const Button = primitives.Button, Input = primitives.Input || 'input', MarkdownText = primitives.MarkdownText;
+    const markdownLabels = { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' };
     const PREFIX = '/api/douyin-browser';
     const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
@@ -168,7 +169,7 @@ textarea.dy-big{min-height:110px}
     }
 
     function operationLabel(name) {
-      return ({ browserOpen:'打开抖音', browser:'打开抖音', refresh:'刷新连接', task:'提交对话任务', stop:'停止对话任务', settings:'保存模型设置', clearKey:'移除模型密钥', openMemory:'打开记忆文件夹', memory:'检索共享记忆', watchSchedule:'设置自动观看', schedule:'设置自动观看', interactions:'设置好友互动', chatList:'读取当前会话列表', chatPrepare:'准备回复通道', forwardList:'读取转发会话', forward:'转发作品', personaReload:'载入最新人格', diagnostics:'一键自检或修复', reportGenerate:'生成观看日报', reportRead:'读取观看日报' })[name] || (/^resolve-|^chatResolve:/.test(name) ? '解除会话暂停' : name.startsWith('key:') ? '保存音频密钥' : '本机操作');
+      return ({ browserOpen:'打开抖音', browser:'打开抖音', refresh:'刷新连接', task:'提交对话任务', stop:'停止对话任务', settings:'保存模型设置', clearKey:'移除模型密钥', openMemory:'打开抖音', memory:'检索共享记忆', watchSchedule:'设置自动观看', schedule:'设置自动观看', interactions:'设置好友互动', chatList:'读取当前会话列表', chatPrepare:'准备回复通道', forwardList:'读取转发会话', forward:'转发作品', personaReload:'载入最新人格', diagnostics:'一键自检或修复', reportGenerate:'生成观看日报', reportRead:'读取观看日报' })[name] || (/^resolve-|^chatResolve:/.test(name) ? '解除会话暂停' : name.startsWith('key:') ? '保存音频密钥' : '本机操作');
     }
 
     function createSettingsTransport(globals = globalThis, rpc = globals.__DSH_TRANSPORT__?.rpc) {
@@ -539,7 +540,7 @@ textarea.dy-big{min-height:110px}
         category === '记忆管理' && h('div', { className: 'dy-wrap' },
           h('div', { className: 'dy-card' },
             h('div', { className: 'dy-card-top' }, h('h3', null, '记忆管理'), h('span', { className: 'sp' }),
-              state?.persona?.personaFolder && button('打开记忆文件夹', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} }), h('span', { className: 'dy-cap' }, '完整编辑在「基础设置 → 人格与兴趣」'),
+              state?.persona?.personaFolder && button('打开抖音', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} }), h('span', { className: 'dy-cap' }, '记忆文件在抖音页面旁的本机目录'),
               h('div', { className: 'dy-mtabs', role: 'tablist', 'aria-label': '记忆分区' },
                 ...[['character', '角色卡'], ['interests', '兴趣'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label)))),
             memTab === 'character' && h('div', { className: 'dy-inner' },
@@ -577,7 +578,9 @@ textarea.dy-big{min-height:110px}
             h('div', { className: 'dy-card-top' }, h('h3', null, '观看日报'), h('span', { className: 'sp' }), button('生成今天日报', 'reportGenerate', () => { void perform('reportGenerate', async () => { const value = await api.request('/reports/generate', {}); setReport(value); return value; }); })),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '日报日期'), h('input', { className: 'dy-input', type: 'date', style: { width: 150, flex: 'none' }, 'aria-label': '日报日期', value: reportDate, onChange: event => setReportDate(event.target.value) }), button('读取所选日报', 'reportRead', () => { void perform('reportRead', async () => { if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw new Error('请选择有效日期。'); const value = await api.request(`/reports/read?date=${reportDate}`); setReport(value); return value; }); }), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '正文见下方')),
             h('p', { className: 'dy-note' }, state?.reports?.folder),
-            report && h('div', { className: 'dy-inner' }, h('p', { 'aria-label': '日报内容', className: 'dy-note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, report.markdown || '暂无内容')))
+            report && h('div', { className: 'dy-inner' }, MarkdownText
+              ? h(MarkdownText, { text: report.markdown || '暂无内容', 'aria-label': '日报内容', labels: markdownLabels })
+              : h('p', { 'aria-label': '日报内容', className: 'dy-note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, report.markdown || '暂无内容')))
         ),
         category === '自检与用量' && h('div', { className: 'dy-wrap' },
           dyCard(
