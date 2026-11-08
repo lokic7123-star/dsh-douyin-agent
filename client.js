@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const Button = primitives.Button, Input = primitives.Input || 'input', MarkdownText = primitives.MarkdownText;
     const markdownLabels = { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' };
     const PREFIX = '/api/douyin-browser';
-    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched']);
+    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched', '/thumb']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
     // 导航行与通用 row 解耦：单行自然溢出滚动（内容自然宽约 559px，见 docs/mockups/nav-measurement.md），不折行不硬编码断点。
@@ -93,6 +93,7 @@ textarea.dy-big{min-height:110px}
   border-radius:10px;overflow:hidden;text-decoration:none;color:inherit}
 .dy-vitem:hover{border-color:var(--dsw-alias-border-l2)}
 .dy-thumb{width:100%;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#f7f8fa));display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}
+.dy-thumb-img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;display:block}
 .dy-vbody{padding:0 10px 10px;display:flex;flex-direction:column;gap:3px}
 .dy-vt{font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .dy-vn{font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280)}
@@ -136,6 +137,24 @@ textarea.dy-big{min-height:110px}
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !window.__douyinPanelErrHooked) { window.__douyinPanelErrHooked = true; window.addEventListener('error', ev => recordPanelError(ev?.message || '未知脚本错误')); }
     // 模块级状态缓存（对标官方插件 store 常驻模式）：面板关闭后数据仍在，重开面板首帧即渲染上次内容，后台刷新——不再每次冷启动空白等 /state 往返。
     let stateStore = null;
+
+    // 足迹封面（D3）：从本机缓存取观察首帧；无缓存时保持续占位，不伪造封面。
+    function ThumbImg({ api, videoId }) {
+      const [src, setSrc] = useState(null);
+      useEffect(() => {
+        let alive = true, url = null;
+        const token = api.tokenOf();
+        if (token) {
+          url = `${PREFIX}/thumb?videoId=${videoId}&token=${token}`;
+          const probe = new Image();
+          probe.onload = () => { if (alive) setSrc(url); };
+          probe.onerror = () => {};
+          probe.src = url;
+        }
+        return () => { alive = false; };
+      }, [api, videoId]);
+      return src ? h('img', { className: 'dy-thumb-img', src, alt: '' }) : h('div', { className: 'dy-thumb', 'aria-hidden': 'true' }, '暂无封面');
+    }
 
     const OPERATIONS = {
       '/bootstrap': '连接本机服务', '/state': '刷新运行状态', '/interactions/state': '读取好友在线状态', '/interactions/configure': '设置好友互动',
@@ -210,6 +229,7 @@ textarea.dy-big{min-height:110px}
           } catch (failure) { throw requestFailure(failure, operation, { timeoutMs, write, signal }); }
           finally { if (write) writing.delete(route); }
         },
+        tokenOf: () => token,
       };
     }
 
@@ -535,7 +555,7 @@ textarea.dy-big{min-height:110px}
           watched && !!watched.groups.length && h('div', { className: 'dy-wall' }, ...watched.groups.map(group => h('div', { key: group.day },
             h('div', { className: 'dy-dayhead' }, h('b', null, group.day), h('span', { className: 'dy-cap' }, `${group.count} 条`), h('span', { className: 'ln' })),
             h('div', { className: 'dy-grid' }, ...group.items.map(item => h('a', { key: item.videoId + item.at, className: 'dy-vitem', href: item.url || '#', onClick: event => { event.preventDefault(); if (item.url) void perform('browser', () => api.request('/browser/navigate', { url: item.url })); } },
-              h('div', { className: 'dy-thumb', 'aria-hidden': 'true' }, '暂无封面'),
+              h(ThumbImg, { api, videoId: item.videoId }),
               h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}`)))))))),
           watched && !!watched.groups.length && h('p', { className: 'dy-note' }, '分层来自实际观看行为：转发 > 停留观看 > 短暂停留 / 跳过；「跳过·超过 60 分钟」类长视频保留跳过标记。')),
         // 记忆管理（吞噬新增）：走宿主 memory.* RPC（与参考项目同构）；本端只读浏览，清理入口后续按需接入 memory.forget。

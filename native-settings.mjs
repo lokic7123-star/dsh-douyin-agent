@@ -51,6 +51,18 @@ export function createNativeSettingsRoute({ getController, getComments, getRepor
         const days = Number(url.searchParams.get('days') ?? 14);
         return send(res, 200, controller.getPersonaMemory().watched({ days: Number.isSafeInteger(days) ? days : 14 }));
       }
+      // 足迹封面：只读本机缓存的观察首帧（jpeg）；token 接受 header 或 query（img 标签带不了自定义头）；未缓存返回 404 由前端占位。
+      if (req.method === 'GET' && url.pathname === `${PREFIX}/thumb`) {
+        const supplied = req.headers['x-douyin-settings-token'] || url.searchParams.get('token') || '';
+        if (!/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))) return send(res, 403, { error: '请刷新原生设置页后重试。' });
+        const videoId = url.searchParams.get('videoId') || '';
+        if (!/^\d{6,}$/.test(videoId)) return send(res, 400, { error: '封面只接受抖音作品编号。' });
+        const bytes = controller.getPersonaMemory().readThumb(videoId);
+        if (!bytes) return send(res, 404, { error: '该作品暂无本机封面缓存。' });
+        res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': bytes.length, 'cache-control': 'private, max-age=86400' });
+        res.end(bytes);
+        return;
+      }
       if (req.method !== 'POST') return send(res, 404, { error: '设置地址不存在。' });
       const supplied = req.headers['x-douyin-settings-token'];
       if (typeof supplied !== 'string' || !/^[a-f0-9]{64}$/.test(supplied) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))) return send(res, 403, { error: '请刷新原生设置页后重试。' });

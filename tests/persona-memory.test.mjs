@@ -84,6 +84,29 @@ test('观察注入上下文开关：默认开启，关闭后 context 不含观�
   assert.equal(JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8')).observations.length, 1);
 });
 
+test('封面缓存：visual 首帧落盘 thumbs、读取按编号、3 天过期清理，非 jpeg 不落盘', t => {
+  const f = fixture(t); f.store.initialize();
+  const frame = { mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x01, 0x02]).toString('base64'), videoId: '100001', time: 1 };
+  const result = f.store.recordObservation({ ...state('100001'), frames: [frame], observation: { videoId: '100001' } }, { source: 'api', kind: 'visual' });
+  assert.equal(result.videoId, '100001');
+  const saved = f.store.readThumb('100001');
+  assert.ok(Buffer.isBuffer(saved) && saved.length > 0, '首帧已落盘可读');
+  assert.equal(f.store.readThumb('999999'), null, '未缓存编号返回 null');
+  assert.equal(f.store.readThumb('../escape'), null, '非法编号拒绝');
+  // 非 jpeg 帧不落盘（webp 不转码直接放弃，不伪造格式）
+  const webp = { ...state('100002'), frames: [{ mimeType: 'image/webp', data: Buffer.from('RIFF').toString('base64'), videoId: '100002', time: 1 }], observation: { videoId: '100002' } };
+  f.store.recordObservation(webp, { source: 'api', kind: 'visual' });
+  assert.equal(f.store.readThumb('100002'), null, 'webp 不写入缓存');
+  // 3 天过期清理：把 mtime 改旧后 prune 删除，未过期的保留
+  const thumb = path.join(f.store.thumbFolder(), '100001.jpg');
+  const old = new Date(Date.now() - 4 * 86_400_000);
+  fs.utimesSync(thumb, old, old);
+  const removed = f.store.pruneThumbs({ maxAgeDays: 3 });
+  assert.equal(removed, 1, '过期封面被清理');
+  assert.equal(f.store.readThumb('100001'), null);
+  assert.throws(() => f.store.pruneThumbs({ maxAgeDays: 0 }), { code: 'PERSONA_ARGUMENT' });
+});
+
 test('人格快照与上下文只读，不创建目录或默认读取旧人格', t => {
   const f = fixture(t), before = fs.readdirSync(f.root);
   const snapshot = f.store.snapshot();

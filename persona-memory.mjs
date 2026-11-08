@@ -338,10 +338,39 @@ export class PersonaMemory {
       return this.snapshot();
     });
   }
+  // 封面缓存（D3，用户裁决）：首帧 JPEG 落盘 thumbs/（与人格同数据目录），3 天过期；只存图，不存链接或摘要。
+  thumbFolder() { return path.join(this.personaFolder, 'thumbs'); }
+  thumbFile(videoId) { if (!/^\d{6,}$/.test(videoId)) throw error('PERSONA_ARGUMENT', '封面缓存只接受抖音作品编号。'); return path.join(this.thumbFolder(), `${videoId}.jpg`); }
+  saveThumb(videoId, frame) {
+    try {
+      if (!frame || frame.mimeType !== 'image/jpeg' || typeof frame.data !== 'string' || !frame.data) return false;
+      const target = this.thumbFile(videoId);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, Buffer.from(frame.data, 'base64'));
+      return true;
+    } catch { return false; }
+  }
+  readThumb(videoId) {
+    try { const bytes = fs.readFileSync(this.thumbFile(videoId)); return bytes.length > 0 && bytes.length <= 2_000_000 ? bytes : null; } catch { return null; }
+  }
+  pruneThumbs({ maxAgeDays = 3 } = {}) {
+    if (!Number.isSafeInteger(maxAgeDays) || maxAgeDays < 1 || maxAgeDays > 30) throw error('PERSONA_ARGUMENT', '封面过期天数必须是 1 至 30 的整数。');
+    const cutoff = this.clock() - maxAgeDays * 86_400_000;
+    let removed = 0;
+    try {
+      for (const entry of fs.readdirSync(this.thumbFolder(), { withFileTypes: true })) {
+        if (!entry.isFile() || !/^\d{6,}\.jpg$/.test(entry.name)) continue;
+        const file = path.join(this.thumbFolder(), entry.name);
+        try { if (fs.statSync(file).mtimeMs < cutoff) { fs.rmSync(file); removed++; } } catch {}
+      }
+    } catch {}
+    return removed;
+  }
   // 观看足迹（只读聚合，供足迹页 /watched 使用）：按自然日分组的已观察作品与行为分层。
   // 数据全部来自既有观察与互动记录，不新增采集；tier 由 behaviorByVideo 的行为判定复用（share/停留→完整观看倾向，quick-skip→跳过）。
   watched({ days = 14 } = {}) {
     if (!Number.isSafeInteger(days) || days < 1 || days > 90) throw error('PERSONA_ARGUMENT', '足迹天数必须是 1 至 90 的整数。');
+    this.pruneThumbs({ maxAgeDays: 3 });
     const files = this.readFiles(), state = files.state ?? initial(0);
     const summaries = behaviorByVideo(state);
     const cutoff = this.clock() - days * 86_400_000;
@@ -396,6 +425,8 @@ export class PersonaMemory {
       data.generation += 1;
       this.writeState(data);
       this.syncCard(data);
+      // 封面缓存（D3）：visual 观察的首帧落盘到人格目录 thumbs/，3 天过期（watched() 惰性清理）；写失败不阻断观察登记。
+      if (kind === 'visual') this.saveThumb(id, frames.find(frame => ['image/jpeg'].includes(frame.mimeType)) || frames[0]);
       return { evidenceId, videoId: id, url, duplicate: !!found, kind: item.kind, visibility: item.visibility, privacy: item.privacy };
     });
   }
