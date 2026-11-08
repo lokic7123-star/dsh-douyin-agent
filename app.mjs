@@ -270,6 +270,13 @@ export function createApiServer({ controller, config, personaMemory, watchServic
         }
         return reply(response, 404, { error: '自主观看接口不存在。' });
       }
+      // 观看足迹：与插件端 /watched 同一聚合（persona-memory.watched，days 1-90 只读），供软件端足迹面板读取。
+      if (url.pathname === '/api/douyin-browser/watched' && request.method === 'GET') {
+        if (!personaMemory) return reply(response, 503, { error: '共同人格模块尚未就绪。' });
+        const days = Number(url.searchParams.get('days') ?? 14);
+        try { return reply(response, 200, personaMemory.watched({ days: Number.isSafeInteger(days) ? days : 14 })); }
+        catch (error) { error.status ||= error.code === 'PERSONA_ARGUMENT' ? 400 : 500; throw error; }
+      }
       if (url.pathname === '/api/persona' && request.method === 'GET') {
         if (!personaMemory) return reply(response, 503, { error: '共同人格模块尚未就绪。' });
         return reply(response, 200, personaMemory.snapshot());

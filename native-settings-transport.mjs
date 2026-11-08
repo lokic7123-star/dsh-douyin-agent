@@ -3,8 +3,9 @@ import { Readable } from 'node:stream';
 export const SETTINGS_PREFIX = '/api/douyin-browser';
 export const SETTINGS_RPC_CHANNEL = '/douyin-settings';
 const MAX_BYTES = 262_144;
-const writes = new Set(['diagnostics','diagnostics/repair','watch/schedule','watch/options','video/configure','video/start','video/stop','browser/open','browser/navigate','persona/configure','model/configure','mode/configure','watch/start','watch/stop','spark/configure','spark/start','spark/stop','spark/resolve','comments/configure','comments/resolve','share/configure','share/resolve','chat/contacts','chat/configure','chat/start','chat/stop','chat/prepare','chat/resolve','chat/unanswered/resolve','chat/unanswered/end','chat/unanswered/retry','media/configure','media/credentials','reports/generate']);
-const valid = (route, write) => write ? writes.has(route.slice(1)) : route === '/state' || route === '/chat/unanswered' || /^\/watched\?days=\d{1,2}$/.test(route) || /^\/reports\/read\?date=\d{4}-\d{2}-\d{2}$/.test(route);
+const writes = new Set(['diagnostics','diagnostics/repair','interactions/configure','watch/schedule','watch/options','video/configure','video/start','video/stop','browser/open','browser/navigate','persona/configure','model/configure','mode/configure','watch/start','watch/stop','spark/configure','spark/start','spark/stop','spark/resolve','comments/configure','comments/resolve','share/configure','share/resolve','chat/contacts','chat/configure','chat/start','chat/stop','chat/prepare','chat/resolve','chat/unanswered/resolve','chat/unanswered/end','chat/unanswered/retry','media/configure','media/credentials','reports/generate']);
+const gets = ['/state','/reports/read','/chat/unanswered','/watched?days=14','/watched?days=30'];
+const valid = (route, write) => write ? writes.has(route.slice(1)) : gets.includes(route) || /^\/watched\?days=\d{1,2}$/.test(route) || /^\/reports\/read\?date=\d{4}-\d{2}-\d{2}$/.test(route);
 const result = (status, error) => ({ status, body: { error } });
 
 // 在 DSH 已认证的载体内复用同一设置处理器，不另开端口，不重放写请求。
@@ -79,8 +80,8 @@ export function bindNativeSettingsRoutes(ctx, factory) {
   fibers.push(ctx.inject(['connection'], owner => {
     if (typeof owner.connection?.fetch?.register !== 'function') return;
     const fetch = createSettingsFetchHandler(getRoute());
-    for (const path of ['/state','/reports/read','/chat/unanswered','/watched?days=14', ...[...writes].map(path => '/' + path)]) {
-      owner.connection.fetch.register({ path: SETTINGS_PREFIX + path, methods: path === '/state' || path === '/reports/read' || path === '/chat/unanswered' ? ['GET'] : ['POST'], requestBody: 'buffered', fetch });
+    for (const path of [...gets, ...[...writes].map(path => '/' + path)]) {
+      owner.connection.fetch.register({ path: SETTINGS_PREFIX + path, methods: gets.includes(path) ? ['GET'] : ['POST'], requestBody: 'buffered', fetch });
     }
   }));
   // 旧版独立 RPC 通道仍由 WebServer 承载；缺少服务时不阻断其他注册。

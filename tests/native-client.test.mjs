@@ -103,7 +103,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   const calls = [], errors = []; let failState = false, failComments = false, failInteractions = false, failEndGate = false, failUnanswered = false, unansweredGate = null, videoSaveGate = null, chatSaveGate = null, resolveGate = null, listOverride = null, stateVideoOverride = null, stateReadGate = null, startOnConfigure = false;
   let unansweredRecords = [
     { recordId: '1'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T12:28:21.601Z', reason: '新消息尚未取得可靠的新到达资格，未自动回复。', phase: 'unqualified', messageCount: 1, types: ['文字'], preview: '合成插件预览一', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'replying', progressNote: '正在自动补答本次待答。', availableActions: ['open-chat'], blockerCode: null, attempts: 1, retryCount: 0, escalated: false },
-    { recordId: '2'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T12:50:58.112Z', reason: '新消息尚未取得可靠的新到达资格，未自动回复。', phase: 'unqualified', messageCount: 1, types: ['文字'], preview: '合成插件预览二', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'retrying', progressNote: '上次自动生成失败，稍后自动重试。', availableActions: ['open-chat', 'retry-now'], blockerCode: 'bounded-generation-failed', attempts: 2, retryCount: 3, escalated: true },
+    { recordId: '2'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T12:50:58.112Z', reason: '新消息尚未取得可靠的新到达资格，未自动回复。', phase: 'unqualified', messageCount: 1, types: ['文字'], preview: '合成插件预览二', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'retrying', progressNote: '上次自动生成失败，稍后自动重试。', availableActions: ['open-chat', 'retry-now'], blockerCode: 'bounded-generation-failed', attempts: 2, retryCount: 3, escalated: true, nextRetryAt: '2026-10-26T13:40:00.000Z' },
     { recordId: '3'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T13:10:00.000Z', reason: '该待答含需人工处理的媒体内容。', phase: 'model', messageCount: 1, types: ['图片'], preview: null, previewNote: '图片消息没有可显示的文字正文，未做识别或猜测。', canResolve: true, backlogState: 'needs-manual', progressNote: '该待答含媒体内容（媒体观察不持久化，自动补答无法重看画面），需人工查看后处理。', availableActions: ['open-chat', 'end'], blockerCode: 'media-unobservable', attempts: 0, retryCount: 0, escalated: false },
     { recordId: '5'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T13:20:00.000Z', reason: '消息证据已失效（消息被挤出当前窗口），无法自动补答，需人工处理。', phase: 'stopped-before-send', messageCount: 1, types: ['文字'], preview: '合成插件预览五', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'needs-manual', progressNote: '消息证据已失效（消息被挤出当前窗口或上下文不可核对），无法自动补答，需人工处理。', availableActions: ['open-chat', 'end'], blockerCode: 'mapping-stale', attempts: 0, retryCount: 0, escalated: false },
     { recordId: '4'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T13:30:00.000Z', reason: '发送结果未确认，未自动重发。', phase: 'delivery-uncertain', messageCount: 1, types: ['文字'], preview: '合成插件预览四', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'uncertain', progressNote: '发送结果未确认，只读回核对，不会自动重发；请人工核对是否已送达。', availableActions: ['open-chat'], blockerCode: 'delivery-uncertain', attempts: 0, retryCount: 0, escalated: false },
@@ -160,6 +160,10 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   const persona = page.getByRole('textbox', { name: '大肥鱼人格正文', exact: true }); await persona.waitFor();
   assert.equal(await persona.inputValue(), '合成人格初始正文。'); assert.equal(calls.some(item => item.method === 'POST'), false);
+  // 方案 §三 + 预览稿承诺的字数/token 预算条：初始 9 字 → 健康
+  await page.getByText('上下文预算', { exact: true }).waitFor();
+  await page.getByText('9 / 2,000 字', { exact: true }).waitFor();
+  await page.getByText('健康', { exact: true }).waitFor();
   assert.match(await page.getByLabel('好友互动状态', { exact: true }).innerText(), /回复已关闭/);
   assert.match(await page.getByLabel('自主观看状态').innerText(), /正在挑选视频/);
   assert.equal(await page.getByLabel('待核对事项').count(), 0);
@@ -209,8 +213,14 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await pauseViewing.click(); await page.waitForFunction(() => document.querySelector('[aria-label="允许自动观看"]').getAttribute('aria-checked') !== 'true');
   assert.equal(state.watch.running, false); assert.deepEqual(state.video.daily, dailyBeforeViewing, '开始/暂停不重置每日时长或请求次数'); startOnConfigure = false;
   await page.getByRole('button', { name: '谷时段（DeepSeek）', exact: true }).click(); await page.waitForTimeout(250); assert.deepEqual(state.video.policy.windows, ['00:00-09:00', '12:00-14:00', '18:00-24:00']);
+  // 方案 §三：单行分隔输入承诺斜杠/空格/逗号/换行均解析（此前只切逗号/换行，按文案输入必报错）
+  const windowsInput = page.getByRole('textbox', { name: '每日允许视频时段', exact: true });
+  await windowsInput.fill('09:00-12:00 / 14:00-18:00'); await windowsInput.press('Tab'); await page.waitForTimeout(850);
+  assert.deepEqual(state.video.policy.windows, ['09:00-12:00', '14:00-18:00'], '时段按文案承诺支持斜杠分隔');
   await page.getByRole('combobox', { name: '观看方式', exact: true }).selectOption('topic'); await page.getByRole('textbox', { name: '想看的主题', exact: true }).fill('合成天文'); await page.waitForTimeout(850);
   assert.deepEqual(state.watchOptions.policy.topics, ['合成天文']);
+  await page.getByRole('textbox', { name: '想看的主题', exact: true }).fill('合成天文 / 合成鲸鱼'); await page.getByRole('textbox', { name: '想看的主题', exact: true }).press('Tab'); await page.waitForTimeout(850);
+  assert.deepEqual(state.watchOptions.policy.topics, ['合成天文', '合成鲸鱼'], '主题按文案承诺支持斜杠分隔');
   await page.getByRole('switch', { name: '静默观看', exact: true }).click(); await page.waitForTimeout(250); assert.equal(state.mode.silent, true);
   await page.getByRole('tab', { name: '好友互动', exact: true }).click();
   assert.equal(await page.getByRole('switch', { name: '允许好友互动', exact: true }).getAttribute('aria-checked'), 'true');
@@ -301,11 +311,14 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByLabel('当前状态摘要').filter({ hasText: '一切正常' }).waitFor();
   state.watch.lastError = '合成观看中断';
   await page.getByLabel('当前状态摘要').filter({ hasText: '上次自主观看中断' }).waitFor();
+  // 摘要按钮文案跟随跳转目标：非待答场景不再是「查看待答」
+  await page.getByRole('button', { name: '去处理', exact: true }).waitFor();
   state.watch.lastError = ''; state.video.allowed = false; state.video.reason = '请先开始新一轮。';
   await page.getByLabel('当前状态摘要').filter({ hasText: '不在允许观看时段' }).waitFor();
   state.video.allowed = true; // 暂时恢复允许，验证待答卡点排序在时段之后仍可触发
   state.chat.unansweredCount = 5; state.chat.unansweredGroups = { autoRecovering: 2, needsManual: 2, uncertain: 1 }; state.chat.running = false; state.chat.worker = null;
   await page.getByLabel('当前状态摘要').filter({ hasText: '3 条待答已转人工' }).waitFor();
+  await page.getByRole('button', { name: '查看待答', exact: true }).waitFor();
   state.video.allowed = false; state.video.reason = '请先开始新一轮。';  await page.getByRole('tab', { name: '好友互动', exact: true }).click();
   // 五态卡片断言：四种 backlogState 各一例（resolved 不进列表），chip 文案与按态按钮裁剪
   await page.getByText('待答消息 · 5 条', { exact: false }).waitFor();
@@ -314,6 +327,9 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByText('已转人工处理', { exact: true }).first().waitFor();
   await page.getByText('发送结果不明', { exact: true }).waitFor();
   await page.getByText('（已连续多次等待，建议人工核对）', { exact: false }).waitFor();
+  // 方案 §三：retrying 卡片透出已等待时长与下次尝试（chat-service 已有 nextRetryAt，前端此前未渲染）
+  assert.ok(await page.getByText(/已等待 \d+ 分钟/).count() >= 1, 'retrying 卡片展示已等待时长');
+  assert.ok(await page.getByText(/下次尝试 \d{1,2}:\d{2}/).count() >= 1, 'retrying 卡片透出下次尝试时间');
   assert.ok(await page.getByRole('button', { name: '打开抖音', exact: true }).count() > 0, '卡片使用「打开抖音」而非「打开原会话」');
   assert.ok(await page.getByText('打开抖音后请手动查找原会话核对', { exact: false }).count() > 0, '附手动查找原会话核对说明');
   assert.ok(await page.getByText('2 条自动恢复中 · 3 条已转人工', { exact: false }).count() > 0, '待答头部行带分类计数');
