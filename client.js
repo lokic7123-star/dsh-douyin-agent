@@ -42,7 +42,7 @@ window.__ModuleLoader__.load({
 .dy-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .dy-card-top h3{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .dy-card-top .sp{flex:1}
-.dy-inner{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.dy-inner{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-l1));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
 .dy-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .dy-row .sp{flex:1}
 .dy-label{font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563)}
@@ -295,7 +295,7 @@ textarea.dy-big{min-height:110px}
         catch (failure) { if (alive.current) { const detail = requestFailure(failure, operationLabel(key)); setOperationErrors(old => ({ ...old, [key]: { message: detail.message, requestError: detail.requestError === true, unconfirmed: detail.unconfirmed === true } })); } await refresh(true); }
         finally { locks.current.delete(key); if (alive.current) setBusy(new Set(locks.current)); }
       }
-      const button = (label, key, action, disabled = false, needsReady = true, variant = 'outline') => h(Button, { type: 'button', size: 'sm', variant, disabled: (needsReady && !ready) || busy.has(key) || disabled, onClick: action }, busy.has(key) ? '处理中…' : label);
+      const button = (label, key, action, disabled = false, needsReady = true, variant = 'outline') => h('button', { type: 'button', className: `dy-btn${variant === 'primary' ? ' primary' : ''}`, disabled: (needsReady && !ready) || busy.has(key) || disabled, onClick: action }, busy.has(key) ? '处理中…' : label);
       const note = text => text ? h('p', { style: muted }, text) : null;
       const status = form => form.status.message && h('p', { role: form.status.kind === 'error' ? 'alert' : 'status', style: muted }, form.status.message);
       const section = (title, ...children) => h('section', { role: 'tabpanel', 'aria-label': title, style: { ...column, marginBottom: 24 } }, h('h3', null, title), ...children);
@@ -495,7 +495,7 @@ textarea.dy-big{min-height:110px}
             note(state?.interactions?.friend?.message),
             state?.interactions?.friend?.lastError && h('p', { role: 'alert' }, state.interactions.friend.lastError),
             state?.interactions?.friend?.waitReason && note(`${state.interactions.friend.preparing ? '正在准备：' : '等待准备：'}${state.interactions.friend.waitReason}${state.interactions.friend.lastErrorCode ? `（${state.interactions.friend.lastErrorCode}）` : ''}${state.interactions.friend.nextRetryAt ? ` · 下次自动检查 ${new Date(state.interactions.friend.nextRetryAt).toLocaleString('zh-CN', { hour12: false })}` : ''}`),
-            state?.interactions?.friend?.waitReason && h('div', { className: 'dy-row' }, h(Button, { type: 'button', size: 'sm', variant: 'outline', disabled: !ready || busy.has('chatPrepare') || state.interactions.friend.canPrepare === false, onClick: () => { void perform('chatPrepare', () => api.request('/chat/prepare', {})); } }, busy.has('chatPrepare') || state.interactions.friend.preparing ? '正在准备…' : '准备回复通道/重新连接并重试')),
+            state?.interactions?.friend?.waitReason && h('div', { className: 'dy-row' }, h('button', { type: 'button', className: 'dy-btn', disabled: !ready || busy.has('chatPrepare') || state.interactions.friend.canPrepare === false, onClick: () => { void perform('chatPrepare', () => api.request('/chat/prepare', {})); } }, busy.has('chatPrepare') || state.interactions.friend.preparing ? '正在准备…' : '准备回复通道/重新连接并重试')),
             status(chat)
           ),
           dyCard(
