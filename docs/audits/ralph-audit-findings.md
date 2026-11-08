@@ -96,3 +96,12 @@
 - 交付链路：提交已 push origin（ea3e930..ece3496）；live junction `C:\Users\LoKi\.dsh\profiles\desktop\node_modules\dsh-douyin-browser-local` 指回仓库，native-settings-transport.mjs / client.js / app.mjs 与 HEAD 字节一致。
 - 环境性不碰：真实 Edge、ffmpeg、F:\codex（verification/native-settings.test.mjs、settings-transport.test.mjs 因 SDK 路径整文件跳过属正常）。
 - 后续轮次候选：D1-D7 等用户裁决；desktop 记忆管理页（main.jsx:442）仅为跳转占位与插件端漂移核对。
+
+## 六、终版结论（第 2 轮父会话收口验收，2026-11-08）
+
+- 抽查修复落盘属实：native-settings-transport.mjs:6（interactions/configure）、:7（watched GET）；app.mjs:274（desktop watched 路由）；client.js:535（「暂无封面」诚实文案）。
+- 验收复跑：定向纯 Node 五套件 36/36 绿；desktop ui-api 30/30 绿（首跑出现 1 例 groupMentionNames 竞态偶发断言，连续两轮复跑全绿，判定为既有偶发非回归，不修——与插件端 friend-ui-races 同类时序测试）；native-client（真实 Edge）6/6 绿。
+- 完成条件核对：维度 0-7 全覆盖；矩阵 35 项无「未核实」；清单无「确认未修」（F1-F9 已修，M1-M3 记录不修理由，D1-D7 为待用户裁决缺口非未修项）；全量基线 1385 pass / 9 fail 全环境性，不高于基线 10。
+- 提交链：ea3e930 → f320ddf → 4171c8c → d21dea1 → ece3496 → c29e198，均已 push origin feat/backlog-status-redesign；live junction 字节一致（c29e198 记录）。
+- 待用户裁决：缺口清单 D1-D7（见第三节），任何一项开工前需明确授权；D2/D5 语义与信息架构需先定契约。
+- 结论：Ralph 循环审计任务完成。D1-D7 裁决前不再自行推进。
