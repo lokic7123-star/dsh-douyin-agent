@@ -432,3 +432,19 @@ test('回放（人工接手）：机器人自己的回复不得当作人工接�
   assert.equal(record.needsManual,true,'媒体待答必须继续保留在清单');
   assert.ok(!f.service.events.some(event=>event.type==='backlog.human_replied_closed'),'不得产生失实的人工接手事件');
 });
+
+test('回放（存量复活）：旧代码误杀的 identity-unverifiable 无证据记录经当前窗口重新补核后恢复代答',async t=>{
+  const target=textIncoming('legacy-target','在干嘛');
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),target];
+  const f=await replay(t,{messages,records:[]});
+  // 真实存量形状：offlineUnanswered 旧版产出，被旧资格模型 2 秒内杀成终态——无证据、无 offlineBacklogAt。
+  const record={archiveId:'legacy-killed-',phase:'unqualified',at:new Date(Date.now()-180_000).toISOString(),incoming:[structuredClone(target)],needsManual:true,needsManualReason:'identity-unverifiable'};
+  f.mark().unanswered.push(record);f.service.persist();
+  let sendCalls=0;f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
+  f.due();await f.service.poll();
+  assert.equal(record.needsManual,undefined,'误杀记录应复活退出人工终态');
+  assert.equal(record.recoveryEvidence?.qualificationSource,'offline-native-arrival-v1','复活证据应走离线补核源');
+  assert.equal(record.autoHandled,true,'复活的离线来信应被真正代答');
+  assert.equal(sendCalls,1,'恰好发送一次');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.legacy_record_revived'),'复活应有事件');
+});

@@ -851,6 +851,28 @@ export class ChatService {
     }
     return ids;
   }
+  // 旧误杀记录复活（2026-11-09 修复前的存量）：修复前 offlineUnanswered 产出的记录没有证据链，
+  // 被旧资格模型 2 秒内杀成 identity-unverifiable 终态（事件日志 backlog.offline_incoming →
+  // backlog.identity_unverifiable 连发即此现场）。消息仍在当前窗口、身份双向核对通过时重新补核，
+  // 恢复进代答链路；核不出（消息挤出窗口等）维持人工，不静默复活。
+  reviveLegacyUnverifiable(record, mark, messages, snapshot, contact) {
+    if (record.needsManual !== true || record.recoveryEvidence || record.needsManualReason !== 'identity-unverifiable') return false;
+    if (!Number.isFinite(record.offlineBacklogAt)) {
+      // 边界取「到达时间与消息创建时间的较早者 −1ms」：旧记录只断言过「创建时服务不在处理」，边界不得晚于创建。
+      const stamps = [Date.parse(record.at), ...((record.incoming || []).map(item => Date.parse(item?.nativeCreatedAt)).filter(value => Number.isFinite(value)))].filter(value => Number.isFinite(value));
+      if (!stamps.length) return false;
+      record.offlineBacklogAt = Math.min(...stamps) - 1;
+    }
+    const evidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, load(this.stopFile, null));
+    if (!evidence) return false;
+    record.recoveryEvidence = evidence;
+    delete record.needsManual;
+    delete record.needsManualReason;
+    mark.autoBacklog = null;
+    this.log('backlog.legacy_record_revived', { recipientId: contact.id, archiveId: record.archiveId, message: '修复前被误杀的离线来信经当前窗口重新补核通过，恢复代答。' });
+    this.persist();
+    return true;
+  }
   closeIfHumanReplied(record, mark, contact, messages, mapped) {
     const incoming = (record.incoming || []).map(item => item?.id).filter(Boolean);
     if (!incoming.length || !Array.isArray(messages) || !messages.length) return false;
@@ -990,9 +1012,13 @@ export class ChatService {
       // 人工接手结案（用户裁决 2026-11-09「回复了为什么还要待答」）：目标之后出现真实发出的 outgoing，
       // 说明人工已在原会话处理，记录自动结案退出清单，不再长期悬挂。
       if (record.needsManual === true) {
-        if (this.mixedRecordHasTextInFlight(record)) { this.readbackMixedRecordText(record, mark, messages); }
-        else { this.closeIfHumanReplied(record, mark, contact, messages); }
-        continue;
+        if (this.reviveLegacyUnverifiable(record, mark, messages, snapshot, contact)) {
+          // 旧误杀记录复活：不 continue，落回正常 open 记录流程本轮推进。
+        } else {
+          if (this.mixedRecordHasTextInFlight(record)) { this.readbackMixedRecordText(record, mark, messages); }
+          else { this.closeIfHumanReplied(record, mark, contact, messages); }
+          continue;
+        }
       }
       const isUncertain = record.legacyUncertain === true || record.recoveryEvidence?.beforeDispatch === false || ['sending', 'delivery-uncertain'].includes(record.phase) || ['reserved', 'uncertain'].includes(record.autoAttempt?.state);
       // 例外（2026-11-09 代答修复）：离线记录尚未取得资格证据时，当场用当前窗口补核（offline-native-arrival-v1），
@@ -1301,7 +1327,11 @@ export class ChatService {
           this.qualifyNativeBacklog(contact, mark, snapshot, messages);
           // 人工接手结案（用户裁决 2026-11-09「回复了为什么还要待答」）：needs-manual 记录被 autoDue 短路不进扫描，
           // 人工回复的读回结案在 poll 读回路径完成——人工在抖音里回过话，记录就退出待答清单。
-          for (const pendingManual of (mark.unanswered || [])) { if (pendingManual.needsManual === true && !this.mixedRecordHasTextInFlight(pendingManual)) this.closeIfHumanReplied(pendingManual, mark, contact, messages); }
+          for (const pendingManual of (mark.unanswered || [])) {
+            if (pendingManual.needsManual !== true || this.mixedRecordHasTextInFlight(pendingManual)) continue;
+            if (this.reviveLegacyUnverifiable(pendingManual, mark, messages, snapshot, contact)) continue;
+            this.closeIfHumanReplied(pendingManual, mark, contact, messages);
+          }
           if(mark.recoveryQueue){restoreEvidence=mark.recoveryQueue.recoveryEvidence;restored=recoverableIncoming(mark.recoveryQueue,contact,messages,load(this.stopFile,null))||[];if(!restored.length){if(certainUnsentPending(mark.recoveryQueue)){this.log('recovery.certain_unsent_recheck_failed',{recipientId:contact.id,phase:mark.recoveryQueue.phase,message:'确定未发送的待答回读资格未通过（消息或会话已变化），转人工待答，不补发。'});archivePending(mark,mark.recoveryQueue,'重启前确定未发送，但回读时消息、会话或停止许可已经变化；宁可不发也不重复发。');}else archivePending(mark,mark.recoveryQueue,'维护恢复前消息、会话或停止许可已经变化，未补发旧待答。');}delete mark.recoveryQueue;this.persist();}
           if (hasStableConversationIdentity(contact) && mark.pending && mark.pending.phase !== 'handled-by-user' && (!matchesAuthorizedContact(mark.pending.recoveryEvidence?.contact, contact) || !matchesAuthorizedContact(contact, mark.pending.recoveryEvidence?.contact))) {
             archivePending(mark, mark.pending, '待答记录的旧身份凭据无法与当前稳定身份双向核对，仅留人工待答。'); delete mark.pending; this.persist();
