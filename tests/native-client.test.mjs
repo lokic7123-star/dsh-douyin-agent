@@ -102,7 +102,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   state.schedule = { policy: { enabled: false } }; state.interactions = { policy: { enabled: true }, friend: { replyRunning: false, shareEnabled: true, message: '合成好友互动等待就绪。', waitReason: '合成聊天标签页已离开抖音；请准备回复通道。', lastErrorCode: 'CHAT_PAGE_LEFT_DOUYIN', nextRetryAt: '2026-10-27T23:10:00.000Z', canPrepare: true }, rows: [] };
   state.interactions.presence = { status: 'online', online: true, label: '在线 · 等待消息', reason: '合成后端确认许可会话全部就绪', checkedAt: new Date().toISOString() };
   state.watchOptions = { policy: { mode:'recommend', topics:[], exclude:[] } };
-  state.usage = { today: { requests:2,totalTokens:4321,promptTokens:4000,completionTokens:321,cachedTokens:3000,cacheReportedRequests:1,unknownRequests:0 }, groups:[], days:[], note:'合成用量说明' };
+  state.usage = { today: { requests:2,totalTokens:4321,promptTokens:4000,completionTokens:321,cachedTokens:3000,cacheReportedRequests:1,unknownRequests:0 }, groups:[{ source:'dsh', kind:'watch', model:'synthetic-model', requests:25, totalTokens:9000 },{ source:'dsh', kind:'chat', model:'synthetic-model', requests:2, totalTokens:500 },{ source:'dsh', kind:'comment', model:'synthetic-model', requests:1, totalTokens:200 }], days:[], note:'合成用量说明' };
   const calls = [], errors = []; let failState = false, failComments = false, failInteractions = false, failEndGate = false, failUnanswered = false, unansweredGate = null, videoSaveGate = null, chatSaveGate = null, resolveGate = null, listOverride = null, stateVideoOverride = null, stateReadGate = null, startOnConfigure = false;
   let unansweredRecords = [
     { recordId: '1'.repeat(64), contactId: 'conv:' + 'a'.repeat(64), contactName: '合成许可好友甲', at: '2026-10-26T12:28:21.601Z', reason: '新消息尚未取得可靠的新到达资格，未自动回复。', phase: 'unqualified', messageCount: 1, types: ['文字'], preview: '合成插件预览一', previewNote: '本地保留的文字预览，仅用于核对；不会自动补发。', canResolve: true, backlogState: 'replying', progressNote: '正在自动补答本次待答。', availableActions: ['open-chat'], blockerCode: null, attempts: 1, retryCount: 0, escalated: false },
@@ -176,9 +176,9 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(await page.getByRole('dialog', { name: '遗留待处理消息' }).count(), 0);
   assert.equal(calls.some(item => item.route === '/chat/unanswered/resolve'), false);
   assert.equal(await page.getByRole('tab').count(), 9); assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
-  const tablistBox = await page.getByRole('tablist', { name: '抖音设置分类' }).evaluate(node => { const cs = getComputedStyle(node); return { wrap: cs.flexWrap, overflowX: cs.overflowX, rows: [...new Set([...node.querySelectorAll('[role="tab"]')].map(item => Math.round(item.getBoundingClientRect().top)))].length, shrink: getComputedStyle(node.querySelector('[role="tab"]')).flexShrink }; });
-  // 用户裁决 2026-11-09：窄面板折行显示，胶囊不得被容器右缘截掉（wrap 替代旧单行滚动）。
-  assert.equal(tablistBox.wrap, 'wrap'); assert.equal(tablistBox.shrink, '0');
+  const tablistBox = await page.getByRole('tablist', { name: '抖音设置分类' }).evaluate(node => { const cs = getComputedStyle(node); return { display: cs.display, columns: cs.gridTemplateColumns.split(' ').filter(Boolean).length, rows: [...new Set([...node.querySelectorAll('[role="tab"]')].map(item => Math.round(item.getBoundingClientRect().top)))].length, groups: node.querySelectorAll('.grp').length }; });
+  // v4 预览稿：顶部栏目改 5 列等宽网格并分组（不再折行胶囊），两行分组小标题。
+  assert.equal(tablistBox.display, 'grid'); assert.equal(tablistBox.columns, 5); assert.equal(tablistBox.groups, 2); assert.equal(tablistBox.rows, 2);
   await persona.fill('合成人格未保存草稿。'); await page.waitForTimeout(250); assert.equal(calls.some(item => item.route === '/persona/configure'), false);
   let releaseState; stateReadGate = { wait: new Promise(resolve => { releaseState = resolve; }) };
   state.persona = { ...state.persona, manualText: '合成外部更新正文。', revision: 'synthetic-v2' }; await persona.press('Tab');
@@ -288,6 +288,9 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(calls.some(item => /^\/spark\/|^\/chat\/(?:start|stop)$|^\/share\/configure$/.test(item.route)), false);
   await page.getByRole('tab', { name: '公开评论', exact: true }).click(); await page.getByRole('switch', { name: '允许自主发布评论', exact: true }).check(); await page.waitForTimeout(250);
   assert.equal(state.comments.enabled, true); assert.equal(await page.getByRole('button', { name: '保存评论许可', exact: true }).count(), 0);
+  // v4：未发出的评论不再只躺在账本里，公开评论卡要能直接看到「未发出」与原因。
+  state.comments.notSent = [{ operationId: '合成未发出评论', videoId: '7688677221380230450', status: 'not-sent', completedAt: '2026-11-09T09:33:36.073Z', reason: '评论面板未打开，未改用其他发送方式。' }];
+  await page.getByText('未发出', { exact: true }).waitFor(); await page.getByText('评论面板未打开，未改用其他发送方式。', { exact: false }).waitFor();
   await page.getByRole('tab', { name: '音频与密钥', exact: true }).click();
   // v2 面板：默认 backend=local-whisper 不显示 Key；先切到 MiMo 后端再填 Key
   await page.getByRole('combobox', { name: '音频后端', exact: true }).selectOption('mimo');
@@ -298,6 +301,9 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByRole('tab', { name: '观看日报', exact: true }).click(); await page.getByRole('button', { name: '读取所选日报', exact: true }).click(); await page.getByLabel('日报内容').filter({ hasText: '合成观看日报' }).waitFor();
   // v2 面板：用量改为指标卡（dy-stat 数值），文案断言改为「Token 明细」卡内的数值（v3 改版：预算条 + 明细两卡）
   state.usage.today.totalTokens = 6789; await page.getByRole('tab', { name: '自检与用量', exact: true }).click(); await page.getByText('Token 明细', { exact: true }).waitFor(); await page.getByText('6789', { exact: true }).waitFor();
+  // v4：同一模型按场景分行，每行前面标出场景，三行同名不再看不出区别。
+  const usageScene = page.locator('.dy-kv b');
+  await usageScene.filter({ hasText: '自主观看' }).waitFor(); await usageScene.filter({ hasText: '好友回复' }).waitFor(); await usageScene.filter({ hasText: '公开评论' }).waitFor();
   // 2026-11-09 裁决：瞬态拉取失败不再锁死面板——已有缓存内容时保持控件可用，只显示红字错误；恢复后错误消失。
   // 文案带 requestFailure 前缀（刷新运行状态：…），用子串匹配。
   failState = true; await page.getByText(/合成原生状态暂不可用。/).waitFor(); await page.getByRole('button', { name: '一键自检', exact: true }).isEnabled(); failState = false;
@@ -323,8 +329,12 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await page.getByLabel('当前状态摘要').filter({ hasText: '上次自主观看中断' }).waitFor();
   // 摘要按钮文案跟随跳转目标：非待答场景不再是「查看待答」
   await page.getByRole('button', { name: '去处理', exact: true }).waitFor();
-  state.watch.lastError = ''; state.video.allowed = false; state.video.reason = '请先开始新一轮。';
+  state.watch.lastError = ''; state.video.allowed = false; state.video.reason = '请先开始新一轮。'; state.video.reasonCode = 'outside-window';
+  // v4：摘要标题按 reasonCode 分开写，不再一律说「不在允许观看时段」。
   await page.getByLabel('当前状态摘要').filter({ hasText: '不在允许观看时段' }).waitFor();
+  state.video.reasonCode = 'disabled'; state.video.reason = '允许观看已关闭。';
+  await page.getByLabel('当前状态摘要').filter({ hasText: '允许观看已关闭' }).waitFor();
+  state.video.reasonCode = undefined; state.video.reason = '请先开始新一轮。';
   state.video.allowed = true; // 暂时恢复允许，验证待答卡点排序在时段之后仍可触发
   state.chat.unansweredCount = 5; state.chat.unansweredGroups = { autoRecovering: 2, needsManual: 2, uncertain: 1 }; state.chat.running = false; state.chat.worker = null;
   await page.getByLabel('当前状态摘要').filter({ hasText: '3 条待答已转人工' }).waitFor();
