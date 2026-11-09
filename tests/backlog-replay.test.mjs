@@ -476,3 +476,19 @@ test('回放（群聊离线过滤）：群里未被 @ 且未叫响应昵称的�
   assert.equal(records2.length,1,'被点名的群消息应进待答');
   assert.equal(records2[0].offlineBacklogAt,Date.parse(old.stoppedAt),'记录应携带离线边界');
 });
+
+test('回放（死锁解除）：needs-manual 记录被前置补核写入证据后，复活入口仍能摘除人工标记并代答（真机 14:28 死锁回归）',async t=>{
+  const target=textIncoming('deadlock-target','大肥鱼，在干嘛');
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),target];
+  const groupContact={...contact,isGroup:true,name:'（合成改写）群',identityKind:'rendered-group',identityHash:'0'.repeat(64),identityBinding:'binding:'+'1'.repeat(64)};
+  const f=await replay(t,{messages,records:[],contact:groupContact});
+  // 真机 14:28 现场形状：qualifyNativeBacklog 先给 needs-manual 记录补上 recoveryEvidence（native_arrival_qualified），
+  // 旧复活守卫因「证据已存在」拒绝复活，needsManual 无人摘除 → 记录带合格证据永久卡死。
+  const record={archiveId:'deadlock-5376415e-',phase:'unqualified',at:new Date(Date.now()-60_000).toISOString(),offlineBacklogAt:Date.now()-600_000,incoming:[structuredClone(target)],needsManual:true,needsManualReason:'identity-unverifiable',recoveryEvidence:{qualificationSource:'offline-native-arrival-v1',beforeDispatch:true,contact:structuredClone(groupContact),qualifiedIncoming:[]}};
+  f.mark().unanswered.push(record);f.service.persist();
+  let sendCalls=0;f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
+  f.due();await f.service.poll();
+  assert.equal(record.needsManual,undefined,'带合格证据的误杀记录必须解除人工终态（死锁根除）');
+  assert.equal(record.autoHandled,true,'解除后应被真正代答');
+  assert.equal(sendCalls,1,'恰好发送一次');
+});

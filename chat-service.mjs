@@ -856,15 +856,23 @@ export class ChatService {
   // backlog.identity_unverifiable 连发即此现场）。消息仍在当前窗口、身份双向核对通过时重新补核，
   // 恢复进代答链路；核不出（消息挤出窗口等）维持人工，不静默复活。
   reviveLegacyUnverifiable(record, mark, messages, snapshot, contact) {
-    if (record.needsManual !== true || record.recoveryEvidence || record.needsManualReason !== 'identity-unverifiable') return false;
+    // 守卫不排斥已有 recoveryEvidence：qualifyNativeBacklog 先于扫描循环给 needs-manual 记录补上证据
+    // （群聊修复暴露的时序洞），若此处因「证据已存在」拒绝复活，needsManual 标记将永久无人摘除——死锁。
+    // 复活必须以「当前窗口重新补核通过」为准，证据新鲜度由 qualifyNativeUnanswered 保证，不存在静默复活。
+    if (record.needsManual !== true || record.needsManualReason !== 'identity-unverifiable') return false;
+    if (record.handledByUserAt || record.autoHandled) return false;
     if (!Number.isFinite(record.offlineBacklogAt)) {
       // 边界取「到达时间与消息创建时间的较早者 −1ms」：旧记录只断言过「创建时服务不在处理」，边界不得晚于创建。
       const stamps = [Date.parse(record.at), ...((record.incoming || []).map(item => Date.parse(item?.nativeCreatedAt)).filter(value => Number.isFinite(value)))].filter(value => Number.isFinite(value));
       if (!stamps.length) return false;
       record.offlineBacklogAt = Math.min(...stamps) - 1;
     }
+    // 资格函数对已有证据的记录早退；needs-manual 记录上的证据是 qualifyNativeBacklog 前置补核写入的死锁产物，
+    // 补核前先摘除，补核失败则原样还原（不伪造、不丢失）。
+    const staleEvidence = record.recoveryEvidence;
+    delete record.recoveryEvidence;
     const evidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, load(this.stopFile, null), Date.now(), this.policy.groupMentionNames);
-    if (!evidence) return false;
+    if (!evidence) { if (staleEvidence) record.recoveryEvidence = staleEvidence; return false; }
     record.recoveryEvidence = evidence;
     delete record.needsManual;
     delete record.needsManualReason;
@@ -928,7 +936,9 @@ export class ChatService {
       return records;
     } catch (error) { this.log('backlog.offline_incoming_failed', { recipientId: contact.id, message: error.message?.slice(0, 120) || '离线来信核对失败，保守留在基线。' }); return []; }
   }
-  autoDue(mark) { return Boolean(mark && (this.autoRecords(mark).some(record => record.needsManual !== true) || this.autoRecords(mark).some(record => this.mixedRecordHasTextInFlight(record)) || mark.autoBacklog?.receipt?.confirmed === true || ['inflight', 'delivery-uncertain'].includes(mark.status) && mark.pending?.incoming?.length) && Date.now() >= (Date.parse(mark.autoBacklog?.nextRetryAt) || 0)); }
+  // autoDue 追加：仅含「identity-unverifiable 人工记录」的会话也算待办——否则复活循环永不运行，
+  // 记录带着合格证据永久卡死（真机 14:28 死锁的另一半）。人工接手/已代答的记录不算待办。
+  autoDue(mark) { return Boolean(mark && (this.autoRecords(mark).some(record => record.needsManual !== true) || this.autoRecords(mark).some(record => record.needsManual === true && record.needsManualReason === 'identity-unverifiable' && !record.handledByUserAt && !record.autoHandled) || this.autoRecords(mark).some(record => this.mixedRecordHasTextInFlight(record)) || mark.autoBacklog?.receipt?.confirmed === true || ['inflight', 'delivery-uncertain'].includes(mark.status) && mark.pending?.incoming?.length) && Date.now() >= (Date.parse(mark.autoBacklog?.nextRetryAt) || 0)); }
   backlogPause(mark, reason) {
     const queue = mark.autoBacklog ??= { version: 1, source: 'authorized-unsent-backlog-v1', retryCount: 0 };
     queue.retryCount = Math.min(20, (queue.retryCount || 0) + 1); queue.state = 'waiting'; queue.reason = reason;
