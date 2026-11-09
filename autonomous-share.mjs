@@ -85,15 +85,17 @@ export class AutonomousShare {
   unresolved(ledger = this.ledger(), except) {
     return ledger.operations.filter(item => item.operationId !== except && ['uncertain', 'reserved', 'clicking'].includes(item.status));
   }
+  // 确认未发出的分享没有歧义，不需要人工核对才解封，但要让人看得见原因。
+  notSent(ledger = this.ledger()) { return ledger.operations.filter(item => item.status === 'not-sent'); }
   state() {
     const policy = this.policy(), ledger = this.ledger(), recipients = this.recipients(), shareableRecipients = this.shareableRecipients(), unavailableRecipients = this.unavailableRecipients(), date = day(this.now());
-    const unresolved = this.unresolved(ledger), guard = read(this.files.send, null);
+    const unresolved = this.unresolved(ledger), guard = read(this.files.send, null), notSent = this.notSent(ledger);
     if (guard && (!Number.isSafeInteger(guard.pid) || typeof guard.token !== 'string')) throw fail('自主分享发送锁损坏，请先核对收据。');
     const recoveryRequired = Boolean(guard && !alive(guard.pid)), busy = Boolean(guard && alive(guard.pid));
     const activeOperation = busy && typeof guard.operationId === 'string' && unresolved.find(item => item.operationId === guard.operationId && item.pid === guard.pid && ['reserved', 'clicking'].includes(item.status));
     const needsReview = unresolved.filter(item => item !== activeOperation), inProgress = Boolean(activeOperation);
     const activity = needsReview.length || recoveryRequired ? { status: 'needs-review' } : inProgress ? { status: 'sending', phase: activeOperation.status, operationId: activeOperation.operationId } : { status: 'idle' };
-    return { protocol: 'autonomous-share-v1', enabled: policy.enabled, dailyLimit: null, timeZone: 'Asia/Shanghai', daily: { date, attempts: ledger.days[date] || 0, limit: null, remaining: null }, recipients, shareableRecipients, unavailableRecipients, paused: needsReview.length > 0 || recoveryRequired, busy, inProgress, activity, needsReview: needsReview.map(({ operationId, videoId, recipientId, status, forwardOperationId, startedAt, failure }) => ({ operationId, videoId, recipientId, status, forwardOperationId, startedAt, ...(failure ? { failure: failureOf(failure) } : {}) })), recoveryRequired, receiptsFile: this.files.ledger, recent: ledger.operations.slice(-10).map(({ operationId, videoId, recipientId, status, forwardOperationId, messageId, startedAt, completedAt, failure }) => ({ operationId, videoId, recipientId, status, forwardOperationId, messageId, startedAt, completedAt, ...(failure ? { failure: failureOf(failure) } : {}) })) };
+    return { protocol: 'autonomous-share-v1', enabled: policy.enabled, dailyLimit: null, timeZone: 'Asia/Shanghai', daily: { date, attempts: ledger.days[date] || 0, limit: null, remaining: null }, recipients, shareableRecipients, unavailableRecipients, paused: needsReview.length > 0 || recoveryRequired, busy, inProgress, activity, needsReview: needsReview.map(({ operationId, videoId, recipientId, status, forwardOperationId, startedAt, failure }) => ({ operationId, videoId, recipientId, status, forwardOperationId, startedAt, ...(failure ? { failure: failureOf(failure) } : {}) })), notSent: notSent.map(({ operationId, videoId, recipientId, status, forwardOperationId, startedAt, completedAt, failure }) => ({ operationId, videoId, recipientId, status, forwardOperationId, startedAt, completedAt, ...(failure ? { failure: failureOf(failure) } : {}) })), recoveryRequired, receiptsFile: this.files.ledger, recent: ledger.operations.slice(-10).map(({ operationId, videoId, recipientId, status, forwardOperationId, messageId, startedAt, completedAt, failure }) => ({ operationId, videoId, recipientId, status, forwardOperationId, messageId, startedAt, completedAt, ...(failure ? { failure: failureOf(failure) } : {}) })) };
   }
   context({ videoId } = {}) {
     const state = this.state();

@@ -176,6 +176,7 @@ export class ChatService {
     this.pollRequested = false; this.pollScheduled = null; this.incomingPriority = new Set(); this.incomingUnsubscribe = null; this.notificationsTask = null; this.notificationCleanup = null; this.lastFullScanAt = 0; this.unreadProbeUnavailable = false;
     this.events = [];
     this.readEvidence = new Map();
+    this.browserClosedNotices = new Map();
     this.replyQualifications = new Map(); this.supersededQualifications = new Map();
     this.groupVideos = groupVideoInbox ?? (typeof observeSharedWork === 'function' && videoLimits && typeof agent.inspectSharedVideo === 'function' ? new GroupVideoInbox({ stateDir }) : null);
     if (!fs.existsSync(this.watermarkFile)) initialize(this.watermarkFile, this.watermarks);
@@ -253,6 +254,14 @@ export class ChatService {
     fs.mkdirSync(this.stateDir, { recursive: true });
     fs.appendFileSync(this.logFile, `${JSON.stringify(event)}\n`, { mode: 0o600 });
     this.events.push(event); if (this.events.length > 100) this.events.shift();
+  }
+  // 专用浏览器没在运行时，后台轮询每两秒就会撞一次同样的错误。事件按联系人降频记录，
+  // 首条、恢复后再次出现、或距上次满五分钟才写，避免日志被同一句话刷屏。
+  browserClosedNotice(recipientId, message) {
+    const nowMs = Date.now(), previous = this.browserClosedNotices.get(recipientId);
+    const shouldLog = !previous || previous.message !== message || nowMs - (previous.lastLoggedAt ?? 0) >= 300_000;
+    this.browserClosedNotices.set(recipientId, { message, lastLoggedAt: shouldLog ? nowMs : (previous?.lastLoggedAt ?? nowMs) });
+    if (shouldLog) this.log('message.browser_closed', { recipientId, message });
   }
   persist() { if (this.ownershipLost) throw new Error('回复进程已失去锁，未覆盖其他入口的水位。'); if (this.runId) this.assertOwned(); save(this.watermarkFile, this.watermarks); }
   refreshAuthorizedContact(stored, verified) {
@@ -1322,6 +1331,7 @@ export class ChatService {
         if(mark.status!=='ready')continue;
         try {
           const snapshot = await this.browser.readConversation(contact.id, { allowed: true, signal, weak: ['manual', 'existing-conversation', 'existing-group'].includes(contact.authorizationKind), backgroundOnly: true }); signal.throwIfAborted();
+          this.browserClosedNotices.delete(contact.id);
           // 消息链路证据：页面就绪、消息读取时间戳、会话身份核对与消息集合变化。浏览器层未提供证据时记为 null，
           // 如实标注“无法证明”，不冒充已核对；仅在首读、集合变化、证据明确缺失或距上次记录满5分钟时写事件，避免刷日志。
           if (snapshot.contact && Array.isArray(snapshot.messages)) {
@@ -1443,7 +1453,7 @@ export class ChatService {
           }
           if (error.code === 'BROWSER_NOT_RUNNING') {
             mark.status = 'ready'; mark.reason = '专用浏览器未运行；打开抖音后继续检查。'; this.persist();
-            this.log('message.browser_closed', { recipientId: contact.id, message: '专用浏览器未运行，未自动打开。' });
+            this.browserClosedNotice(contact.id, '专用浏览器未运行，未自动打开。');
             continue;
           }
           if (mark.status === 'inflight') { mark.status = 'delivery-uncertain'; mark.reason = '发送被中断，需要人工核对。'; }

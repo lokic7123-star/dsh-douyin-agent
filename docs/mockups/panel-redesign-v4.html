@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>面板改版 v4 预览 — 状态摘要 / 栏目排版 / 记忆管理压缩 / 未发出可见 / 分模型标注</title>
+<style>
+:root{--dsw-alias-bg-base:#f6f7f9;--dsw-alias-bg-layer-1:#fff;--dsw-alias-border-l1:#e4e7ec;--dsw-alias-border-l2:#cbd2dc;
+  --dsw-alias-label-primary:#111827;--dsw-alias-label-secondary:#4b5563;--dsw-alias-label-tertiary:#6b7280;
+  --dsw-alias-state-success-primary:#16a34a;--dsw-alias-state-warn-primary:#d97706;--dsw-alias-state-error-primary:#dc2626;--dy-accent:#2563eb}
+*{box-sizing:border-box}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#eef0f4;margin:0;padding:24px;color:var(--dsw-alias-label-primary)}
+.demo{font-size:13px;color:#6b7280;margin:28px 0 10px;font-weight:600}
+.note{font-size:12.5px;color:#6b7280;margin:6px 0}
+.dialog{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;max-width:760px;box-shadow:0 4px 18px rgba(0,0,0,.06)}
+.dialog-body{padding:16px 18px}
+.dy-wrap{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dy-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dy-head h2{margin:0;font-size:16px;font-weight:600}
+.dy-head .sp{flex:1}
+.dy-card{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:12px 14px}
+.dy-card-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.dy-card-top h3{margin:0;font-size:13.5px;font-weight:600}
+.dy-card-top .sp{flex:1}
+.dy-inner{border-top:1px dashed var(--dsw-alias-border-l1);padding-top:10px;margin-top:4px}
+.dy-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0}
+.dy-label{font-size:12.5px;color:var(--dsw-alias-label-secondary);flex:none}
+.dy-cap{color:var(--dsw-alias-label-tertiary);font-size:12px}
+.dy-note{font-size:12px;color:var(--dsw-alias-label-tertiary);margin:4px 0}
+.dy-input{font:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+.dy-btn{font:inherit;font-size:12.5px;padding:6px 14px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dy-btn:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.dy-btn.primary{background:var(--dy-accent);border-color:var(--dy-accent);color:#fff}
+.dy-btn.danger{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}
+.dy-btn.tiny{font-size:11.5px;padding:2px 8px;border-radius:7px}
+.dy-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary)}
+.dy-chip .d{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}
+.dy-chip.ok{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}.dy-chip.ok .d{background:var(--dsw-alias-state-success-primary)}
+.dy-chip.err{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent)}.dy-chip.err .d{background:var(--dsw-alias-state-error-primary)}
+.dy-chip.info{color:var(--dy-accent);border-color:color-mix(in srgb,var(--dy-accent) 35%,transparent)}.dy-chip.info .d{background:var(--dy-accent)}
+.dy-chip.warn{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}.dy-chip.warn .d{background:var(--dsw-alias-state-warn-primary)}
+.dy-mtabs{display:flex;gap:6px;flex-wrap:wrap}
+.dy-mtab{font:inherit;font-size:12px;padding:3px 11px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dy-mtab[aria-selected="true"]{background:var(--dy-accent);border-color:var(--dy-accent);color:#fff;font-weight:500}
+.dy-tl{display:flex;flex-direction:column;gap:6px}
+.dy-tl-item{display:flex;gap:8px;align-items:flex-start;padding:6px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);min-width:0}
+.dy-tl-bar{width:3px;border-radius:2px;align-self:stretch;flex:none;background:var(--dy-accent)}
+.dy-tl-bar.fact{background:var(--dsw-alias-state-success-primary)}
+.dy-tl-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.dy-tl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-tl-topic{font-size:12.5px;font-weight:600}
+.dy-tl-count{font-size:11.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dy-tl-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none;margin-left:auto}
+.dy-stat2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dy-stat{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px}
+.dy-stat .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.dy-stat .k{font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
+.dy-kv{display:flex;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--dsw-alias-border-l1);align-items:baseline}
+.dy-kv:last-child{border-bottom:0}
+.dy-kv .k{color:var(--dsw-alias-label-tertiary);flex:none;min-width:64px}
+.dy-kv .v{flex:1;min-width:0;overflow-wrap:anywhere}
+.dy-meter{height:5px;border-radius:3px;background:var(--dsw-alias-border-l1);overflow:hidden;margin-top:6px}
+.dy-meter i{display:block;height:100%;border-radius:3px;background:var(--dy-accent)}
+.dy-meter i.warn{background:var(--dsw-alias-state-warn-primary)}
+details.dy-inner{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:8px 12px;margin-top:6px}
+details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-weight:500}
+.dy-empty{padding:18px 10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12.5px}
+/* v4 新增：状态摘要与导航 */
+.dy-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:8px 12px}
+.dy-summary .dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-warn-primary);flex:none}
+.dy-summary .dot.bad{background:var(--dsw-alias-state-error-primary)}
+.dy-summary .dot.good{background:var(--dsw-alias-state-success-primary)}
+.dy-summary .lb{font-size:13px;font-weight:600;flex:none}
+.dy-summary .dt{font-size:12px;color:var(--dsw-alias-label-secondary);flex:1;min-width:0}
+.dy-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.dy-nav button{font:inherit;font-size:12px;padding:7px 4px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dy-nav button[aria-selected="true"]{background:var(--dy-accent);border-color:var(--dy-accent);color:#fff;font-weight:600}
+.dy-nav .grp{grid-column:1/-1;font-size:11px;color:var(--dsw-alias-label-tertiary);margin:2px 0 -2px}
+</style>
+</head>
+<body>
+
+<p class="note"><b>预览稿 v4（预览=产品）</b> · 承接 v3，本页五处改动经你确认后逐字同步进 client.js。数据为合成示例。</p>
+
+<!-- ═════ ① 状态摘要：按真实原因分文案，不再一律写「不在允许观看时段」 ═════ -->
+<h2 class="demo">① 状态摘要 · 标题按 reasonCode 分开，原因写清楚，附带能立刻做的动作</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>当前状态摘要</h3><span class="sp"></span><span class="dy-cap">标题只说真实原因，细节留给下一行</span></div>
+    <div class="dy-summary"><span class="dot bad" aria-hidden="true"></span><span class="lb">允许观看已关闭</span><span class="dt">自主观看总开关现在是关闭的；时段 00:00-24:00 无所谓，先把开关打开才会看。</span><button class="dy-btn tiny" type="button">去处理</button></div>
+    <p class="dy-note">对照旧写法：旧版无论开关关还是真不在时段，标题都写「不在允许观看时段」，害得白找时段问题。</p>
+  </div>
+
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>当前状态摘要</h3><span class="sp"></span><span class="dy-cap">另一种原因，同样一行说清</span></div>
+    <div class="dy-summary"><span class="dot" aria-hidden="true"></span><span class="lb">不在允许观看时段</span><span class="dt">当前不在允许刷视频的时间段；下一个时段 20:00 开始。</span><button class="dy-btn tiny" type="button">查看时段</button></div>
+    <div class="dy-summary" style="margin-top:6px"><span class="dot bad" aria-hidden="true"></span><span class="lb">浏览器未运行</span><span class="dt">专用浏览器没在运行，消息读不到也不会回复；点「打开抖音」即可恢复。</span><button class="dy-btn tiny" type="button">打开抖音</button></div>
+  </div>
+
+</div></div></div>
+
+<!-- ═════ ② 顶部栏目：10 个 tab 改成 5 列网格，不再大小不齐地换行 ═════ -->
+<h2 class="demo">② 顶部栏目 · 5 列等宽网格，分组小标题，同一屏能扫完</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <nav class="dy-nav" role="tablist" aria-label="抖音设置分类">
+    <span class="grp">日常</span>
+    <button role="tab" type="button" aria-selected="true">基础设置</button>
+    <button role="tab" type="button" aria-selected="false">视频观看</button>
+    <button role="tab" type="button" aria-selected="false">好友互动</button>
+    <button role="tab" type="button" aria-selected="false">公开评论</button>
+    <button role="tab" type="button" aria-selected="false">音频与密钥</button>
+    <span class="grp">数据与记录</span>
+    <button role="tab" type="button" aria-selected="false">自检与用量</button>
+    <button role="tab" type="button" aria-selected="false">观看足迹</button>
+    <button role="tab" type="button" aria-selected="false">记忆管理</button>
+    <button role="tab" type="button" aria-selected="false">观看日报</button>
+  </nav>
+  <p class="dy-note">旧版是 flex-wrap 自由换行，按钮宽窄随文字长短变化，最右一行还空着半格。现在固定 5 列、每格等宽、居中，选中态一眼可见。</p>
+</div></div></div>
+
+<!-- ═════ ③ 记忆管理压缩：每条一行，理由折叠 ═════ -->
+<h2 class="demo">③ 记忆管理 · 兴趣每条压到 1 行（摘要单行截断），说明与原始记录收进折叠</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <div class="dy-card">
+    <div class="dy-card-top">
+      <div class="dy-mtabs" role="tablist">
+        <button class="dy-mtab" role="tab" aria-selected="true" type="button">兴趣</button>
+        <button class="dy-mtab" role="tab" aria-selected="false" type="button">角色卡</button>
+        <button class="dy-mtab" role="tab" aria-selected="false" type="button">最近观察</button>
+        <button class="dy-mtab" role="tab" aria-selected="false" type="button">原始记录</button>
+      </div>
+      <span class="sp"></span><span class="dy-cap">共 19 个兴趣</span>
+    </div>
+    <div class="dy-tl">
+      <div class="dy-tl-item"><span class="dy-tl-bar fact" aria-hidden="true"></span>
+        <span class="dy-tl-main">
+          <span class="dy-tl-head"><b class="dy-tl-topic">ai</b><span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span><span class="dy-tl-meta">12 正向 · 1 待观察</span>
+            <button class="dy-btn tiny" type="button">看证据</button><button class="dy-btn tiny danger" type="button">删除</button></span>
+          <span class="dy-tl-count">最近：小显卡运行 DeepSeek（停留 5 分钟）</span>
+        </span>
+      </div>
+      <div class="dy-tl-item"><span class="dy-tl-bar fact" aria-hidden="true"></span>
+        <span class="dy-tl-main">
+          <span class="dy-tl-head"><b class="dy-tl-topic">deepseek</b><span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span><span class="dy-tl-meta">6 正向 · 1 待观察</span>
+            <button class="dy-btn tiny" type="button">看证据</button><button class="dy-btn tiny danger" type="button">删除</button></span>
+          <span class="dy-tl-count">最近：DeepInfer 推理框架讲解（停留 4 分钟）</span>
+        </span>
+      </div>
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span>
+        <span class="dy-tl-main">
+          <span class="dy-tl-head"><b class="dy-tl-topic">桌宠</b><span class="dy-chip info"><span class="d" aria-hidden="true"></span>待观察</span><span class="dy-tl-meta">0 正向 · 1 待观察</span>
+            <button class="dy-btn tiny primary" type="button">不感兴趣</button><button class="dy-btn tiny danger" type="button">删除</button></span>
+          <span class="dy-tl-count">最近：蓝发鲸鱼娘桌宠（看完 91%）</span>
+        </span>
+      </div>
+    </div>
+    <p class="dy-note">旧版每条兴趣下面还挂一排按钮加一句说明，整块拉得很长；现在按钮挪到同一行，理由只留一行摘要。</p>
+  </div>
+
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>最近观察</h3><span class="sp"></span><span class="dy-cap">先看 5 条，更多在「观看足迹」</span></div>
+    <div class="dy-tl">
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">零成本用上 Opus 5.5！WorkBuddy 积分几乎不花</b><span class="dy-tl-meta">11-09 19:40 · @秋实KL</span></span></span></div>
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">Github 一周热点 136 期</b><span class="dy-tl-meta">11-09 19:38 · @IT咖啡馆</span></span></span></div>
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">本周 GitHub 神级项目，给 AI 装上新技能</b><span class="dy-tl-meta">11-09 19:28 · @FredTalk</span></span></span></div>
+    </div>
+    <details class="dy-inner"><summary>展开全部 20 条观察</summary><p class="dy-note">展开后是同一份单行列表，最多 20 条。</p></details>
+  </div>
+
+  <div class="dy-card">
+    <details class="dy-inner"><summary>原始记录（记忆文件夹 · 搜索 · 删除）</summary>
+      <div class="dy-row" style="margin:8px 0 4px"><span class="dy-label">搜索</span><input class="dy-input" style="flex:1;min-width:0" aria-label="记忆搜索关键词" placeholder="输入关键词检索记忆"><button class="dy-btn tiny" type="button">搜索</button></div>
+      <p class="dy-note">原始记录平时用不上，整块折起来，展开再搜；不再一进面板就铺满。</p>
+    </details>
+  </div>
+
+</div></div></div>
+
+<!-- ═════ ④ 公开评论：把「未发出」显示出来并写清原因 ═════ -->
+<h2 class="demo">④ 公开评论 · 「未发出」单独成行，写明原因，不再只在日志里躺着</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>公开评论</h3><span class="sp"></span><span class="dy-cap">今日尝试 1 次</span></div>
+    <div class="dy-row"><span class="dy-label">允许自主发布评论</span><span class="dy-switch on" role="switch" aria-checked="true"></span><span class="dy-cap">每次观看 1 次</span></div>
+    <div class="dy-tl" style="margin-top:8px">
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span>
+        <span class="dy-tl-main">
+          <span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">作品 7688677221380230450</b><span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span><span class="dy-tl-meta">11-09 18:33</span></span>
+          <span class="dy-tl-count">评论面板未打开，未改用其他发送方式；次数已计，未自动重试。</span>
+        </span>
+      </div>
+    </div>
+    <p class="dy-note">旧版这行只在内部账本里，界面完全看不见，所以只看到「未发出」三个字却无处核对。现在原因直接写出来。</p>
+  </div>
+</div></div></div>
+
+<!-- ═════ ⑤ 分模型：补上场景与来源，解释同名三行 ═════ -->
+<h2 class="demo">⑤ 今日用量 · 分模型补场景标签，三行同名不再是谜</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>Token 明细</h3><span class="sp"></span><span class="dy-cap">只统计本助手发起的模型响应</span></div>
+    <div class="dy-stat2">
+      <div class="dy-stat"><div class="v">1,554,650</div><div class="k">Token 合计</div></div>
+      <div class="dy-stat"><div class="v">170</div><div class="k">模型响应（次）</div></div>
+    </div>
+    <div class="dy-inner" style="margin-top:8px">
+      <div class="dy-card-top" style="margin-bottom:4px"><h3 style="font-size:12.5px">分模型</h3><span class="sp"></span><span class="dy-cap">同名按场景分行，次数可直接对上</span></div>
+      <div class="dy-kv"><span class="k">glm-5.3-flash</span><span class="v"><b>自主观看</b> · 168 次响应 · 1,988,847 Token</span></div>
+      <div class="dy-kv"><span class="k">glm-5.3-flash</span><span class="v"><b>好友回复</b> · 1 次响应 · 3,027 Token</span></div>
+      <div class="dy-kv"><span class="k">glm-5.3-flash</span><span class="v"><b>公开评论</b> · 1 次响应 · 1,669 Token</span></div>
+    </div>
+    <p class="dy-note">旧版只写模型名，三行同名看不出区别。补上场景（自主观看 / 好友回复 / 公开评论 / 火花 / 任务）就一目了然。</p>
+  </div>
+</div></div></div>
+
+<p class="note" style="margin-top:18px"><b>v4 改版要点</b>：① 状态摘要按真实原因分标题，附一键动作 ② 顶部栏目改 5 列等宽网格并分组 ③ 记忆管理每条压到 1 行、原始记录折叠 ④ 「未发出」在公开评论里带原因可见 ⑤ 分模型补场景标签。</p>
+</body>
+</html>

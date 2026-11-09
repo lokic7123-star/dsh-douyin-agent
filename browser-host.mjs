@@ -142,8 +142,14 @@ export async function runBrowserHost({ profile, controlDir, port, chromiumImpl =
     nativeFocus.assertHealthy();
     writeState(true, { browserVersion: versionOf(installation?.version) });
     logger.log('专用抖音 Edge 已启动。');
-    context.on('close', () => processImpl.exit(focusFailed ? 1 : 0));
-    for (const signal of ['SIGINT', 'SIGTERM']) processImpl.on(signal, () => context.close().finally(() => processImpl.exit(0)));
+    let exited = false;
+    const markExited = () => {
+      if (exited) return;
+      exited = true;
+      try { writeState(false, { exitedAt: Date.now() }); } catch {}
+    };
+    context.on('close', () => { markExited(); processImpl.exit(focusFailed ? 1 : 0); });
+    for (const signal of ['SIGINT', 'SIGTERM']) processImpl.on(signal, () => { markExited(); context.close().finally(() => processImpl.exit(0)); });
     return { started: true, exitCode: 0 };
   } catch (error) {
     try { await context?.close(); } catch {}

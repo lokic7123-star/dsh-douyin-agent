@@ -54,6 +54,17 @@ test('单个许可群身份不符只暂停该群，保留全部许可和历史�
   assert.equal(f.service.state().contacts.find(row => row.id === group.id).identityReviewRequired, undefined);
 });
 
+test('专用浏览器未运行时保留待答并降频记录，不每次轮询都刷一条日志', async t => {
+  const f = fixture(t);
+  await prepare(f);
+  f.browser.readConversation = async () => { throw Object.assign(new Error('专用浏览器未运行，未自动打开。'), { code: 'BROWSER_NOT_RUNNING' }); };
+  await f.service.poll(); await f.service.poll(); await f.service.poll();
+  const row = f.service.state().contacts[0];
+  assert.equal(row.status, 'ready'); assert.match(row.reason, /浏览器未运行/);
+  const lines = fs.readFileSync(f.service.logFile, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  assert.equal(lines.filter(item => item.type === 'message.browser_closed').length, 1);
+});
+
 test('未知启动故障不冒充单个身份暂停或运行成功', async t => {
   const f = fixture(t, { browser: { readConversation: async () => { throw new Error('合成未知连接故障'); } } });
   await f.service.configure({ recipientIds: [contact.id] });

@@ -79,6 +79,12 @@ test('正常收信、启动未就绪、待核对和断连都保留独立回复�
   const down=fixture();down.watch={running:true,phase:'observing',worker:{alive:true,heartbeatAt:now-500}};down.chat.running=false;p=interactionPresence(down);
   assert.equal(p.status,'attention');assert.equal(p.online,false);assert.equal(p.reply.label,'回复未就绪');assert.equal(p.watch.active,true);
 });
+test('专用浏览器未运行时不冒充在线，提示先打开抖音',()=>{
+  const f=fixture();f.chat.contacts[0]={...f.chat.contacts[0],reason:'专用浏览器未运行；打开抖音后继续检查。'};
+  const p=interactionPresence(f);
+  assert.equal(p.online,false);assert.equal(p.status,'attention');assert.equal(p.reply.label,'浏览器未运行');
+  assert.match(p.reply.reason,/打开抖音/);
+});
 test('回复关闭时仍独立显示身份暂停、送达不确定和回复异常，不承诺继续检查',()=>{
   const f=fixture();f.friend={policy:{enabled:false},enabled:false,status:'blocked',lastError:'Bearer synthetic-secret 合成异常'};f.chat.contacts[0]={...f.chat.contacts[0],status:'paused',reason:'联系人身份已变化，请核对。'};f.chat.contacts[1]={...f.chat.contacts[1],status:'delivery-uncertain',reason:'发送结果未确认。'};
   const p=interactionPresence(f);

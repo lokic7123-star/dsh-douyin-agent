@@ -66,6 +66,15 @@ test('宿主焦点：运行中新页CDP失败明确撤销ready，保留浏览器
   const state = JSON.parse(await fs.readFile(path.join(directory, 'browser.json'), 'utf8'));
   assert.equal(state.ready, false); assert.equal(state.launchFailure.code, 'EDGE_FOCUS_RESET_FAILED'); assert.equal(context.closed, 0); assert.equal(page.draft, '合成原草稿'); assert.ok(logs.length > 0); await context.close();
 });
+test('宿主焦点：专用浏览器退出后撤销ready，不留下陈旧的存活标记', async t => {
+  const directory = await tempDirectory(t), context = new FakeContext(), logs = [];
+  await runBrowserHost({ profile: path.join(directory, 'profile'), controlDir: directory, port: 19231, chromiumImpl: { launchPersistentContext: async () => context }, probeInstallation: async () => ({ version: '106.0.1.2' }), logger: { log() {}, error: value => logs.push(value) }, processImpl: { pid: process.pid, on() {}, exit() {} } });
+  const alive = JSON.parse(await fs.readFile(path.join(directory, 'browser.json'), 'utf8'));
+  assert.equal(alive.ready, true);
+  await context.close();
+  const exited = JSON.parse(await fs.readFile(path.join(directory, 'browser.json'), 'utf8'));
+  assert.equal(exited.ready, false); assert.equal(typeof exited.exitedAt, 'number');
+});
 test('宿主焦点：故障后的flush不能通过空resolve冒充健康', async () => {
   const context = new FakeContext(), reset = await installNativeFocusReset(context), page = new FakePage();
   context.action = async () => { throw Error('合成故障'); }; context.add(page);
