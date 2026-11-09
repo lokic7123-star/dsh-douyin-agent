@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     const Button = primitives.Button, Input = primitives.Input || 'input', MarkdownText = primitives.MarkdownText;
     const markdownLabels = { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' };
     const PREFIX = '/api/douyin-browser';
-    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/memory/search', '/memory/forget', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched', '/thumb']);
+    const routes = new Set(['/interactions/configure', '/state', '/diagnostics', '/diagnostics/repair', '/watch/schedule', '/watch/options', '/video/configure', '/video/start', '/video/stop', '/browser/open', '/browser/navigate', '/persona/configure', '/persona/context-observations', '/persona/interest/forget', '/memory/search', '/memory/forget', '/model/configure', '/mode/configure', '/watch/start', '/watch/stop', '/spark/configure', '/spark/start', '/spark/stop', '/spark/resolve', '/comments/configure', '/comments/resolve', '/share/configure', '/share/resolve', '/chat/contacts', '/chat/configure', '/chat/start', '/chat/stop', '/chat/prepare', '/chat/resolve', '/chat/unanswered', '/chat/unanswered/resolve', '/chat/unanswered/end', '/chat/unanswered/retry', '/media/configure', '/media/credentials', '/reports/generate', '/watched', '/thumb']);
     const column = { display: 'flex', flexDirection: 'column', gap: 12 };
     const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' };
     // 导航胶囊窄面板折行显示（用户裁决 2026-11-09：被右缘截掉不如断行），旧单行滚动方案废弃。
@@ -73,6 +73,10 @@ textarea.dy-big{min-height:110px}
 .dy-chip.violet{color:#7c3aed;background:color-mix(in srgb,#7c3aed 10%,transparent)}
 .dy-kv{display:flex;gap:8px;font-size:12.5px;flex-wrap:wrap;min-width:0;margin:0}
 .dy-kv .k{color:var(--dsw-alias-label-tertiary,#6b7280);flex:none}
+.dy-meter{height:5px;border-radius:3px;background:var(--dsw-alias-border-l1);overflow:hidden;margin-top:6px}
+.dy-meter i{display:block;height:100%;border-radius:3px;background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
+.dy-meter i.warn{background:var(--dsw-alias-state-warn-primary,#d97706)}
+.dy-empty{padding:18px 10px;text-align:center;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12.5px}
 .dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:12.5px;min-width:0;overflow-wrap:anywhere;margin:0}
 .dy-rowline .t{flex:none;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11.5px;font-variant-numeric:tabular-nums}
 .dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));min-width:0}
@@ -202,7 +206,7 @@ textarea.dy-big{min-height:110px}
       '/chat/state': '读取自动回复状态', '/chat/contacts': '读取当前会话列表', '/chat/configure': '保存许可名单', '/chat/start': '启动自动回复', '/chat/stop': '停止自动回复', '/chat/prepare': '准备回复通道', '/chat/resolve': '解除会话暂停', '/chat/unanswered': '读取遗留待处理消息', '/chat/unanswered/resolve': '标记遗留待处理消息', '/chat/unanswered/end': '结束待答，不再回复', '/chat/unanswered/retry': '安全重新检查',
       '/share/state': '读取分享状态', '/share/configure': '设置自主分享', '/share/resolve': '核对分享结果', '/comments/state': '读取评论状态', '/comments/configure': '保存评论设置', '/comments/resolve': '核对评论结果',
       '/mode/state': '读取静默观看设置', '/mode/configure': '保存静默观看设置', '/media/state': '读取音频设置', '/media/configure': '保存音频设置', '/media/credentials': '保存音频密钥',
-      '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/persona/context-observations': '切换观察注入上下文', '/memory/search': '搜索记忆', '/memory/forget': '删除记忆', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
+      '/persona': '读取人格', '/persona/card': '保存人格', '/persona/configure': '保存人格', '/persona/context-observations': '切换观察注入上下文', '/persona/interest/forget': '修改兴趣记忆', '/memory/search': '搜索记忆', '/memory/forget': '删除记忆', '/model/configure': '保存模型设置', '/task/limits': '读取任务额度', '/task/limits/configure': '保存任务额度',
       '/task': '提交对话任务', '/stop': '停止对话任务', '/forward/contacts': '读取转发会话', '/forward': '转发作品', '/memory': '检索共享记忆',
       '/usage': '读取用量', '/watched': '读取观看足迹', '/diagnostics': '一键自检', '/diagnostics/repair': '修复自检问题', '/reports/generate': '生成观看日报', '/reports/read': '读取观看日报', '/reports/state': '读取日报目录',
     };
@@ -308,6 +312,7 @@ textarea.dy-big{min-height:110px}
       // 观看足迹与记忆管理（吞噬新增栏目）的本地状态；足迹数据懒加载，进入栏目时拉取。
       const [watched, setWatched] = useState(null), [watchedError, setWatchedError] = useState(''), [watchedDays, setWatchedDays] = useState('14'), [memTab, setMemTab] = useState('character'), [panelErrorsTick, setPanelErrorsTick] = useState(0);
       const [memoryQuery, setMemoryQuery] = useState(''), [memoryResults, setMemoryResults] = useState(null), [memoryConfirm, setMemoryConfirm] = useState('');
+      const [interestConfirm, setInterestConfirm] = useState('');
       useEffect(() => { if (category === '观看足迹' && ready) { void loadWatched(watchedDays); } }, [category, ready, watchedDays]);
       const existingAuthorization = useRef(false); const alive = useRef(true), refreshing = useRef(null), refreshAgain = useRef(false), locks = useRef(new Set()), submitted = useRef(new Set()), keyValues = useRef(credentials);
       const active = value => value?.running || value?.starting || value?.busy || value?.worker?.alive;
@@ -580,15 +585,36 @@ textarea.dy-big{min-height:110px}
             ...reviewList('share')
           ),
           ...unansweredView,
-          h('details', { className: 'dy-inner' }, h('summary', null, '回复处理记录'), h('div', { className: 'dy-wrap' },
-            (() => { const r = state?.chat?.recovery; if (!r) return null; return dyKv('恢复队列', `自动恢复中 ${r.autoPendingCount || 0} · 等待人工 ${r.pendingManualCount || 0} · 可自动恢复 ${r.recoverableCount || 0}${r.requiresUserAction ? ' · 有会话需要你处理' : ''}`); })(),
-            ...(state?.chat?.contacts || []).slice(0, 12).map(item => dyKv(item.name || state?.chat?.policy?.allowlist?.find(c => c.id === item.id)?.name || '许可会话', `${({ ready: '正常接收', paused: '已暂停', 'delivery-uncertain': '发送结果待核对' }[item.status]) || item.status || '状态未知'} · 待答 ${(item.unanswered?.length) || 0} 条${item.lastCheckedAt ? ` · 检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}${item.reason ? ` · ${item.reason}` : ''}`)),
-            ...(state?.chat?.events || []).slice(-12).reverse().map((event, index) => dyRow(event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false }) : '', event.message || event.type || '运行事件')),
-            !(state?.chat?.contacts || []).length && !(state?.chat?.events || []).length && h('p', { className: 'dy-note' }, '暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。'),
+          // 回复处理记录（v3 预览稿已确认）：每会话一张状态卡，事件流收进运行日志折叠。
+          h('div', { className: 'dy-card' },
+            h('div', { className: 'dy-card-top' }, h('h3', null, '回复处理记录'), h('span', { className: 'sp' }),
+              (() => { const r = state?.chat?.recovery; return r ? h('span', { className: 'dy-cap' }, `自动恢复中 ${r.autoPendingCount || 0} · 等待人工 ${r.pendingManualCount || 0} · 可自动恢复 ${r.recoverableCount || 0}`) : null; })()),
+            ...(state?.chat?.contacts || []).slice(0, 12).map(item => h('div', { key: item.id, className: 'dy-inner', style: { borderTop: '1px solid var(--dsw-alias-border-l1)', paddingTop: 8, marginTop: 4 } },
+              h('div', { className: 'dy-card-top', style: { marginBottom: 4 } },
+                h('h3', { style: { fontSize: 13, margin: 0 } }, item.name || state?.chat?.policy?.allowlist?.find(c => c.id === item.id)?.name || '许可会话'),
+                h('span', { className: `dy-chip ${item.status === 'ready' ? 'ok' : item.status === 'paused' ? 'warn' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ ready: '正常接收', paused: '已暂停', 'delivery-uncertain': '发送结果待核对' }[item.status]) || item.status || '状态未知'),
+                h('span', { className: 'sp' }),
+                h('span', { className: 'dy-cap' }, `待答 ${item.unanswered?.length || 0} 条${item.lastCheckedAt ? ` · 检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}`)),
+              item.reason && h('p', { className: 'dy-note', style: { margin: 0 } }, item.reason),
+              h('details', { style: { marginTop: 4 } }, h('summary', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer' } }, '运行日志（最近 20 条）'),
+                h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)', lineHeight: 1.9, marginTop: 4, overflowWrap: 'anywhere' } },
+                  ...(state?.chat?.events || []).filter(event => !event.recipientId || event.recipientId === item.id).slice(-20).reverse().map((event, index) => h('div', { key: index }, `${event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false }) : ''} ${event.message || event.type || '运行事件'}`)))))),
+            !(state?.chat?.contacts || []).length && h('p', { className: 'dy-note' }, '暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。'),
             h('details', { className: 'dy-inner' }, h('summary', null, '复制原始数据（排查用，界面不展示）'), h('div', null,
               h('p', { className: 'dy-note' }, '点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。'),
-              h('div', { className: 'dy-row' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); })))))),
-          h('details', { className: 'dy-inner' }, h('summary', null, '最近分享记录'), ...(state?.share?.recent || []).slice().reverse().map(item => dyRow(item.videoId ? `作品 ${item.videoId}` : '消息', `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}${shareFailureMessage(item) ? ` · 原因：${shareFailureMessage(item)}` : ''}`)))
+              h('div', { className: 'dy-row' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); }))))),
+          // 最近分享记录（v3 预览稿已确认）：行卡 + 状态胶囊；空态给引导。
+          h('div', { className: 'dy-card' },
+            h('div', { className: 'dy-card-top' }, h('h3', null, '最近分享记录'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '发送对象是许可名单里的好友')),
+            ...(state?.share?.recent || []).slice().reverse().slice(0, 10).map(item => h('div', { key: item.operationId || item.videoId || item.at, className: 'dy-tl-item' },
+              h('span', { className: 'dy-tl-bar', 'aria-hidden': 'true' }),
+              h('span', { className: 'dy-tl-main' },
+                h('span', { className: 'dy-tl-head' },
+                  h('b', { className: 'dy-tl-topic', style: { fontWeight: 500 } }, item.videoId ? `作品 ${item.videoId}` : '消息'),
+                  h('span', { className: `dy-chip ${item.status === 'confirmed' ? 'ok' : ['not-sent', 'resolved-not-sent'].includes(item.status) ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}`),
+                  h('span', { className: 'dy-tl-meta' }, `${item.recipientName ? `→ ${item.recipientName}` : ''}${item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`)),
+                shareFailureMessage(item) && h('span', { className: 'dy-tl-count' }, `原因：${shareFailureMessage(item)}`)))),
+            !(state?.share?.recent || []).length && h('div', { className: 'dy-empty' }, '还没有分享记录；自主观看中看到值得分享的作品时，会发给许可名单里的好友。'))
         ),
         // 观看足迹（吞噬新增）：读取 /watched 聚合，按日分组卡片墙；点击在专用浏览器打开原作品。
         category === '观看足迹' && h('div', { className: 'dy-wrap' },
@@ -605,14 +631,30 @@ textarea.dy-big{min-height:110px}
               h(ThumbImg, { api, videoId: item.videoId }),
               h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}`)))))))),
           watched && !!watched.groups.length && h('p', { className: 'dy-note' }, '分层来自实际观看行为：转发 > 停留观看 > 短暂停留 / 跳过；「跳过·超过 60 分钟」类长视频保留跳过标记。')),
-        // 记忆管理（吞噬新增）：走宿主 memory.* RPC（与参考项目同构）；本端只读浏览，清理入口后续按需接入 memory.forget。
+        // 记忆管理（v3 预览稿已确认）：兴趣可删改 + 最近观察精简 + 原始记录；删除级联并自动快照。
         category === '记忆管理' && h('div', { className: 'dy-wrap' },
           h('div', { className: 'dy-card' },
             h('div', { className: 'dy-card-top' },
               h('div', { className: 'dy-mtabs', role: 'tablist', 'aria-label': '记忆分区' },
-                ...[['character', '角色卡'], ['interests', '兴趣'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label))),
+                ...[['interests', '兴趣'], ['character', '角色卡'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label))),
               h('span', { className: 'sp' }),
               state?.persona?.personaFolder && button('打开抖音', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} })),
+            memTab === 'interests' && h('div', { className: 'dy-tl' },
+              ...(state?.persona?.interests || []).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : ''; return h('div', { key: item.topic, className: 'dy-tl-item' },
+                h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }),
+                h('span', { className: 'dy-tl-main' },
+                  h('span', { className: 'dy-tl-head' },
+                    h('b', { className: 'dy-tl-topic' }, item.topic),
+                    h('span', { className: `dy-chip ${item.signal === 'like' ? 'ok' : item.signal === 'dislike' ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal),
+                    h('span', { className: 'dy-tl-meta' }, `${item.counts?.like ?? 0} 正向 · ${item.counts?.dislike ?? 0} 负向 · ${item.counts?.neutral ?? 0} 待观察`)),
+                  h('span', { className: 'dy-tl-count' }, `最近：${(item.evidence || []).slice(-1).map(row => row.title || row.videoId).join('') || '暂无证据摘要'}`),
+                  h('div', { className: 'dy-row', style: { margin: '2px 0 0' } },
+                    interestConfirm === item.topic ? h('button', { type: 'button', className: 'dy-btn danger', style: { fontSize: 11.5, padding: '3px 10px' }, disabled: busy.has('interestForget'), onClick: () => { setInterestConfirm(''); void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic }); void refresh(true); return result; }); } }, '确认删除') : h('button', { type: 'button', className: 'dy-btn', style: { fontSize: 11.5, padding: '3px 10px' }, disabled: busy.has('interestForget'), onClick: () => setInterestConfirm(item.topic) }, '删除此兴趣'),
+                    item.signal !== 'dislike' && h('button', { type: 'button', className: 'dy-btn', style: { fontSize: 11.5, padding: '3px 10px' }, disabled: busy.has('interestForget'), onClick: () => { void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic, signal: 'dislike' }); void refresh(true); return result; }); } }, '标记为不感兴趣'),
+                    item.signal === 'neutral' && h('button', { type: 'button', className: 'dy-btn primary', style: { fontSize: 11.5, padding: '3px 10px' }, disabled: busy.has('interestForget'), onClick: () => { void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic, signal: 'like' }); void refresh(true); return result; }); } }, '标记为感兴趣'),
+                    h('span', { className: 'dy-cap' }, '删除只移除这条兴趣汇总，不删观看足迹；删前自动快照')))); }),
+              !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。'),
+              interestConfirm && h('p', { className: 'dy-note' }, '再点一次「确认删除」才会执行。')),
             memTab === 'character' && h('div', { className: 'dy-inner' },
               h('p', { className: 'dy-note' }, '这里展示观看后自动整理的兴趣记忆（内部参考，不对外）；人格正文在「基础设置 → 人格与兴趣」编辑。'),
               ...(state?.persona?.interests || []).slice(0, 12).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' },
@@ -624,18 +666,13 @@ textarea.dy-big{min-height:110px}
                     h('span', { className: 'dy-tl-meta' }, item.privacy === 'internal-reference' ? '内部参考' : '')),
                   h('span', { className: 'dy-tl-count' }, item.basis || '按不同作品汇总的观看与互动记录。'))); }),
               !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。')),
-            memTab === 'interests' && h('div', { className: 'dy-tl' },
-              ...(state?.persona?.interests || []).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' },
-                h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }),
+            memTab === 'observations' && h('div', { className: 'dy-tl' },
+              ...(state?.persona?.recentObservations || []).slice(-20).reverse().map(item => h('div', { key: item.evidenceId || item.videoId, className: 'dy-tl-item' },
+                h('span', { className: 'dy-tl-bar', 'aria-hidden': 'true' }),
                 h('span', { className: 'dy-tl-main' },
                   h('span', { className: 'dy-tl-head' },
-                    h('b', { className: 'dy-tl-topic' }, item.topic),
-                    h('span', { className: `dy-chip ${item.signal === 'like' ? 'ok' : item.signal === 'dislike' ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal),
-                    h('span', { className: 'dy-tl-meta' }, item.privacy === 'internal-reference' ? '内部参考' : '')),
-                  h('span', { className: 'dy-tl-count' }, `正向 ${item.counts?.like ?? 0} · 负向 ${item.counts?.dislike ?? 0} · 待观察 ${item.counts?.neutral ?? 0}`))); }),
-              !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无记录。')),
-            memTab === 'observations' && h('div', { className: 'dy-tl' },
-              ...(state?.persona?.recentObservations || []).slice(-12).reverse().map(item => dyRow(item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', `${item.title || '无文案作品'}${item.author ? ` · @${item.author}` : ''}`)),
+                    h('b', { className: 'dy-tl-topic', style: { fontWeight: 500 } }, item.title || '无文案作品'),
+                    h('span', { className: 'dy-tl-meta' }, `${item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}${item.author ? ` · @${item.author}` : ''}`))))),
               !(state?.persona?.recentObservations || []).length && h('p', { className: 'dy-note' }, '暂无观察记录。')),
             memTab === 'raw' && h('div', { className: 'dy-inner' },
               h('p', { className: 'dy-note' }, `记忆文件夹：${state?.persona?.personaFolder || '读取中…'}`),
@@ -690,15 +727,22 @@ textarea.dy-big{min-height:110px}
             ...((() => { try { return JSON.parse(globalThis.sessionStorage?.getItem('douyin-panel-errors') || '[]'); } catch { return []; } })()).slice(0, 8).map((err, index) => dyRow(err.at ? new Date(err.at).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', err.message)),
             !(() => { try { return JSON.parse(globalThis.sessionStorage?.getItem('douyin-panel-errors') || '[]').length; } catch { return 0; } })() && h('p', { className: 'dy-note' }, '暂无前端错误记录。')),
           dyCard(
-            h('div', { className: 'dy-card-top' }, h('h3', null, '今日用量'), h('span', { className: 'sp' }), h('span', { className: 'dy-foot' }, state?.usage?.today?.date || '')),
+            h('div', { className: 'dy-card-top' }, h('h3', null, '今日预算'), h('span', { className: 'sp' }), h('span', { className: 'dy-foot' }, state?.usage?.today?.date || '')),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '观看时长'), (() => { const used = Math.floor((state?.video?.daily?.usedSeconds || 0) / 60), cap = state?.video?.policy?.dailyMinutes; return h('span', { style: { flex: 1, minWidth: 0 } }, h('span', { style: { fontWeight: 600 } }, String(used)), ` / ${cap ?? '不限'} 分钟`, typeof cap === 'number' && cap > 0 ? h('div', { className: 'dy-meter' }, h('i', { className: used >= cap ? 'warn' : '', style: { width: `${Math.min(100, Math.round(used * 100 / cap))}%` } })) : null); })()),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '模型请求'), (() => { const used = state?.video?.daily?.requests || 0, cap = state?.video?.policy?.dailyRequests; return h('span', { style: { flex: 1, minWidth: 0 } }, h('span', { style: { fontWeight: 600 } }, String(used)), ` / ${cap ?? '不限'} 次`, typeof cap === 'number' && used >= cap ? '（已达上限，等待次日恢复）' : '', typeof cap === 'number' && cap > 0 ? h('div', { className: 'dy-meter' }, h('i', { className: used >= cap ? 'warn' : '', style: { width: `${Math.min(100, Math.round(used * 100 / cap))}%` } })) : null); })())),
+          dyCard(
+            h('div', { className: 'dy-card-top' }, h('h3', null, 'Token 明细'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '只统计本助手发起的模型响应')),
             h('div', { className: 'dy-stat2' },
-              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.requests || 0)), h('div', { className: 'k' }, '模型响应（次）')),
-              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.totalTokens || 0)), h('div', { className: 'k' }, 'Token')),
-              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, `${Math.floor((state?.video?.daily?.usedSeconds || 0) / 60)} / ${state?.video?.policy?.dailyMinutes ?? '∞'}`), h('div', { className: 'k' }, '观看分钟')),
-              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, `${state?.video?.daily?.requests || 0} / ${state?.video?.policy?.dailyRequests ?? '∞'}`), h('div', { className: 'k' }, '模型请求'))),
-            h('p', { className: 'dy-note' }, `输入 ${state?.usage?.today?.promptTokens || 0} · 输出 ${state?.usage?.today?.completionTokens || 0} · 缓存命中 ${state?.usage?.today?.cacheReportedRequests ? state.usage.today.cachedTokens : '未报告'} · 用量未知 ${state?.usage?.today?.unknownRequests || 0} 次。未报告的用量标为未知，不能据此当作零消耗。`),
+              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.totalTokens || 0)), h('div', { className: 'k' }, 'Token 合计')),
+              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.requests || 0)), h('div', { className: 'k' }, '模型响应（次）'))),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '输入'), h('span', { className: 'v' }, String(state?.usage?.today?.promptTokens || 0))),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '输出'), h('span', { className: 'v' }, String(state?.usage?.today?.completionTokens || 0))),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '缓存命中'), h('span', { className: 'v' }, state?.usage?.today?.cacheReportedRequests ? `${state.usage.today.cachedTokens}（${state.usage.today.cacheReportedRequests} 次报告）` : '未逐次报告')),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '用量未知'), h('span', { className: 'v' }, `${state?.usage?.today?.unknownRequests || 0} 次 · 未报告的请求不按零消耗计`)),
             state?.usage?.inFlight > 0 && h('p', { className: 'dy-note' }, `请求中 ${state.usage.inFlight} 次，Token 等模型返回后记录。`),
-            ...(state?.usage?.groups || []).map(item => dyRow(item.model, `${item.requests} 次响应 · ${item.totalTokens} Token`)),
+            ...((state?.usage?.groups || []).length ? [h('div', { className: 'dy-inner', style: { marginTop: 8 } },
+              h('div', { className: 'dy-card-top', style: { marginBottom: 4 } }, h('h3', { style: { fontSize: 12.5, margin: 0 } }, '分模型')),
+              ...state.usage.groups.map(item => h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, item.model), h('span', { className: 'v' }, `${item.requests} 次响应 · ${item.totalTokens} Token`))))] : []),
             note(state?.usage?.note))))
       );
     }

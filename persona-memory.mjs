@@ -85,7 +85,12 @@ function behaviorByVideo(state) {
 }
 function projectedInterests(state, summaries = behaviorByVideo(state)) {
   return state.interests.map(item => {
-    const evidence = item.evidence.map(ref => ({ ...structuredClone(ref), proposalSignal: ref.proposalSignal ?? ref.signal, ...(ref.assessmentVersion === 1 ? {} : { legacyProposal: ref.signal }), ...structuredClone(summaries.get(ref.videoId)) }));
+    // 用户显式标记（ref.userSignal）优先于行为推导信号：行为摘要后铺，但 userSignal 在其后覆写。
+    const evidence = item.evidence.map(ref => {
+      const merged = { ...structuredClone(ref), proposalSignal: ref.proposalSignal ?? ref.signal, ...(ref.assessmentVersion === 1 ? {} : { legacyProposal: ref.signal }), ...structuredClone(summaries.get(ref.videoId)) };
+      if (ref.userSignal) { merged.signal = ref.userSignal; merged.basis = `用户在本机面板标记为${({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[ref.userSignal] || ref.userSignal}。`; merged.basisCode = 'user-marked'; }
+      return merged;
+    });
     const counts = { like: 0, dislike: 0, neutral: 0 };
     for (const ref of evidence) counts[ref.signal]++;
     const signal = counts.like > counts.dislike ? 'like' : counts.dislike > counts.like ? 'dislike' : 'neutral';
@@ -565,6 +570,36 @@ export class PersonaMemory {
       this.syncCard(data);
       try { fs.rmSync(this.thumbFile(observation.videoId), { force: true }); } catch {}
       return { forgotten: true, videoId: observation.videoId, snapshotFile, snapshot: this.snapshot() };
+    });
+  }
+  // 删除整个兴趣汇总（用户裁决 2026-11-09「兴趣这一块我也没办法把它改掉」）：仅移除该兴趣条目本身，
+  // 不动观察、行为样本与观看足迹；删除前快照可查。signal 可选 like/dislike/neutral 覆写（标记不感兴趣）。
+  forgetInterest({ topic, signal } = {}, { explicit = false } = {}) {
+    if (explicit !== true) throw error('PERSONA_EXPLICIT_REQUIRED', '兴趣修改只能由用户在本机面板明确执行。');
+    if (typeof topic !== 'string' || !topic.trim() || topic.length > 80) throw error('PERSONA_ARGUMENT', '兴趣删除只接受有效主题名。');
+    const key = digest(topic.normalize('NFKC').toLowerCase());
+    if (signal !== undefined && !['like', 'dislike', 'neutral'].includes(signal)) throw error('PERSONA_ARGUMENT', '兴趣标记只接受 like、dislike、neutral。');
+    return this.locked(() => {
+      const files = this.readFiles(), data = files.state;
+      if (!data) throw error('PERSONA_NOT_INITIALIZED', '共享人格尚未初始化。');
+      const interest = data.interests.find(row => row.key === key);
+      if (!interest) return { forgotten: false, reason: '兴趣不存在或已删除。', snapshot: null };
+      const snapshotFolder = path.join(this.personaFolder, 'forget-snapshots');
+      fs.mkdirSync(snapshotFolder, { recursive: true });
+      const snapshotFile = path.join(snapshotFolder, `${new Date(this.clock()).toISOString().replace(/[:.]/g, '-')}-interest-${interest.topic.slice(0, 12)}.json`);
+      fs.writeFileSync(snapshotFile, JSON.stringify({ forgotten: structuredClone(interest), stateBefore: data }, null, 2), { mode: 0o600 });
+      if (signal === undefined) {
+        data.interests = data.interests.filter(row => row.key !== key);
+      } else {
+        // 覆写信号（用户显式标记）：证据引用记 userSignal=signal 并同步覆盖 signal/proposalSignal，
+        // 使 projectedInterests 的投票直接得出该信号（单证据兴趣即翻转，多证据兴趣以用户标记为主导）。
+        for (const ref of interest.evidence) { ref.userSignal = signal; ref.signal = signal; ref.proposalSignal = signal; }
+        interest.signal = signal;
+      }
+      data.generation += 1;
+      this.writeState(data);
+      this.syncCard(data);
+      return { forgotten: true, topic: interest.topic, signal: signal ?? null, snapshotFile, snapshot: this.snapshot() };
     });
   }
 }

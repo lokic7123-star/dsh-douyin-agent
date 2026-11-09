@@ -132,6 +132,37 @@ test('记忆搜索与删除：关键词命中、显式删除级联清理兴趣�
   assert.equal(f.store.readThumb('100001'), null, '封面同步清理');
 });
 
+test('兴趣删除与标记：删除整条汇总不碰观察与行为样本，覆写信号保持证据结构，均需显式且写快照', t => {
+  const f = fixture(t); f.store.initialize();
+  f.store.recordObservation(state('100002'), { source: 'api', kind: 'dom' });
+  const evidenceId = JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8')).observations[0].id;
+  f.store.recordBehavior({ evidenceId, action: 'stay', sampleId: 'p2', confirmed: true }, { source: 'api' });
+  f.store.updateAgentInterests({ evidenceId, topics: [{ topic: '数据可视化', signal: 'neutral' }], reflection: '合成' }, { source: 'api' });
+  assert.throws(() => f.store.forgetInterest({ topic: '数据可视化' }), { code: 'PERSONA_EXPLICIT_REQUIRED' });
+  assert.throws(() => f.store.forgetInterest({ topic: '数据可视化', signal: 'hate' }, { explicit: true }), { code: 'PERSONA_ARGUMENT' });
+  // 覆写信号：neutral → dislike，证据每作品一证保留；快照汇总信号按投票重算（1 负向 0 正向 → dislike）
+  const marked = f.store.forgetInterest({ topic: '数据可视化', signal: 'dislike' }, { explicit: true });
+  assert.equal(marked.forgotten, true);
+  const projected = marked.snapshot.interests.find(item => item.topic === '数据可视化');
+  assert.equal(projected.signal, 'dislike', '覆写后快照汇总信号翻转');
+  let after = JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8'));
+  assert.equal(after.interests[0].signal, 'dislike', '覆写后存储信号翻转');
+  assert.equal(after.interests[0].evidence[0].signal, 'dislike', '证据引用信号同步翻转');
+  assert.equal(after.interests[0].evidence.length, 1, '证据结构保留');
+  assert.equal(after.observations.length, 1, '覆写不删观察');
+  assert.equal(after.behavior.actions.length, 1, '覆写不删行为样本');
+  assert.ok(fs.existsSync(marked.snapshotFile), '覆写前也写快照');
+  // 整条删除：兴趣移除，观察/行为样本/封面均不动
+  const result = f.store.forgetInterest({ topic: '数据可视化' }, { explicit: true });
+  assert.equal(result.forgotten, true);
+  after = JSON.parse(fs.readFileSync(f.store.stateFile, 'utf8'));
+  assert.equal(after.interests.length, 0, '兴趣条目已删除');
+  assert.equal(after.observations.length, 1, '删除兴趣不删观察');
+  assert.equal(after.behavior.actions.length, 1, '删除兴趣不删行为样本');
+  assert.ok(f.store.readThumb('100002') !== undefined, '封面不受兴趣删除影响');
+  assert.equal(f.store.forgetInterest({ topic: '数据可视化' }, { explicit: true }).forgotten, false, '重复删除返回不存在');
+});
+
 test('人格快照与上下文只读，不创建目录或默认读取旧人格', t => {
   const f = fixture(t), before = fs.readdirSync(f.root);
   const snapshot = f.store.snapshot();

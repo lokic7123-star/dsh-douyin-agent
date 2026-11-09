@@ -296,8 +296,8 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(state.media.enabled, false); assert.deepEqual(calls.filter(item => item.route === '/media/credentials').at(-1).body, { backend: 'mimo', apiKey: 'synthetic-mimo-key' });
   assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
   await page.getByRole('tab', { name: '观看日报', exact: true }).click(); await page.getByRole('button', { name: '读取所选日报', exact: true }).click(); await page.getByLabel('日报内容').filter({ hasText: '合成观看日报' }).waitFor();
-  // v2 面板：用量改为指标卡（dy-stat 数值），文案断言改为「今日用量」卡内的数值
-  state.usage.today.totalTokens = 6789; await page.getByRole('tab', { name: '自检与用量', exact: true }).click(); await page.getByText('今日用量', { exact: true }).waitFor(); await page.getByText('6789', { exact: true }).waitFor();
+  // v2 面板：用量改为指标卡（dy-stat 数值），文案断言改为「Token 明细」卡内的数值（v3 改版：预算条 + 明细两卡）
+  state.usage.today.totalTokens = 6789; await page.getByRole('tab', { name: '自检与用量', exact: true }).click(); await page.getByText('Token 明细', { exact: true }).waitFor(); await page.getByText('6789', { exact: true }).waitFor();
   // 2026-11-09 裁决：瞬态拉取失败不再锁死面板——已有缓存内容时保持控件可用，只显示红字错误；恢复后错误消失。
   // 文案带 requestFailure 前缀（刷新运行状态：…），用子串匹配。
   failState = true; await page.getByText(/合成原生状态暂不可用。/).waitFor(); await page.getByRole('button', { name: '一键自检', exact: true }).isEnabled(); failState = false;
