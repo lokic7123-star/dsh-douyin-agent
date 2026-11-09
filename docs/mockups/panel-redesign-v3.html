@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>面板改版 v3 预览 — 记忆管理 / 回复记录 / 最近分享 / 今日用量</title>
+<style>
+:root{--dsw-alias-bg-base:#f6f7f9;--dsw-alias-bg-layer-1:#fff;--dsw-alias-border-l1:#e4e7ec;--dsw-alias-border-l2:#cbd2dc;
+  --dsw-alias-label-primary:#111827;--dsw-alias-label-secondary:#4b5563;--dsw-alias-label-tertiary:#6b7280;
+  --dsw-alias-state-success-primary:#16a34a;--dsw-alias-state-warn-primary:#d97706;--dsw-alias-state-error-primary:#dc2626;--dy-accent:#2563eb}
+*{box-sizing:border-box}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#eef0f4;margin:0;padding:24px;color:var(--dsw-alias-label-primary)}
+.demo{font-size:13px;color:#6b7280;margin:28px 0 10px;font-weight:600}
+.note{font-size:12.5px;color:#6b7280;margin:6px 0}
+.dialog{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;max-width:760px;box-shadow:0 4px 18px rgba(0,0,0,.06)}
+.dialog-body{padding:16px 18px}
+.dy-wrap{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dy-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dy-head h2{margin:0;font-size:16px;font-weight:600}
+.dy-head .sp{flex:1}
+.dy-card{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:12px 14px}
+.dy-card-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.dy-card-top h3{margin:0;font-size:13.5px;font-weight:600}
+.dy-card-top .sp{flex:1}
+.dy-inner{border-top:1px dashed var(--dsw-alias-border-l1);padding-top:10px;margin-top:4px}
+.dy-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0}
+.dy-label{font-size:12.5px;color:var(--dsw-alias-label-secondary);flex:none}
+.dy-cap{color:var(--dsw-alias-label-tertiary);font-size:12px}
+.dy-note{font-size:12px;color:var(--dsw-alias-label-tertiary);margin:4px 0}
+.dy-input{font:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+.dy-btn{font:inherit;font-size:12.5px;padding:6px 14px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dy-btn:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.dy-btn.primary{background:var(--dy-accent);border-color:var(--dy-accent);color:#fff}
+.dy-btn.danger{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}
+.dy-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary)}
+.dy-chip .d{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}
+.dy-chip.ok{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}.dy-chip.ok .d{background:var(--dsw-alias-state-success-primary)}
+.dy-chip.err{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent)}.dy-chip.err .d{background:var(--dsw-alias-state-error-primary)}
+.dy-chip.info{color:var(--dy-accent);border-color:color-mix(in srgb,var(--dy-accent) 35%,transparent)}.dy-chip.info .d{background:var(--dy-accent)}
+.dy-chip.warn{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}.dy-chip.warn .d{background:var(--dsw-alias-state-warn-primary)}
+.dy-mtabs{display:flex;gap:6px;flex-wrap:wrap}
+.dy-mtab{font:inherit;font-size:12px;padding:3px 11px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dy-mtab[aria-selected="true"]{background:var(--dy-accent);border-color:var(--dy-accent);color:#fff;font-weight:500}
+.dy-tl{display:flex;flex-direction:column;gap:6px}
+.dy-tl-item{display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);min-width:0}
+.dy-tl-bar{width:3px;border-radius:2px;align-self:stretch;flex:none;background:var(--dy-accent)}
+.dy-tl-bar.fact{background:var(--dsw-alias-state-success-primary)}
+.dy-tl-main{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.dy-tl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-tl-topic{font-size:12.5px;font-weight:600}
+.dy-tl-count{font-size:11.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.dy-tl-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none;margin-left:auto}
+.dy-stat2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dy-stat{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px}
+.dy-stat .v{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.dy-stat .k{font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
+.dy-kv{display:flex;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--dsw-alias-border-l1);align-items:baseline}
+.dy-kv:last-child{border-bottom:0}
+.dy-kv .k{color:var(--dsw-alias-label-tertiary);flex:none;min-width:64px}
+.dy-kv .v{flex:1;min-width:0;overflow-wrap:anywhere}
+.dy-meter{height:5px;border-radius:3px;background:var(--dsw-alias-border-l1);overflow:hidden;margin-top:6px}
+.dy-meter i{display:block;height:100%;border-radius:3px;background:var(--dy-accent)}
+.dy-meter i.warn{background:var(--dsw-alias-state-warn-primary)}
+details.dy-inner{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:8px 12px;margin-top:6px}
+details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-weight:500}
+.dy-empty{padding:18px 10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12.5px}
+</style>
+</head>
+<body>
+
+<p class="note"><b>预览稿 v3（预览=产品）</b> · 本页四块改动经你确认后逐字同步进 client.js。数据为合成示例。</p>
+
+<!-- ═════ ① 记忆管理（重排：兴趣可删改 + 最近观察精简为卡片墙摘要） ═════ -->
+<h2 class="demo">① 记忆管理 · 四个分区：兴趣（可删改）/ 角色卡 / 最近观察（精简）/ 原始记录</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <div class="dy-card">
+    <div class="dy-card-top">
+      <div class="dy-mtabs" role="tablist">
+        <button class="dy-mtab" role="tab" aria-selected="true" type="button">兴趣</button>
+        <button class="dy-mtab" role="tab" aria-selected="false" type="button">角色卡</button>
+        <button class="dy-mtab" role="tab" aria-selected="false" type="button">最近观察</button>
+        <button class="dy-mtab" role="tab" aria-selected="false" type="button">原始记录</button>
+      </div>
+      <span class="sp"></span><span class="dy-cap">兴趣由观看行为自动整理；删除单条证据或整个兴趣</span>
+    </div>
+
+    <div class="dy-tl">
+      <div class="dy-tl-item"><span class="dy-tl-bar fact" aria-hidden="true"></span>
+        <span class="dy-tl-main">
+          <span class="dy-tl-head"><b class="dy-tl-topic">ai</b><span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span><span class="dy-tl-meta">12 正向 · 1 待观察</span></span>
+          <span class="dy-tl-count">最近：小显卡运行 DeepSeek（停留 5 分钟）</span>
+          <span class="dy-row" style="margin:2px 0 0">
+            <button class="dy-btn" type="button" style="font-size:11.5px;padding:3px 10px">看证据（12）</button>
+            <button class="dy-btn danger" type="button" style="font-size:11.5px;padding:3px 10px">删除此兴趣</button>
+            <span class="dy-cap">删除只移除这条兴趣汇总，不删观看足迹</span>
+          </span>
+        </span>
+      </div>
+      <div class="dy-tl-item"><span class="dy-tl-bar fact" aria-hidden="true"></span>
+        <span class="dy-tl-main">
+          <span class="dy-tl-head"><b class="dy-tl-topic">deepseek</b><span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span><span class="dy-tl-meta">6 正向 · 1 待观察</span></span>
+          <span class="dy-tl-count">最近：DeepInfer 推理框架讲解（停留 4 分钟）</span>
+          <span class="dy-row" style="margin:2px 0 0">
+            <button class="dy-btn" type="button" style="font-size:11.5px;padding:3px 10px">看证据（7）</button>
+            <button class="dy-btn danger" type="button" style="font-size:11.5px;padding:3px 10px">删除此兴趣</button>
+          </span>
+        </span>
+      </div>
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span>
+        <span class="dy-tl-main">
+          <span class="dy-tl-head"><b class="dy-tl-topic">桌宠</b><span class="dy-chip info"><span class="d" aria-hidden="true"></span>待观察</span><span class="dy-tl-meta">0 正向 · 1 待观察</span></span>
+          <span class="dy-tl-count">最近：蓝发鲸鱼娘桌宠（看完 91%）</span>
+          <span class="dy-row" style="margin:2px 0 0">
+            <button class="dy-btn" type="button" style="font-size:11.5px;padding:3px 10px">看证据（1）</button>
+            <button class="dy-btn primary" type="button" style="font-size:11.5px;padding:3px 10px">标记为不感兴趣</button>
+            <button class="dy-btn danger" type="button" style="font-size:11.5px;padding:3px 10px">删除此兴趣</button>
+          </span>
+        </span>
+      </div>
+    </div>
+    <p class="dy-note">「看证据」展开每条来源作品，可单条删除（级联清理该作品的行为样本，删前自动快照）。</p>
+  </div>
+
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>最近观察</h3><span class="sp"></span><span class="dy-cap">最新 20 条 · 只留一行摘要，详细数据在「观看足迹」</span></div>
+    <div class="dy-tl">
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">零成本用上 Opus 5.5！WorkBuddy 积分几乎不花</b><span class="dy-tl-meta">11-09 19:40 · @秋实KL</span></span></span></div>
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">Github 一周热点 136 期</b><span class="dy-tl-meta">11-09 19:38 · @IT咖啡馆</span></span></span></div>
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">本周 GitHub 神级项目，给 AI 装上新技能</b><span class="dy-tl-meta">11-09 19:28 · @FredTalk</span></span></span></div>
+    </div>
+    <p class="dy-note">标题超长自动两行截断；不再把 300 字文案整段铺在列表里。</p>
+  </div>
+</div></div></div>
+
+<!-- ═════ ② 回复处理记录（重排：每会话一张卡，按状态分组，事件流收进折叠） ═════ -->
+<h2 class="demo">② 回复处理记录 · 每会话一张状态卡；原始事件流收进「运行日志」折叠</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>rium1618</h3><span class="dy-chip ok"><span class="d" aria-hidden="true"></span>正常接收</span><span class="sp"></span><span class="dy-cap">检查 19:43:31</span></div>
+    <div class="dy-kv"><span class="k">待答</span><span>0 条 · 今天自动补答 0，人工结束 1</span></div>
+    <div class="dy-kv"><span class="k">恢复队列</span><span>自动恢复中 1 · 等待人工 0 · 可自动恢复 0</span></div>
+    <div class="dy-row" style="margin-top:6px">
+      <button class="dy-btn" type="button" style="font-size:11.5px;padding:3px 10px">查看待答</button>
+      <details style="flex:1;min-width:0"><summary style="font-size:11.5px;color:#6b7280;cursor:pointer">运行日志（最近 20 条）</summary>
+        <div style="font-size:11.5px;color:#6b7280;line-height:1.9;margin-top:4px">
+          19:43:22 正在自动整理待答…<br>19:43:22 message.read_evidence<br>19:27:09 关服期间的未回私信已进入待答并由自动补答回复<br>19:27:18 已知旧窗口或加载的历史行只更新水位，不回复
+        </div>
+      </details>
+    </div>
+  </div>
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>rium1618, rori</h3><span class="dy-chip warn"><span class="d" aria-hidden="true"></span>1 条转人工</span><span class="sp"></span><span class="dy-cap">检查 19:43:22</span></div>
+    <div class="dy-kv"><span class="k">待答</span><span>1 条 · 「@rori 说点什么」· 等待补答证据或排除已回复可能</span></div>
+    <div class="dy-row" style="margin-top:6px">
+      <button class="dy-btn" type="button" style="font-size:11.5px;padding:3px 10px">查看待答</button>
+      <button class="dy-btn" type="button" style="font-size:11.5px;padding:3px 10px">打开抖音核对</button>
+    </div>
+  </div>
+  <p class="dy-note">状态卡只放结论与动作；逐条时间戳日志收进折叠，排查时再展开。</p>
+</div></div></div>
+
+<!-- ═════ ③ 最近分享记录（从长代码行改为每行一卡：标题 + 状态胶囊 + 时间） ═════ -->
+<h2 class="demo">③ 最近分享记录 · 每条一张行卡，状态用胶囊；空状态给引导</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>最近分享记录</h3><span class="sp"></span><span class="dy-cap">最近 10 条 · 发送对象是你许可名单里的好友</span></div>
+    <div class="dy-tl">
+      <div class="dy-tl-item"><span class="dy-tl-bar fact" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">小显卡运行 DeepSeek</b><span class="dy-chip ok"><span class="d" aria-hidden="true"></span>已确认送达</span><span class="dy-tl-meta">→ rium1618 · 11-09 16:55</span></span></span></div>
+      <div class="dy-tl-item"><span class="dy-tl-bar" aria-hidden="true"></span><span class="dy-tl-main"><span class="dy-tl-head"><b class="dy-tl-topic" style="font-weight:500">作品 7701627003589479721</b><span class="dy-chip info"><span class="d" aria-hidden="true"></span>已预留，待核对</span><span class="dy-tl-meta">→ rium1618 · 11-09 15:02</span></span></span></div>
+    </div>
+  </div>
+  <div class="dy-card"><div class="dy-empty">还没有分享记录；自主观看中看到值得分享的作品时，会发给许可名单里的好友。</div></div>
+</div></div></div>
+
+<!-- ═════ ④ 今日用量（详拆：两行预算条 + 明细分账 + 分模型表） ═════ -->
+<h2 class="demo">④ 今日用量 · 预算带进度条，Token 明细输入/输出/缓存/未知分列，附口径说明</h2>
+<div class="dialog"><div class="dialog-body"><div class="dy-wrap">
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>今日预算</h3><span class="sp"></span><span class="dy-foot">2026-11-09</span></div>
+    <div class="dy-kv"><span class="k">观看时长</span><span style="flex:1"><span style="font-weight:600">280</span> / 360 分钟<span class="dy-meter"><i style="width:78%"></i></span></span></div>
+    <div class="dy-kv"><span class="k">模型请求</span><span style="flex:1"><span style="font-weight:600">146</span> / 20 次（已达上限，等待次日恢复）<span class="dy-meter"><i class="warn" style="width:100%"></i></span></span></div>
+  </div>
+  <div class="dy-card">
+    <div class="dy-card-top"><h3>Token 明细</h3><span class="sp"></span><span class="dy-cap">只统计本助手发起的模型响应</span></div>
+    <div class="dy-stat2">
+      <div class="dy-stat"><div class="v">1,554,650</div><div class="k">Token 合计</div></div>
+      <div class="dy-stat"><div class="v">170</div><div class="k">模型响应（次）</div></div>
+    </div>
+    <div class="dy-kv"><span class="k">输入</span><span>1,335,562（含缓存命中部分）</span></div>
+    <div class="dy-kv"><span class="k">输出</span><span>219,088</span></div>
+    <div class="dy-kv"><span class="k">缓存命中</span><span>未逐次报告；报告为未知的请求不按零消耗计</span></div>
+    <div class="dy-kv"><span class="k">用量未知</span><span>0 次 · 失败请求与 DSH 普通会话不计入</span></div>
+    <div class="dy-inner" style="margin-top:8px">
+      <div class="dy-card-top" style="margin-bottom:4px"><h3 style="font-size:12.5px">分模型</h3></div>
+      <div class="dy-kv"><span class="k">glm-5.3-flash</span><span>170 次响应 · 1,993,543 Token</span></div>
+      <div class="dy-kv"><span class="k">glm-5.3-flash</span><span>1 次响应 · 3,027 Token</span></div>
+      <div class="dy-kv"><span class="k">glm-5.3-flash</span><span>1 次响应 · 1,669 Token</span></div>
+    </div>
+  </div>
+</div></div></div>
+
+<p class="note" style="margin-top:18px"><b>改版要点</b>：① 兴趣页直接可删（级联 + 快照），待观察可一键转「不感兴趣」；最近观察只留一行摘要 ② 回复记录按会话分卡、日志折叠 ③ 分享记录行卡化 + 空态引导 ④ 用量拆预算条与 Token 明细两卡，口径写明。</p>
+</body>
+</html>
