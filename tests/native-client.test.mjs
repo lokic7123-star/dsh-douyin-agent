@@ -198,12 +198,13 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   await minutes.fill('25'); await page.waitForTimeout(850); assert.equal(state.video.policy.dailyMinutes, 25); assert.equal(state.video.policy.dailyRequests, 30);
   let releaseVideoSave;
   const saved = new Promise(received => { videoSaveGate = { received, wait: new Promise(resolve => { releaseVideoSave = resolve; }) }; });
-  await page.getByRole('checkbox', { name: '不限每日观看时长', exact: true }).click(); await saved;
+  await page.getByRole('switch', { name: '不限每日观看时长', exact: true }).click(); await saved;
   await minutes.fill('35'); releaseVideoSave(); await page.waitForTimeout(250);
   assert.equal(await minutes.inputValue(), '35'); assert.equal(state.video.policy.dailyMinutes, null);
   await page.waitForTimeout(700); assert.equal(state.video.policy.dailyMinutes, 35);
   stateVideoOverride = structuredClone(state.video);
-  await page.getByRole('checkbox', { name: '不限每日观看时长', exact: true }).click(); await page.waitForTimeout(350);
+  await page.getByRole('switch', { name: '不限每日观看时长', exact: true }).click(); await page.waitForTimeout(350);
+  assert.equal(await page.getByRole('switch', { name: '不限每日观看时长', exact: true }).getAttribute('aria-checked'), 'true', '第二次点击重新开启「不限」');
   assert.equal(state.video.policy.dailyMinutes, null); assert.equal(await minutes.inputValue(), '');
   stateVideoOverride = null; await page.waitForTimeout(250);
   state.video.policy = { ...state.video.policy, dailyMinutes: 45 }; await page.waitForFunction(() => document.querySelector('[aria-label="每日观看上限（分钟）"]').value === '45');
@@ -242,7 +243,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   const group = page.getByRole('checkbox', { name: '许可联系人 合成群聊乙', exact: true }); await group.waitFor(); assert.equal(await group.isDisabled(), true);
   assert.equal(calls.filter(item => item.route === '/chat/configure').length, beforeListSave, '读取列表不得自动改名单');
   await page.getByText('当前列表尚未完整读取。', { exact: false }).waitFor();
-  await page.getByRole('checkbox', { name: '授权已核对的现有会话', exact: true }).check(); await page.waitForTimeout(100);
+  await page.getByRole('switch', { name: '授权已核对的现有会话', exact: true }).click(); await page.waitForFunction(() => document.querySelector('[aria-label="授权已核对的现有会话"]').getAttribute('aria-checked') === 'true'); await page.waitForTimeout(100);
   assert.equal(calls.filter(item => item.route === '/chat/configure').length, beforeListSave, '单独授权确认不得先保存空或未变名单');
   await group.check();
   const names = page.getByRole('textbox', { name: '群聊响应昵称（逗号或换行分隔）', exact: true }); await names.fill('大肥鱼,小肥鱼'); await names.press('Tab'); await page.waitForTimeout(300);

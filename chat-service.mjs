@@ -758,7 +758,7 @@ export class ChatService {
         this.policy = { ...policy, allowlist: verifiedAllowlist, enabled: true };
         this.persist(); save(this.policyFile, this.policy); save(this.lockFile, { pid: process.pid, runId: this.runId, heartbeatAt: new Date().toISOString(), status: 'running' });
       }); this.running = true;
-      this.log('service.started', { message: '已建立现有消息基线，只回复此后新收到的私信。' });
+      this.log('service.started', { message: '已建立消息基线；关服期间的未回私信已进入待答并由自动补答回复。' });
       if (schedule) this.startPolling();
       return this.state();
     } catch (error) {
@@ -781,7 +781,7 @@ export class ChatService {
       return { ...this.state(), stopping: true, message: '已向当前回复进程发送停止请求。' };
     }
     if(!this.runId&&!preservePending)this.acquire();
-    this.stopContext={preservePending:preservePending===true,reason};if(this.runId){for(const mark of Object.values(this.watermarks.contacts)){delete mark.retry;if(!preservePending){if(mark.pending)mark.pending.restartAllowed=false;if(mark.recoveryQueue)mark.recoveryQueue.restartAllowed=false;}else if(mark.pending?.recoveryEvidence?.beforeDispatch===true&&['model','observing','superseded','outbound-wait','stopped-before-send'].includes(mark.pending.phase))allowMaintenanceRecovery(mark.pending);}this.persist();}this.running = false; this.stopPolling(); this.groupVideos?.interrupt();this.abort?.abort(new Error('用户停止私信自动回复。')); this.policy.enabled = false; this.log('service.stopped',{preservePending:preservePending===true,reason}); this.release(); return this.state();
+    this.stopContext={preservePending:preservePending===true,reason};if(this.runId){const stoppedAtIso=new Date().toISOString();for(const mark of Object.values(this.watermarks.contacts)){delete mark.retry;mark.stoppedAt=stoppedAtIso;if(!preservePending){if(mark.pending)mark.pending.restartAllowed=false;if(mark.recoveryQueue)mark.recoveryQueue.restartAllowed=false;}else if(mark.pending?.recoveryEvidence?.beforeDispatch===true&&['model','observing','superseded','outbound-wait','stopped-before-send'].includes(mark.pending.phase))allowMaintenanceRecovery(mark.pending);}this.persist();}this.running = false; this.stopPolling(); this.groupVideos?.interrupt();this.abort?.abort(new Error('用户停止私信自动回复。')); this.policy.enabled = false; this.log('service.stopped',{preservePending:preservePending===true,reason}); this.release(); return this.state();
   }
   resumeContact(id) {
     if (this.running || this.starting || this.busy || this.worker()?.alive) throw new Error('请先停止自动回复，再人工解除联系人暂停。');
@@ -836,6 +836,39 @@ export class ChatService {
       else if (item.state === 'reserved') { this.setTargetState(record, item.messageId, 'uncertain'); this.log('backlog.text_target_uncertain', { archiveId: record.archiveId, messageId: item.messageId, message: 'reserved 目标未在当前窗口找到与生成文本一致的已发出消息，降为 uncertain 继续等待读回。' }); }
     }
   }
+  // 人工接手读回（用户裁决 2026-11-09「回复了为什么还要待答」）：记录目标之后出现真实发出的
+  // outgoing（dom-message-id、非失败/待发/未发出），即视为人工已在原会话处理——记录自动结案退出待答清单。
+  // 机器人自身的回复（发送回执/读回证明/结案证明里的消息 id）不算人工回复——否则混合记录文字目标
+  // 确认后，下一轮 poll 会把机器人自己那条回复当作「人工接手」，吞掉仍在待答的媒体目标（交叉审核 B-1）。
+  // 已知取舍：人工若回复的是其他话题也会结案（人工在场即代表接手）；宁可少打扰，不长期悬挂。
+  botSentMessageIds(mark) {
+    const ids = new Set();
+    if (mark?.autoBacklog?.receipt?.messageId) ids.add(mark.autoBacklog.receipt.messageId);
+    for (const item of mark?.unanswered || []) {
+      if (item?.autoHandledProof?.messageId) ids.add(item.autoHandledProof.messageId);
+      if (item?.humanReplyProof?.messageId && item?.handledByUserAt) ids.add(item.humanReplyProof.messageId);
+      for (const target of item?.targetStates || []) { if (target?.proofMessageId) ids.add(target.proofMessageId); }
+    }
+    return ids;
+  }
+  closeIfHumanReplied(record, mark, contact, messages, mapped) {
+    const incoming = (record.incoming || []).map(item => item?.id).filter(Boolean);
+    if (!incoming.length || !Array.isArray(messages) || !messages.length) return false;
+    const botSent = this.botSentMessageIds(mark);
+    const targetIds = new Set([...(mapped?.targets ?? []).map(item => item.message.id), ...incoming]);
+    let lastIndex = -1;
+    for (const id of targetIds) { const index = messages.findIndex(message => message.id === id); if (index > lastIndex) lastIndex = index; }
+    if (lastIndex < 0) return false;
+    const humanReply = messages.slice(lastIndex + 1).find(message => message.sender === 'outgoing' && message.identitySource === 'dom-message-id' && message.failed !== true && message.pending !== true && message.sent !== false && !botSent.has(message.id));
+    if (!humanReply) return false;
+    record.handledByUserAt = new Date().toISOString();
+    record.humanReplyProof = { version: 1, source: 'observed-human-outgoing-v1', messageId: humanReply.id, at: record.handledByUserAt };
+    delete record.needsManual;
+    this.recordProgressed(mark);
+    this.log('backlog.human_replied_closed', { recipientId: contact.id, archiveId: record.archiveId, messageId: humanReply.id, message: '待答目标之后检测到人工已发出的回复，记录自动结案退出清单。' });
+    this.persist();
+    return true;
+  }
   qualifyNativeBacklog(contact, mark, snapshot, messages) {
     if (!mark || !hasStableConversationIdentity(contact) || !hasStableConversationIdentity(snapshot.contact) || !matchesAuthorizedContact(contact, snapshot.contact) || snapshot.conversation?.id !== contact.id) return;
     const stopRequest = load(this.stopFile, null);
@@ -844,27 +877,30 @@ export class ChatService {
       if (evidence) { record.recoveryEvidence = evidence; mark.autoBacklog = null; this.log('backlog.native_arrival_qualified', { recipientId: contact.id, count: 1 }); }
     }
   }
-  // 关服期间到达的未回消息（用户裁决 2026-11-09）：上次停止之后、且消息早于本次启动基线的原生来信进待答清单。
-  // 只收带 native 服务端时间戳的纯文字来信；没有上次水位（首次运行）或消息时间存疑的保守跳过，不猜。
+  // 关服期间到达的未回消息（用户裁决 2026-11-09，14:40 追加裁决：必须真正代答）：
+  // 上次服务停止之后到达且未被上一轮观测过的原生绑定文字来信进待答清单，带 offlineBacklogAt 边界
+  // 走 offline-native-arrival-v1 资格证据源（chat-message.mjs），由自动补答流程回复。
+  // 已被上一轮观测过（seen/context）的消息不重复入列；没有上次停止时间（崩溃）时保守回退到上轮启动时间。
   offlineUnanswered(contact, old, messages) {
     try {
       if (!old?.startedAt || !Array.isArray(messages) || !messages.length) return [];
-      const stoppedAt = Date.parse(old.startedAt);
-      if (!Number.isFinite(stoppedAt)) return [];
-      const outgoing = new Set((old.context || []).concat(old.seen || []).filter(Boolean));
+      const boundary = Date.parse(old.stoppedAt ?? old.startedAt);
+      if (!Number.isFinite(boundary)) return [];
+      const observed = new Set([...(old.seen || []), ...(old.context || []).map(item => item?.id).filter(Boolean)].filter(Boolean));
       const records = [];
       for (const message of messages) {
         const created = Date.parse(message.nativeCreatedAt);
-        if (!(message.sender === 'incoming' && Number.isFinite(created) && created > stoppedAt)) continue;
+        if (!(message.sender === 'incoming' && Number.isFinite(created) && created > boundary)) continue;
+        if (observed.has(message.id)) continue;
         if (message.kind !== 'text' || message.media || message.reference) continue;
         if (message.nativeServerMessageBound !== true || message.identitySource !== 'dom-message-id') continue;
         const mark={unanswered:[]};
-        const record={phase:'unqualified',at:new Date().toISOString(),incoming:[structuredClone(message)],reason:'服务离线期间收到，未回复；已进入待答，按证据链补答。'};
-        const evidence=qualifyNativeUnanswered(record,{...mark,startedAt:old.startedAt,context:[],seen:[...outgoing]},messages,structuredClone(messages.length?{contact,messageCount:messages.length}:{}),contact,load(this.stopFile,null));
+        const record={phase:'unqualified',at:new Date().toISOString(),offlineBacklogAt:boundary,incoming:[structuredClone(message)],reason:'服务离线期间收到，未回复；已进入待答，按证据链补答。'};
+        const evidence=qualifyNativeUnanswered(record,{...mark,startedAt:old.startedAt,context:[],seen:[...observed]},messages,structuredClone(messages.length?{contact,messageCount:messages.length}:{}),contact,load(this.stopFile,null));
         if (evidence) record.recoveryEvidence = evidence;
         records.push(record);
       }
-      if (records.length) this.log('backlog.offline_incoming', { recipientId: contact.id, count: records.length, message: '服务离线期间收到的私信已进入待答清单。' });
+      if (records.length) this.log('backlog.offline_incoming', { recipientId: contact.id, count: records.length, message: '服务离线期间收到的私信已进入待答清单，将由自动补答回复。' });
       return records;
     } catch (error) { this.log('backlog.offline_incoming_failed', { recipientId: contact.id, message: error.message?.slice(0, 120) || '离线来信核对失败，保守留在基线。' }); return []; }
   }
@@ -951,11 +987,21 @@ export class ChatService {
     for (const record of records) {
       // C3：needs-manual 终态记录退出状态机扫描（保留在待答清单供展示与人工结束），不空转。
       // P1-1 例外：混合记录的文字目标已进入发送/读回流程（targetStates 有 reserved/uncertain）时，读回核对不能因媒体部分转人工而中断。
+      // 人工接手结案（用户裁决 2026-11-09「回复了为什么还要待答」）：目标之后出现真实发出的 outgoing，
+      // 说明人工已在原会话处理，记录自动结案退出清单，不再长期悬挂。
       if (record.needsManual === true) {
         if (this.mixedRecordHasTextInFlight(record)) { this.readbackMixedRecordText(record, mark, messages); }
+        else { this.closeIfHumanReplied(record, mark, contact, messages); }
         continue;
       }
       const isUncertain = record.legacyUncertain === true || record.recoveryEvidence?.beforeDispatch === false || ['sending', 'delivery-uncertain'].includes(record.phase) || ['reserved', 'uncertain'].includes(record.autoAttempt?.state);
+      // 例外（2026-11-09 代答修复）：离线记录尚未取得资格证据时，当场用当前窗口补核（offline-native-arrival-v1），
+      // 必须发生在 savedContact 取值之前——补核成功即携带完整身份凭据正常推进代答；
+      // 仍核不出（消息挤出窗口等）才转 needs-manual，不在无证据时先杀。
+      if (!record.recoveryEvidence && Number.isFinite(record.offlineBacklogAt)) {
+        const offlineEvidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, load(this.stopFile, null));
+        if (offlineEvidence) { record.recoveryEvidence = offlineEvidence; mark.autoBacklog = null; this.log('backlog.native_arrival_qualified', { recipientId: contact.id, count: 1 }); }
+      }
       const savedContact = record.recoveryEvidence?.contact;
       // 身份凭据无法双向核对的记录不得静默跳过——那是用户不可见的永久卡死（漏答形态之一）。转 needs-manual 终态并补事件。
       if (!matchesAuthorizedContact(savedContact, contact) || !matchesAuthorizedContact(contact, savedContact)) {
@@ -978,6 +1024,9 @@ export class ChatService {
       let expectedText; try { expectedText = normalizeChatReplyText(record.autoAttempt?.text ?? record.generatedText ?? record.text); } catch {}
       const outgoing = backlogOutgoingReadback(record, mapped, messages, expectedText);
       if (outgoing) { this.settleBacklog(record, outgoing.id, mapped.uncertain ? 'uncertain-matching-native-outgoing' : 'observed-native-outgoing'); continue; }
+      // 人工接手防重复：目标之后已有人工发出的 outgoing（非本记录自动文本）时，代答不再排队——
+      // 既防双重复回复，也让「回复了为什么还要待答」的记录自动退出清单。
+      if (this.closeIfHumanReplied(record, mark, contact, messages, mapped)) continue;
       if (mapped.canSend) ready.push({ record, mapped });
     }
     ready = unmappedUncertain ? [] : ready.filter(item => item.mapped.targets.every(target => !uncertainTargets.has(target.message.id)) && item.record.recoveryEvidence.qualifiedIncoming.every(target => !uncertainSources.has(target.message.id + '\0' + target.fingerprint)));
@@ -1250,6 +1299,9 @@ export class ChatService {
           contact = this.refreshAuthorizedContact(contact, verified);delete mark.identityReviewRequired;delete mark.accountActionRequired;
           const messages = messagesOf(snapshot);this.rememberReplyQualifications(contact, messages);let restored=[],restoreEvidence;
           this.qualifyNativeBacklog(contact, mark, snapshot, messages);
+          // 人工接手结案（用户裁决 2026-11-09「回复了为什么还要待答」）：needs-manual 记录被 autoDue 短路不进扫描，
+          // 人工回复的读回结案在 poll 读回路径完成——人工在抖音里回过话，记录就退出待答清单。
+          for (const pendingManual of (mark.unanswered || [])) { if (pendingManual.needsManual === true && !this.mixedRecordHasTextInFlight(pendingManual)) this.closeIfHumanReplied(pendingManual, mark, contact, messages); }
           if(mark.recoveryQueue){restoreEvidence=mark.recoveryQueue.recoveryEvidence;restored=recoverableIncoming(mark.recoveryQueue,contact,messages,load(this.stopFile,null))||[];if(!restored.length){if(certainUnsentPending(mark.recoveryQueue)){this.log('recovery.certain_unsent_recheck_failed',{recipientId:contact.id,phase:mark.recoveryQueue.phase,message:'确定未发送的待答回读资格未通过（消息或会话已变化），转人工待答，不补发。'});archivePending(mark,mark.recoveryQueue,'重启前确定未发送，但回读时消息、会话或停止许可已经变化；宁可不发也不重复发。');}else archivePending(mark,mark.recoveryQueue,'维护恢复前消息、会话或停止许可已经变化，未补发旧待答。');}delete mark.recoveryQueue;this.persist();}
           if (hasStableConversationIdentity(contact) && mark.pending && mark.pending.phase !== 'handled-by-user' && (!matchesAuthorizedContact(mark.pending.recoveryEvidence?.contact, contact) || !matchesAuthorizedContact(contact, mark.pending.recoveryEvidence?.contact))) {
             archivePending(mark, mark.pending, '待答记录的旧身份凭据无法与当前稳定身份双向核对，仅留人工待答。'); delete mark.pending; this.persist();

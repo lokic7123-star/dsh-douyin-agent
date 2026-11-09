@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import {ChatService} from '../chat-service.mjs';
-import {messageFingerprint,messageContent} from '../chat-message.mjs';
+import {messageFingerprint,messageContent,isOpenBacklogRecord} from '../chat-message.mjs';
 
 // C1 隔离回放基建：R1–R6 脱敏失败案例的合成重建（来源：docs/backlog-forensics.md A 节结构关系）。
 // 全部消息文本为合成改写；id 为合成短 id；不包含任何真实联系人、真实消息原文或真实标识。
@@ -377,4 +377,58 @@ test('回放（P2）：uncertain 目标 + 正文匹配但 sent=false 的 outgoin
   messages.push({...textIncoming('real-echo','合成回放回复 1。'),sender:'outgoing',direction:'outgoing',sent:true});
   f.due();await f.service.poll();
   assert.equal(f.record('sentflag-').targetStates?.find(item=>item.messageId==='text-target')?.state,'confirmed','sent=true 的同文候选正常确认');
+});
+
+test('回放（离线代答）：关服来信记录经 offline-native-arrival-v1 证据源补核后真正代答发送一次（用户裁决 2026-11-09）',async t=>{
+  const target=textIncoming('offline-target','（合成改写）离线期间发来的私信');
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),target];
+  const f=await replay(t,{messages,records:[]});
+  // 离线记录形状 = offlineUnanswered 产出：无 recoveryEvidence、带 offlineBacklogAt（上次停止时间，早于消息创建）。
+  const record={archiveId:'replay-offline-',phase:'unqualified',at:new Date(Date.now()-60_000).toISOString(),offlineBacklogAt:Date.now()-600_000,incoming:[structuredClone(target)],reason:'服务离线期间收到，未回复；已进入待答，按证据链补答。'};
+  f.mark().unanswered.push(record);f.service.persist();
+  let sendCalls=0;f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
+  f.due();await f.service.poll();
+  assert.equal(record.recoveryEvidence?.qualificationSource,'offline-native-arrival-v1','离线记录应经离线证据源补核通过');
+  assert.equal(record.autoHandled,true,'离线来信应被真正代答，不再卡在 identity-unverifiable');
+  assert.equal(sendCalls,1,'恰好发送一次');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.native_arrival_qualified'),'补核通过应有事件');
+});
+
+test('回放（人工接手）：needs-manual 记录目标之后出现人工 outgoing 自动结案退出清单（用户裁决 2026-11-09「回复了为什么还要待答」）',async t=>{
+  const humanReply={...textIncoming('human-reply','（合成改写）人工手动回复'),sender:'outgoing',direction:'outgoing'};
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),humanReply];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-human-manual-',phase:'model',targetIds:['text-target']})]});
+  const record=f.record('replay-human-manual-');
+  record.needsManual=true;record.needsManualReason='media-unobservable';f.service.persist();
+  f.due();await f.service.poll();
+  assert.ok(record.handledByUserAt,'人工接手后记录应自动结案');
+  assert.equal(record.humanReplyProof?.messageId,'human-reply','结案应保留人工回复证据');
+  assert.ok(f.service.events.some(event=>event.type==='backlog.human_replied_closed'),'结案应有事件');
+  assert.equal(isOpenBacklogRecord(record),false,'结案记录退出待答清单口径');
+});
+
+test('回放（人工接手）：open 记录目标之后出现人工 outgoing 时不再排队代答，直接结案防重复',async t=>{
+  const humanReply={...textIncoming('human-reply-open','（合成改写）人工抢先把消息回了'),sender:'outgoing',direction:'outgoing'};
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),humanReply];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-human-open-',phase:'model',targetIds:['text-target']})]});
+  let sendCalls=0;f.service.browser.sendMessage=async()=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
+  f.due();await f.service.poll();
+  const record=f.record('replay-human-open-');
+  assert.equal(sendCalls,0,'人工已接手，代答不得再排队造成重复发送');
+  assert.ok(record.handledByUserAt,'记录应因人工接手自动结案');
+});
+
+test('回放（人工接手）：机器人自己的回复不得当作人工接手——混合记录媒体目标保持待答（交叉审核 B-1）',async t=>{
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),textIncoming('text-target','（合成改写）纯文字追问'),videoIncoming('video-1')];
+  const f=await replay(t,{messages,records:[archiveRecord(authorized,messages,{id:'replay-bot-echo-',phase:'model',targetIds:['text-target','video-1']})]});
+  f.service.browser.sendMessage=async(id,text,args)=>{args.authorize({recipientId:id,phase:'prepare'});args.authorize({recipientId:id,phase:'before-click'});return{confirmed:true,messageId:'bot-echo-1'};};
+  f.due();await f.service.poll();
+  const record=f.record('replay-bot-echo-');
+  assert.equal(record.mediaNeedsManual,true,'媒体目标应标需人工（与 C2 既有断言一致）');
+  // 第二轮：窗口里出现机器人自己发出的回复（与真实发送同形，且有发送证明可归因）。
+  messages.push({...textIncoming('bot-echo-1','合成回放回复 1。'),sender:'outgoing',direction:'outgoing'});
+  f.due();await f.service.poll();
+  assert.equal(record.handledByUserAt,undefined,'机器人自己的回复不得结案记录');
+  assert.equal(record.needsManual,true,'媒体待答必须继续保留在清单');
+  assert.ok(!f.service.events.some(event=>event.type==='backlog.human_replied_closed'),'不得产生失实的人工接手事件');
 });

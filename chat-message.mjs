@@ -65,28 +65,49 @@ export function compareMessageWatermark(expected, messages, evidence = {}) {
 
 export const isOpenBacklogRecord = record => Boolean(record && !record.handledByUserAt && record.autoHandled !== true && !record.autoHandledAt);
 const nativeArrivalSource = 'bound-native-after-observed-baseline-v1';
+// 离线来信证据源（用户裁决 2026-11-09）：关服/崩溃期间到达的原生绑定来信，检测时间可以远晚于创建时间，
+// 不适用 60 秒检测窗；边界取上次服务停止时间（record.offlineBacklogAt），创建必须晚于边界。
+const offlineArrivalSource = 'offline-native-arrival-v1';
 const plainNativeIncoming = message => message?.sender === 'incoming' && (!message.direction || message.direction === 'incoming') && message.kind === 'text' && !message.media && !message.reference && message.identitySource === 'dom-message-id' && message.nativeServerMessageBound === true && typeof message.text === 'string' && message.text.trim() && Number.isFinite(Date.parse(message.nativeCreatedAt));
 export function validBacklogQualification(record, item, current) {
   if (item?.qualified !== true || item.message?.sender !== 'incoming' || !/^[a-f0-9]{64}$/.test(item.fingerprint ?? '') || messageFingerprint(item.message) !== item.fingerprint) return false;
   if (item.originalEligibleForReply === true) return true;
   const proof = item.nativeArrivalEvidence, evidence = record?.recoveryEvidence;
-  if (record.phase !== 'unqualified' || item.originalEligibleForReply !== false || evidence?.qualificationSource !== nativeArrivalSource || proof?.source !== nativeArrivalSource || evidence.contact?.isGroup !== false || !plainNativeIncoming(item.message)) return false;
+  const source = evidence?.qualificationSource;
+  if (record.phase !== 'unqualified' || item.originalEligibleForReply !== false || (source !== nativeArrivalSource && source !== offlineArrivalSource) || proof?.source !== source || evidence.contact?.isGroup !== false || !plainNativeIncoming(item.message)) return false;
   const baseline = Date.parse(proof.observedBaselineAt), created = Date.parse(proof.nativeCreatedAt), detected = Date.parse(proof.detectedAt);
-  if (![baseline, created, detected].every(Number.isFinite) || created <= baseline || created > detected || detected - created > 60_000 || proof.detectedAt !== record.at || proof.nativeCreatedAt !== item.message.nativeCreatedAt || proof.fingerprint !== item.fingerprint || !record.incoming?.some(message => message.id === item.message.id && message.text === item.message.text)) return false;
+  if (![baseline, created, detected].every(Number.isFinite) || created <= baseline || created > detected || proof.detectedAt !== record.at || proof.nativeCreatedAt !== item.message.nativeCreatedAt || proof.fingerprint !== item.fingerprint || !record.incoming?.some(message => message.id === item.message.id && message.text === item.message.text)) return false;
+  // 离线来源：检测可以远晚于创建（关服数小时），但不允许检测早于创建、也不允许晚于记录创建之后才补造证据。
+  if (source === nativeArrivalSource && detected - created > 60_000) return false;
   return !current || plainNativeIncoming(current) && current.id === item.message.id && current.nativeCreatedAt === proof.nativeCreatedAt && messageFingerprint(current) === item.fingerprint;
 }
 
 // 仅恢复运行期间漏掉的原生新私信；展示时间、未发过的旧历史和发送不明均不足以放行。
+// 离线分支（offlineBacklogAt 存在）：关服/崩溃期间到达的来信没有 prior 观测可用，
+// 以「上次服务停止时间」为边界 + 原生绑定 + 目标仍是未答尾巴来放行（用户裁决 2026-11-09：离线私信要真正代答）。
 export function qualifyNativeUnanswered(record, previousMark, messages, snapshot, contact, stopRequest, now = Date.now()) {
   if (!isOpenBacklogRecord(record) || record.phase !== 'unqualified' || record.recoveryEvidence || record.autoAttempt || record.legacyUncertain || contact?.isGroup !== false || !Array.isArray(record.incoming) || record.incoming.length !== 1 || !Array.isArray(messages) || !messages.length || messages.length > 512) return null;
   const source = snapshot?.dayEvidence ?? snapshot;
   if (source?.chronology !== 'oldest-first' || source.latestEndVerified !== true || messages.some(message => message.latestEndVerified !== true || !['incoming', 'outgoing'].includes(message.sender) || message.direction && message.direction !== message.sender) || new Set(messages.map(message => message.id)).size !== messages.length) return null;
   const original = record.incoming[0], prior = previousMark?.context?.find(message => message.id === original.id), index = messages.findIndex(message => message.id === original.id), current = messages[index];
-  if (!plainNativeIncoming(current) || !prior || prior.sender !== 'incoming' || prior.identitySource !== 'dom-message-id' || prior.eligibleForReply !== false || prior.arrivalClassification !== 'ambiguous-new' || prior.latestEndVerified !== true || prior.text !== original.text || messageFingerprint(prior) !== messageFingerprint(current) || messages.slice(index + 1).some(message => message.sender === 'outgoing')) return null;
-  const baseline = Date.parse(previousMark.startedAt), created = Date.parse(current.nativeCreatedAt), detected = Date.parse(record.at), stopAt = Date.parse(stopRequest?.requestedAt);
-  if (![baseline, created, detected].every(Number.isFinite) || baseline >= created || created > detected || detected - created > 60_000 || detected > now || Date.parse(prior.timestamp ?? prior.sentAt) !== created || stopRequest?.preservePending !== true && Number.isFinite(stopAt) && stopAt >= detected) return null;
-  const fingerprint = messageFingerprint(current), item = { message: structuredClone(current), fingerprint, qualified: true, originalEligibleForReply: false, nativeArrivalEvidence: { source: nativeArrivalSource, observedBaselineAt: previousMark.startedAt, nativeCreatedAt: current.nativeCreatedAt, detectedAt: record.at, fingerprint } };
-  const evidence = { version: 1, qualificationSource: nativeArrivalSource, beforeDispatch: true, contact: structuredClone(contact), qualifiedIncoming: [item], expectedContent: messageContent(messages), qualifiedAt: new Date(now).toISOString() };
+  if (!plainNativeIncoming(current) || messages.slice(index + 1).some(message => message.sender === 'outgoing')) return null;
+  const offlineBoundary = Number.isFinite(record.offlineBacklogAt) ? record.offlineBacklogAt : null;
+  let fingerprint, item, evidence;
+  if (offlineBoundary !== null) {
+    // 离线分支：不要求 prior 观测、不适用 60 秒检测窗、不适用停止请求门（用户裁决覆盖停止方式）。
+    const created = Date.parse(current.nativeCreatedAt), detected = Date.parse(record.at);
+    if (!Number.isFinite(created) || created <= offlineBoundary || created > detected || detected > now) return null;
+    fingerprint = messageFingerprint(current);
+    item = { message: structuredClone(current), fingerprint, qualified: true, originalEligibleForReply: false, nativeArrivalEvidence: { source: offlineArrivalSource, observedBaselineAt: new Date(offlineBoundary).toISOString(), nativeCreatedAt: current.nativeCreatedAt, detectedAt: record.at, fingerprint } };
+    evidence = { version: 1, qualificationSource: offlineArrivalSource, beforeDispatch: true, contact: structuredClone(contact), qualifiedIncoming: [item], expectedContent: messageContent(messages), qualifiedAt: new Date(now).toISOString() };
+  } else {
+    if (!prior || prior.sender !== 'incoming' || prior.identitySource !== 'dom-message-id' || prior.eligibleForReply !== false || prior.arrivalClassification !== 'ambiguous-new' || prior.latestEndVerified !== true || prior.text !== original.text || messageFingerprint(prior) !== messageFingerprint(current)) return null;
+    const baseline = Date.parse(previousMark.startedAt), created = Date.parse(current.nativeCreatedAt), detected = Date.parse(record.at), stopAt = Date.parse(stopRequest?.requestedAt);
+    if (![baseline, created, detected].every(Number.isFinite) || baseline >= created || created > detected || detected - created > 60_000 || detected > now || Date.parse(prior.timestamp ?? prior.sentAt) !== created || stopRequest?.preservePending !== true && Number.isFinite(stopAt) && stopAt >= detected) return null;
+    fingerprint = messageFingerprint(current);
+    item = { message: structuredClone(current), fingerprint, qualified: true, originalEligibleForReply: false, nativeArrivalEvidence: { source: nativeArrivalSource, observedBaselineAt: previousMark.startedAt, nativeCreatedAt: current.nativeCreatedAt, detectedAt: record.at, fingerprint } };
+    evidence = { version: 1, qualificationSource: nativeArrivalSource, beforeDispatch: true, contact: structuredClone(contact), qualifiedIncoming: [item], expectedContent: messageContent(messages), qualifiedAt: new Date(now).toISOString() };
+  }
   return validBacklogQualification({ ...record, recoveryEvidence: evidence }, item, current) ? evidence : null;
 }
 export function mapBacklogMessages(record, messages) {
@@ -126,7 +147,8 @@ export function mapBacklogMessages(record, messages) {
   if (new Set(targets.map(item => item.message.id)).size !== targets.length) return { ready: false, reason: 'duplicate-target' };
   const uncertain = ['reserved', 'uncertain'].includes(record.autoAttempt?.state) || record.recoveryEvidence.beforeDispatch === false || ['sending', 'delivery-uncertain'].includes(record.phase);
   const laterOutgoing = messages.slice(Math.max(...targets.map(item => item.index)) + 1).some(message => message.sender === 'outgoing');
-  return { ready: true, targets, uncertain, laterOutgoing, canSend: !uncertain && !laterOutgoing && (['not-sent', 'model', 'observing', 'superseded', 'stopped-before-send'].includes(record.phase) || record.phase === 'unqualified' && evidence.qualificationSource === nativeArrivalSource) && record.recoveryEvidence.beforeDispatch === true };
+  // unqualified 放行两种证据源：运行期漏掉的（bound-native）与关服期间到达的（offline-native，用户裁决 2026-11-09 真正代答）。
+  return { ready: true, targets, uncertain, laterOutgoing, canSend: !uncertain && !laterOutgoing && (['not-sent', 'model', 'observing', 'superseded', 'stopped-before-send'].includes(record.phase) || record.phase === 'unqualified' && (evidence.qualificationSource === nativeArrivalSource || evidence.qualificationSource === offlineArrivalSource)) && record.recoveryEvidence.beforeDispatch === true };
 }
 
 export function backlogOutgoingReadback(record, mapping, messages, expectedText) {
