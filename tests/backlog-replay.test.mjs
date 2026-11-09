@@ -16,19 +16,20 @@ function archiveRecord(authorized,messages,{id,phase='model',targetIds,generated
   for(const targetId of targets){const message=structuredClone(messages.find(item=>item.id===targetId));incoming.push(message);qualified.push({message,fingerprint:messageFingerprint(message),qualified:true,originalEligibleForReply:true});}
   return{archiveId:id,phase,at:new Date(Date.now()-180_000).toISOString(),skippedAt:new Date(Date.now()-120_000).toISOString(),...(generatedText!==undefined?{generatedText}:{}),incoming,recoveryEvidence:{version:1,beforeDispatch,contact:structuredClone(authorized),qualifiedIncoming:qualified,expectedContent:messageContent(messages),qualifiedAt:new Date(Date.now()-170_000).toISOString(),stopRequestId:null}};
 }
-async function replay(t,{messages,records}){
+async function replay(t,{messages,records,contact:contactOverride}){
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'backlog-replay-'));
   let modelCalls=0;
-  const browser={listContacts:async()=>({contacts:[structuredClone(contact)]}),unreadCounts:async()=>({available:true,counts:{}}),readConversation:async()=>({conversation:{id:contact.id,isGroup:false},contact:structuredClone(contact),messages:structuredClone(messages),dayEvidence:{chronology:'oldest-first',latestEndVerified:true}}),sendMessage:async()=>{throw new Error('回放中不得触发真实发送路径');},close:async()=>{}};
+  const activeContact=contactOverride??contact;
+  const browser={listContacts:async()=>({contacts:[structuredClone(activeContact)]}),unreadCounts:async()=>({available:true,counts:{}}),readConversation:async()=>({conversation:{id:activeContact.id,isGroup:activeContact.isGroup},contact:structuredClone(activeContact),messages:structuredClone(messages),dayEvidence:{chronology:'oldest-first',latestEndVerified:true}}),sendMessage:async()=>{throw new Error('回放中不得触发真实发送路径');},close:async()=>{}};
   const agent={replyTokens:512,reply:async value=>{modelCalls++;return{text:`合成回放回复 ${modelCalls}。`};}};
   const service=new ChatService({browser,agent,stateDir:directory,config:{apiKey:'synthetic-key'}});
-  await service.configure({recipientIds:[contact.id],allowConversationOnly:true});await service.start({schedule:false});
+  await service.configure({recipientIds:[activeContact.id],allowConversationOnly:true});await service.start({schedule:false});
   // 归档记录的身份凭据必须来自已核对的许可名单（含 verifiedAt），与真实归档链路一致（chat-service recoveryEvidence.contact）。
   const authorized=structuredClone(service.policy.allowlist[0]);
-  const markValue=service.watermarks.contacts[contact.id];
+  const markValue=service.watermarks.contacts[activeContact.id];
   markValue.seen=messages.map(item=>item.id);markValue.unanswered=records.map(item=>typeof item==="function"?item(authorized):{...item,recoveryEvidence:{...item.recoveryEvidence,contact:structuredClone(authorized)}});markValue.pending=null;service.persist();
   t.after(async()=>{await service.close();fs.rmSync(directory,{recursive:true,force:true});});
-  const mark=()=>service.watermarks.contacts[contact.id];
+  const mark=()=>service.watermarks.contacts[activeContact.id];
   return{service,mark,authorized,record:id=>mark().unanswered.find(item=>item.archiveId.startsWith(id)),modelCalls:()=>modelCalls,due:()=>{if(mark().autoBacklog)mark().autoBacklog.nextRetryAt=new Date(0).toISOString();service.persist();}};
 }
 async function runReplayPoll(f){await f.service.poll();}
@@ -447,4 +448,31 @@ test('回放（存量复活）：旧代码误杀的 identity-unverifiable 无证
   assert.equal(record.autoHandled,true,'复活的离线来信应被真正代答');
   assert.equal(sendCalls,1,'恰好发送一次');
   assert.ok(f.service.events.some(event=>event.type==='backlog.legacy_record_revived'),'复活应有事件');
+});
+
+test('回放（群聊离线代答）：群里被 @ 或叫到响应昵称的离线消息与个人会话同一规则真正代答（用户裁决 2026-11-09）',async t=>{
+  const target=textIncoming('group-offline-target','大肥鱼，在干嘛');
+  const messages=[textIncoming('base-a','（合成改写）上下文一'),textIncoming('base-b','（合成改写）上下文二'),target];
+  const groupContact={...contact,isGroup:true,name:'（合成改写）群',identityKind:'rendered-group',identityHash:'0'.repeat(64),identityBinding:'binding:'+'1'.repeat(64)};
+  const f=await replay(t,{messages,records:[],contact:groupContact});
+  const record={archiveId:'replay-group-offline-',phase:'unqualified',at:new Date(Date.now()-60_000).toISOString(),offlineBacklogAt:Date.now()-600_000,incoming:[structuredClone(target)],reason:'服务离线期间收到，未回复；已进入待答，按证据链补答。'};
+  f.mark().unanswered.push(record);f.service.persist();
+  let sendCalls=0;f.service.browser.sendMessage=async(id,text,args)=>{sendCalls++;return{confirmed:true,messageId:'sent-1'};};
+  f.due();await f.service.poll();
+  assert.equal(record.recoveryEvidence?.qualificationSource,'offline-native-arrival-v1','被点名的群离线消息应经离线证据源补核通过');
+  assert.equal(record.autoHandled,true,'被点名的群离线消息应被真正代答');
+  assert.equal(sendCalls,1,'恰好发送一次');
+});
+
+test('回放（群聊离线过滤）：群里未被 @ 且未叫响应昵称的离线消息不进待答（用户裁决 2026-11-09，与实时链路同一规则）',async t=>{
+  const groupContact={...contact,isGroup:true,name:'（合成改写）群',identityKind:'rendered-group',identityHash:'0'.repeat(64),identityBinding:'binding:'+'1'.repeat(64)};
+  const f=await replay(t,{messages:[],records:[],contact:groupContact});
+  const old={startedAt:new Date(Date.now()-900_000).toISOString(),stoppedAt:new Date(Date.now()-600_000).toISOString(),seen:[],context:[]};
+  const plain=textIncoming('group-plain','在干嘛');
+  const records=f.service.offlineUnanswered(groupContact,old,[plain]);
+  assert.equal(records.length,0,'未被点名的群消息不得进待答');
+  const addressed=textIncoming('group-at','@大肥鱼 说点什么');
+  const records2=f.service.offlineUnanswered(groupContact,old,[structuredClone(addressed)]);
+  assert.equal(records2.length,1,'被点名的群消息应进待答');
+  assert.equal(records2[0].offlineBacklogAt,Date.parse(old.stoppedAt),'记录应携带离线边界');
 });

@@ -863,7 +863,7 @@ export class ChatService {
       if (!stamps.length) return false;
       record.offlineBacklogAt = Math.min(...stamps) - 1;
     }
-    const evidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, load(this.stopFile, null));
+    const evidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, load(this.stopFile, null), Date.now(), this.policy.groupMentionNames);
     if (!evidence) return false;
     record.recoveryEvidence = evidence;
     delete record.needsManual;
@@ -895,7 +895,7 @@ export class ChatService {
     if (!mark || !hasStableConversationIdentity(contact) || !hasStableConversationIdentity(snapshot.contact) || !matchesAuthorizedContact(contact, snapshot.contact) || snapshot.conversation?.id !== contact.id) return;
     const stopRequest = load(this.stopFile, null);
     for (const record of mark.unanswered || []) {
-      const evidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, stopRequest);
+      const evidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, stopRequest, Date.now(), this.policy.groupMentionNames);
       if (evidence) { record.recoveryEvidence = evidence; mark.autoBacklog = null; this.log('backlog.native_arrival_qualified', { recipientId: contact.id, count: 1 }); }
     }
   }
@@ -916,9 +916,11 @@ export class ChatService {
         if (observed.has(message.id)) continue;
         if (message.kind !== 'text' || message.media || message.reference) continue;
         if (message.nativeServerMessageBound !== true || message.identitySource !== 'dom-message-id') continue;
+        // 群聊与实时链路同一规则：仅 @ 自己或叫到响应昵称的离线消息进入待答；其余只标记已见，不生成待答（用户裁决 2026-11-09）。
+        if (contact.isGroup === true && !groupMessageAddressesFish(message, this.policy.groupMentionNames)) continue;
         const mark={unanswered:[]};
         const record={phase:'unqualified',at:new Date().toISOString(),offlineBacklogAt:boundary,incoming:[structuredClone(message)],reason:'服务离线期间收到，未回复；已进入待答，按证据链补答。'};
-        const evidence=qualifyNativeUnanswered(record,{...mark,startedAt:old.startedAt,context:[],seen:[...observed]},messages,structuredClone(messages.length?{contact,messageCount:messages.length}:{}),contact,load(this.stopFile,null));
+        const evidence=qualifyNativeUnanswered(record,{...mark,startedAt:old.startedAt,context:[],seen:[...observed]},messages,structuredClone(messages.length?{contact,messageCount:messages.length}:{}),contact,load(this.stopFile,null),Date.now(),this.policy.groupMentionNames);
         if (evidence) record.recoveryEvidence = evidence;
         records.push(record);
       }
@@ -1025,7 +1027,7 @@ export class ChatService {
       // 必须发生在 savedContact 取值之前——补核成功即携带完整身份凭据正常推进代答；
       // 仍核不出（消息挤出窗口等）才转 needs-manual，不在无证据时先杀。
       if (!record.recoveryEvidence && Number.isFinite(record.offlineBacklogAt)) {
-        const offlineEvidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, load(this.stopFile, null));
+        const offlineEvidence = qualifyNativeUnanswered(record, mark, messages, snapshot, contact, load(this.stopFile, null), Date.now(), this.policy.groupMentionNames);
         if (offlineEvidence) { record.recoveryEvidence = offlineEvidence; mark.autoBacklog = null; this.log('backlog.native_arrival_qualified', { recipientId: contact.id, count: 1 }); }
       }
       const savedContact = record.recoveryEvidence?.contact;

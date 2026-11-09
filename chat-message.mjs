@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { groupMessageAddressesFish } from './group-reply-trigger.mjs';
 
 const metadataTypes = new Set(['file', 'location', 'user-card', 'live', 'music', 'call', 'gift', 'video-attachment', 'link', 'unknown']);
 export const isMetadataMessage = message => metadataTypes.has(message?.media?.type) && message.media.understandingScope === 'visible-message-metadata-only';
@@ -74,7 +75,7 @@ export function validBacklogQualification(record, item, current) {
   if (item.originalEligibleForReply === true) return true;
   const proof = item.nativeArrivalEvidence, evidence = record?.recoveryEvidence;
   const source = evidence?.qualificationSource;
-  if (record.phase !== 'unqualified' || item.originalEligibleForReply !== false || (source !== nativeArrivalSource && source !== offlineArrivalSource) || proof?.source !== source || evidence.contact?.isGroup !== false || !plainNativeIncoming(item.message)) return false;
+  if (record.phase !== 'unqualified' || item.originalEligibleForReply !== false || (source !== nativeArrivalSource && source !== offlineArrivalSource) || proof?.source !== source || (source !== offlineArrivalSource && evidence.contact?.isGroup !== false) || !plainNativeIncoming(item.message)) return false;
   const baseline = Date.parse(proof.observedBaselineAt), created = Date.parse(proof.nativeCreatedAt), detected = Date.parse(proof.detectedAt);
   if (![baseline, created, detected].every(Number.isFinite) || created <= baseline || created > detected || proof.detectedAt !== record.at || proof.nativeCreatedAt !== item.message.nativeCreatedAt || proof.fingerprint !== item.fingerprint || !record.incoming?.some(message => message.id === item.message.id && message.text === item.message.text)) return false;
   // 离线来源：检测可以远晚于创建（关服数小时），但不允许检测早于创建、也不允许晚于记录创建之后才补造证据。
@@ -85,8 +86,12 @@ export function validBacklogQualification(record, item, current) {
 // 仅恢复运行期间漏掉的原生新私信；展示时间、未发过的旧历史和发送不明均不足以放行。
 // 离线分支（offlineBacklogAt 存在）：关服/崩溃期间到达的来信没有 prior 观测可用，
 // 以「上次服务停止时间」为边界 + 原生绑定 + 目标仍是未答尾巴来放行（用户裁决 2026-11-09：离线私信要真正代答）。
-export function qualifyNativeUnanswered(record, previousMark, messages, snapshot, contact, stopRequest, now = Date.now()) {
-  if (!isOpenBacklogRecord(record) || record.phase !== 'unqualified' || record.recoveryEvidence || record.autoAttempt || record.legacyUncertain || contact?.isGroup !== false || !Array.isArray(record.incoming) || record.incoming.length !== 1 || !Array.isArray(messages) || !messages.length || messages.length > 512) return null;
+export function qualifyNativeUnanswered(record, previousMark, messages, snapshot, contact, stopRequest, now = Date.now(), groupMentionNames) {
+  // 群聊仅对离线来源放行（与实时链路同一 @ 规则，见离线分支内的 groupMessageAddressesFish 复核）；
+  // 运行期漏掉的原生新私信仍维持仅个人会话。
+  const offlineGroup = Number.isFinite(record.offlineBacklogAt) && contact?.isGroup === true;
+  if (contact?.isGroup !== false && !offlineGroup) return null;
+  if (!isOpenBacklogRecord(record) || record.phase !== 'unqualified' || record.recoveryEvidence || record.autoAttempt || record.legacyUncertain || !Array.isArray(record.incoming) || record.incoming.length !== 1 || !Array.isArray(messages) || !messages.length || messages.length > 512) return null;
   const source = snapshot?.dayEvidence ?? snapshot;
   if (source?.chronology !== 'oldest-first' || source.latestEndVerified !== true || messages.some(message => message.latestEndVerified !== true || !['incoming', 'outgoing'].includes(message.sender) || message.direction && message.direction !== message.sender) || new Set(messages.map(message => message.id)).size !== messages.length) return null;
   const original = record.incoming[0], prior = previousMark?.context?.find(message => message.id === original.id), index = messages.findIndex(message => message.id === original.id), current = messages[index];
@@ -95,10 +100,15 @@ export function qualifyNativeUnanswered(record, previousMark, messages, snapshot
   let fingerprint, item, evidence;
   if (offlineBoundary !== null) {
     // 离线分支：不要求 prior 观测、不适用 60 秒检测窗、不适用停止请求门（用户裁决覆盖停止方式）。
+    // 边界取 min(上次停止, 48 小时前)：僵尸态（停止后又无基线恢复、或多轮停启）期间到达的消息
+    // 创建时间可能早于 stoppedAt，48 小时回望既兜住这类窗口，也挡住把更早的旧历史补造成离线来信。
     const created = Date.parse(current.nativeCreatedAt), detected = Date.parse(record.at);
-    if (!Number.isFinite(created) || created <= offlineBoundary || created > detected || detected > now) return null;
+    const lowerBound = Math.min(offlineBoundary, now - 48 * 3600000);
+    if (!Number.isFinite(created) || created <= lowerBound || created > detected || detected > now) return null;
+    // 群聊离线来信与实时链路同一规则：被原生 @ 自己或叫到响应昵称才可代答。
+    if (contact.isGroup === true && !groupMessageAddressesFish(current, groupMentionNames)) return null;
     fingerprint = messageFingerprint(current);
-    item = { message: structuredClone(current), fingerprint, qualified: true, originalEligibleForReply: false, nativeArrivalEvidence: { source: offlineArrivalSource, observedBaselineAt: new Date(offlineBoundary).toISOString(), nativeCreatedAt: current.nativeCreatedAt, detectedAt: record.at, fingerprint } };
+    item = { message: structuredClone(current), fingerprint, qualified: true, originalEligibleForReply: false, nativeArrivalEvidence: { source: offlineArrivalSource, observedBaselineAt: new Date(lowerBound).toISOString(), nativeCreatedAt: current.nativeCreatedAt, detectedAt: record.at, fingerprint } };
     evidence = { version: 1, qualificationSource: offlineArrivalSource, beforeDispatch: true, contact: structuredClone(contact), qualifiedIncoming: [item], expectedContent: messageContent(messages), qualifiedAt: new Date(now).toISOString() };
   } else {
     if (!prior || prior.sender !== 'incoming' || prior.identitySource !== 'dom-message-id' || prior.eligibleForReply !== false || prior.arrivalClassification !== 'ambiguous-new' || prior.latestEndVerified !== true || prior.text !== original.text || messageFingerprint(prior) !== messageFingerprint(current)) return null;
