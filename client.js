@@ -23,7 +23,10 @@ window.__ModuleLoader__.load({
     // CSS 与 docs/mockups/panel-redesign-v6.html 预览稿逐字一致（v6.2 已获用户批准）；实装用 dsw-alias 令牌，深色主题自动适配。
     const PANEL_CSS = `
 .dy-wrap{display:flex;flex-direction:column;gap:12px;min-width:0}
-:root{--dy-surface:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,var(--dsw-alias-bg-base));
+/* 派生描边色必须声明在 body 上：宿主的 --dsw-alias-* 令牌声明在 body 作用域，
+   若把派生变量放在 :root，color-mix 在 :root 求值时取不到 dsw-alias 令牌，
+   派生变量变成空值，随后 border 简写整条失效（计算值 0px none），控件就成了没有边框的裸元素。 */
+body{--dy-surface:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,var(--dsw-alias-bg-base));
   --dy-stroke:color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent);
   --dy-stroke-strong:color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent)}
 .dy-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

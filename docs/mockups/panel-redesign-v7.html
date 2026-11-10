@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>抖音浏览器 · 设置 v7 — 大肥鱼抖音助手</title>
 <style>:root{
-  --dy-surface: light-dark(color-mix(in srgb, #0f1115 4%, #ffffff), color-mix(in srgb, #f9fafb 4%, #151517));
-  --dy-stroke: light-dark(color-mix(in srgb, #0f1115 16%, transparent), color-mix(in srgb, #f9fafb 16%, transparent));
-  --dy-stroke-strong: light-dark(color-mix(in srgb, #0f1115 30%, transparent), color-mix(in srgb, #f9fafb 30%, transparent));
   --dsw-alias-brand-primary: light-dark(#0f1115, #f9fafb);
   --dsw-alias-label-primary: light-dark(#0f1115, #f9fafb);
 
@@ -28,6 +25,11 @@
 }html, body, div, span, h1, h2, h3, p, nav, section, label, input, select, textarea, button, details, summary{
   box-sizing: border-box;
 }body{
+  /* 派生描边色声明在 body 上（与实装逐字一致）：宿主的 --dsw-alias-* 令牌在 body 作用域，
+     放在 :root 时 color-mix 取不到 dsw-alias 令牌，派生变量变空，border 简写整条失效。 */
+  --dy-surface: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, var(--dsw-alias-bg-base));
+  --dy-stroke: color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+  --dy-stroke-strong: color-mix(in srgb, var(--dsw-alias-label-primary) 30%, transparent);
   margin: 0;
   padding: 16px;
   font-family: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -78,9 +80,7 @@
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  --dy-surface: color-mix(in srgb,var(--dsw-alias-label-primary) 4%,var(--dsw-alias-bg-base));
-  --dy-stroke: color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent);
-  --dy-stroke-strong: color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent);}.dy-head{
+}.dy-head{
   display: flex;
   align-items: center;
   gap: 8px;
