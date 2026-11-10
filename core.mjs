@@ -579,7 +579,9 @@ export class BrowserController {
     });
     this.queue = operation; return operation;
   }
-  async connect(signal, { launch = true, create = true, authorizePrepare } = {}) {
+  // selfHeal：后台自愈语义。允许在「只重连已有专用浏览器」失败时拉起专用宿主进程并连上 CDP，
+  // 只拉进程、不打开窗口页、不置前；页面创建仍受 authorizePrepare 与 create 约束。
+  async connect(signal, { launch = true, create = true, authorizePrepare, selfHeal = false } = {}) {
     aborted(signal);
     const label=browserPageLabel(this.source);
     let createdPage = null;
@@ -597,7 +599,13 @@ export class BrowserController {
     }
     if(!this.browser?.isConnected()){
       if (!launch) {
-        if (!await this.connectExistingBrowser({ signal })) throw Object.assign(new Error('专用浏览器未运行，未自动打开。'), { code: 'BROWSER_NOT_RUNNING' });
+        if (selfHeal) {
+          // 后台自愈：先试重连已存在的专用浏览器；确实没在运行才拉起专用宿主进程并连上 CDP。
+          // 只拉起宿主进程并复用同一 profile，不打开窗口页、不置前，页面创建仍受 create/authorizePrepare 约束。
+          const existing = await this.connectExistingBrowser({ signal });
+          if (existing) { this.browser = existing; this.page = null; }
+          else { this.browser = await connectDedicatedBrowser(await endpoint(signal), { signal }); this.page = null; }
+        } else if (!await this.connectExistingBrowser({ signal })) throw Object.assign(new Error('专用浏览器未运行，未自动打开。'), { code: 'BROWSER_NOT_RUNNING' });
       } else { this.browser=await connectDedicatedBrowser(await endpoint(signal),{signal});this.page=null; }
     }
     const releaseClaim=await lock('tab-claim',signal,this.controlDirectory);
@@ -614,7 +622,10 @@ export class BrowserController {
         const initial=[];
         for(const candidate of context.pages()){if(candidate.isClosed()||candidate.url()!=='about:blank')continue;if(await candidate.evaluate(()=>!window.name&&!document.body?.textContent?.trim()&&document.querySelectorAll('body *').length===0).catch(()=>false))initial.push(candidate);}
         if (authorizePrepare) { await authorizePrepare(); aborted(signal); }
-        this.page=initial.length===1?initial[0]:(createdPage=authorizePrepare?await createBackgroundPage(this.browser,context,{signal,authorizePrepare}):await context.newPage());
+        // 后台自愈拉起的宿主是刚启动的空白 profile，没有可做背景页见证的既有页面，
+        // 这时只能在该宿主自己的窗口里开一个标签（用户此时正等着打开抖音），不走背景页通道。
+        const backgroundCapable = !selfHeal || context.pages().length > 0;
+        this.page=initial.length===1?initial[0]:(createdPage=authorizePrepare&&backgroundCapable?await createBackgroundPage(this.browser,context,{signal,authorizePrepare}):await context.newPage());
         await this.page.evaluate(name=>{window.name=name;},label);
       }
       this.page.setDefaultTimeout(10_000);this.page.setDefaultNavigationTimeout(25_000);aborted(signal);
@@ -676,7 +687,7 @@ export class BrowserController {
     }
     return state;
   }
-  withPage(callback,{signal,launch=true,create=true,authorizePrepare}={}) {
+  withPage(callback,{signal,launch=true,create=true,authorizePrepare,selfHeal=false}={}) {
     const operation=this.queue.catch(()=>{}).then(async()=>{
       const release=await lock(browserPageLock(this.source),signal,this.controlDirectory);
       const onAbort=()=>{this.browser?.close().catch(()=>{});};
@@ -684,7 +695,7 @@ export class BrowserController {
       try {
         aborted(signal);
         if (authorizePrepare) { await authorizePrepare(); aborted(signal); }
-        const page=await this.connect(signal,{launch,create,authorizePrepare});
+        const page=await this.connect(signal,{launch,create,authorizePrepare,selfHeal});
         aborted(signal);
         if (['api', 'dsh'].includes(this.source)) await (await this.getWatchMode()).apply(page);
         if(new URL(page.url()).origin!=='https://www.douyin.com') throw Object.assign(new Error('专用标签页已离开抖音，请重新打开抖音或准备回复通道后操作。'), { code: 'CHAT_PAGE_LEFT_DOUYIN' });

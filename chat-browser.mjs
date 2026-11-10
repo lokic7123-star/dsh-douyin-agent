@@ -672,8 +672,8 @@ export class ChatBrowser {
     this.incomingBinding = `__deepseekIncoming_${randomUUID().replaceAll('-', '')}`;
     this.incomingPages = new WeakSet(); this.incomingHandlers = new Map(); this.incomingCleanup = new Set();
   }
-  withPage(callback, { signal, launch = false, create = launch, authorizePrepare } = {}) {
-    return this.controller.withPage(callback, { signal, launch, create, ...(authorizePrepare ? { authorizePrepare } : {}) });
+  withPage(callback, { signal, launch = false, create = launch, authorizePrepare, selfHeal = false } = {}) {
+    return this.controller.withPage(callback, { signal, launch, create, selfHeal, ...(authorizePrepare ? { authorizePrepare } : {}) });
   }
   async isForeground(page) {
     const focused = await page.evaluate(() => document.visibilityState === 'visible' && document.hasFocus()).catch(() => false);
@@ -970,6 +970,22 @@ export class ChatBrowser {
       const list = await this.contactList(current, signal, { enumerate: false, ensurePage: true });
       return { prepared: true, count: Array.isArray(list.contacts) ? list.contacts.length : 0 };
     }, { signal, launch: !automatic, create: true, ...(automatic ? { authorizePrepare } : {}) });
+  }
+  // 后台自愈入口：专用浏览器没在运行时，由后台自己把专用宿主拉起来并把消息页准备好。
+  // 与 prepareChat({automatic:true}) 是两条独立路径——自动准备按既有约定不得拉起宿主；
+  // 这里只拉起专用宿主进程与它自己的标签页，不置前、不改用户草稿、不在登录验证浮层下操作。
+  async selfHealChat({ signal, authorizePrepare } = {}) {
+    if (typeof authorizePrepare !== 'function') throw Object.assign(new Error('后台自愈缺少可信授权检查，未创建页面。'), { code: 'CHAT_PREPARE_UNSUPPORTED' });
+    await authorizePrepare();
+    return this.withPage(async (page, currentSignal) => {
+      if (await this.isForeground(page)) throw Object.assign(new Error('专用浏览器在前台，未自动切换私信页。'), { code: 'CHAT_FOREGROUND' });
+      const flags = await this.dialog(page, currentSignal, { open: true });
+      if (flags.blocked || flags.loginRequired || flags.verificationRequired) throw Object.assign(new Error('专用浏览器需要登录或验证，未自动打开消息页。'), { code: 'CHAT_LOGIN_REQUIRED', needsUserAction: true });
+      const draft = await page.evaluate(() => [...document.querySelectorAll('[data-e2e="im-dialog"] [data-e2e="msg-input"] [contenteditable="true"],[data-e2e="im-dialog"] [data-e2e="msg-input"] textarea,[data-e2e="im-dialog"] [data-e2e="msg-input"] input')].some(element => String(element.value ?? element.innerText ?? element.textContent ?? '').trim())).catch(() => false);
+      if (draft) throw Object.assign(new Error('专用聊天页保留了草稿，未自动切换。'), { code: 'CHAT_DRAFT_PRESENT' });
+      const list = await this.contactList(page, currentSignal, { enumerate: false, ensurePage: false });
+      return { prepared: true, count: Array.isArray(list.contacts) ? list.contacts.length : 0 };
+    }, { signal, launch: false, create: true, selfHeal: true, authorizePrepare });
   }
   listContacts({ signal, verifyFollowing = this.following === null, backgroundOnly = false } = {}) {
     return this.withPage(async page => {

@@ -174,6 +174,8 @@ export class ChatService {
     this.watermarks = load(this.watermarkFile, { version: 1, contacts: {}, days: {} });
     this.running = false; this.busy = false; this.timer = null; this.abort = null; this.starting = null; this.runId = null; this.heartbeat = null; this.ownershipLost = false;
     this.pollRequested = false; this.pollScheduled = null; this.incomingPriority = new Set(); this.incomingUnsubscribe = null; this.notificationsTask = null; this.notificationCleanup = null; this.lastFullScanAt = 0; this.unreadProbeUnavailable = false;
+    // 后台自愈：专用浏览器进程没在时自动拉起一次并重读；同一时刻只允许一个自愈任务，失败后进入冷却，避免每轮轮询重复拉起。
+    this.selfHealJob = null; this.selfHealCooldownUntil = 0; this.selfHealFailure = null;
     this.events = [];
     this.readEvidence = new Map();
     this.browserClosedNotices = new Map();
@@ -449,6 +451,38 @@ export class ChatService {
     });
   }
   async listContacts({ signal } = {}) { return this.browser.listContacts({ signal }); }
+  // 后台自愈：专用浏览器进程没在运行时自己拉起一次专用宿主、打开消息页并重读。
+  // 只拉进程、不把窗口置前；登录验证、用户草稿或浏览器在前台时一律不自动操作，转人工。
+  async selfHealBrowser() {
+    if (typeof this.browser.selfHealChat !== 'function') {
+      // 当前回复通道没有后台自愈能力，只能靠本人打开抖音；如实说明，不承诺会自动重试。
+      this.selfHealFailure = { code: 'BROWSER_NOT_RUNNING', message: '当前回复通道不支持后台自愈，需要本人打开抖音。', needsUserAction: false, unsupported: true };
+      return false;
+    }
+    if (this.selfHealJob) return this.selfHealJob;
+    if (Date.now() < this.selfHealCooldownUntil) return false;
+    const signal = this.abort?.signal;
+    if (!signal || signal.aborted) return false;
+    const job = (async () => {
+      const authorizePrepare = () => { signal.throwIfAborted(); this.assertOwned(); };
+      try {
+        const result = await this.browser.selfHealChat({ signal, authorizePrepare });
+        this.selfHealCooldownUntil = 0;
+        this.selfHealFailure = null;
+        this.log('browser.self_healed', { message: '专用浏览器没有在运行，已在后台自己拉起并打开消息页，继续检查消息。', count: Number.isSafeInteger(result?.count) ? result.count : 0 });
+        return true;
+      } catch (error) {
+        this.selfHealCooldownUntil = Date.now() + 60_000;
+        // 只有登录或验证未完成才需要本人接手；草稿保留与前台占用只是暂时不能自动操作。
+        this.selfHealFailure = { code: error.code || '', message: error.message || '', needsUserAction: error.code === 'CHAT_LOGIN_REQUIRED' };
+        this.log('browser.self_heal_failed', { code: error.code || '', message: error.message, needsUserAction: this.selfHealFailure.needsUserAction });
+        return false;
+      }
+    })();
+    this.selfHealJob = job;
+    try { return await job; }
+    finally { if (this.selfHealJob === job) this.selfHealJob = null; }
+  }
   async prepareChat({ signal, automatic = false, authorizePrepare } = {}) {
     if (automatic && (typeof this.browser.prepareChat !== 'function' || typeof authorizePrepare !== 'function')) throw Object.assign(new Error('自动准备入口不支持可信准备保护，未读取或新建页面。'), { code: 'CHAT_PREPARE_UNSUPPORTED' });
     const policy = validatePolicy(load(this.policyFile, this.policy));
@@ -718,7 +752,16 @@ export class ChatService {
     if (externalSignal?.aborted) externalAbort(); else externalSignal?.addEventListener('abort', externalAbort, { once: true });
     const signal = this.abort.signal;
     try {
-      const contacts = await this.browser.listContacts({ signal, backgroundOnly: true }); signal.throwIfAborted();
+      // 专用浏览器没在运行就自己拉起一次再读，避免后台服务因为浏览器退出就一直不工作。
+      let contacts;
+      try { contacts = await this.browser.listContacts({ signal, backgroundOnly: true }); }
+      catch (error) {
+        signal.throwIfAborted();
+        if (error.code !== 'BROWSER_NOT_RUNNING') throw error;
+        await this.selfHealBrowser();
+        contacts = await this.browser.listContacts({ signal, backgroundOnly: true });
+      }
+      signal.throwIfAborted();
       if (contacts.blocked || contacts.loginRequired || contacts.verificationRequired) throw new Error('抖音私信页面需要手动处理。');
       const verifiedAllowlist = [];
       for (const stored of this.policy.allowlist) {
@@ -1330,7 +1373,17 @@ export class ChatService {
         }
         if(mark.status!=='ready')continue;
         try {
-          const snapshot = await this.browser.readConversation(contact.id, { allowed: true, signal, weak: ['manual', 'existing-conversation', 'existing-group'].includes(contact.authorizationKind), backgroundOnly: true }); signal.throwIfAborted();
+          // 专用浏览器没在运行就自己拉起一次再重读；拉不起来仍按原样记为未运行，交给下一轮冷却后再试。
+          let snapshot;
+          try { snapshot = await this.browser.readConversation(contact.id, { allowed: true, signal, weak: ['manual', 'existing-conversation', 'existing-group'].includes(contact.authorizationKind), backgroundOnly: true }); }
+          catch (error) {
+            signal.throwIfAborted();
+            if (error.code !== 'BROWSER_NOT_RUNNING') throw error;
+            const healed = await this.selfHealBrowser();
+            if (!healed) throw error;
+            snapshot = await this.browser.readConversation(contact.id, { allowed: true, signal, weak: ['manual', 'existing-conversation', 'existing-group'].includes(contact.authorizationKind), backgroundOnly: true });
+          }
+          signal.throwIfAborted();
           this.browserClosedNotices.delete(contact.id);
           // 消息链路证据：页面就绪、消息读取时间戳、会话身份核对与消息集合变化。浏览器层未提供证据时记为 null，
           // 如实标注“无法证明”，不冒充已核对；仅在首读、集合变化、证据明确缺失或距上次记录满5分钟时写事件，避免刷日志。
@@ -1452,8 +1505,15 @@ export class ChatService {
             continue;
           }
           if (error.code === 'BROWSER_NOT_RUNNING') {
-            mark.status = 'ready'; mark.reason = '专用浏览器未运行；打开抖音后继续检查。'; this.persist();
-            this.browserClosedNotice(contact.id, '专用浏览器未运行，未自动打开。');
+            // 自愈失败时才落回未运行；登录或验证未完成需要本人接手，其余情况后台会自己重试。
+            const failure = this.selfHealFailure;
+            mark.status = 'ready';
+            if (failure?.needsUserAction) mark.reason = '专用浏览器需要登录或验证；完成后后台会继续检查。';
+            else if (failure?.unsupported) mark.reason = '专用浏览器未运行；当前回复通道不能自动拉起，请打开抖音后继续检查。';
+            else mark.reason = '专用浏览器未运行；后台自愈没能拉起，稍后自动重试。';
+            mark.accountActionRequired = failure?.needsUserAction === true;
+            this.persist();
+            this.browserClosedNotice(contact.id, mark.reason);
             continue;
           }
           if (mark.status === 'inflight') { mark.status = 'delivery-uncertain'; mark.reason = '发送被中断，需要人工核对。'; }
