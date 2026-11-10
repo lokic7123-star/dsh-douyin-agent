@@ -21,7 +21,7 @@ export const DOMAIN_FILES = Object.freeze([
   'group-video-inbox.mjs',
   'browser-pages.mjs', 'video-storyboard.mjs', 'contact-authorization.mjs', 'friend-interactions.mjs', 'friend-interactions-guard.mjs',
   'group-reply-trigger.mjs',
-  'scheduled-watch.mjs', 'interaction-status.mjs', 'settings-sections.mjs', 'usage-ledger.mjs', 'watch-options.mjs', 'diagnostics.mjs', 'api-agent.mjs', 'app.mjs', 'browser-host.mjs', 'chat-agent.mjs', 'chat-browser.mjs',
+  'scheduled-watch.mjs', 'watch-plan.mjs', 'interaction-status.mjs', 'settings-sections.mjs', 'usage-ledger.mjs', 'watch-options.mjs', 'diagnostics.mjs', 'api-agent.mjs', 'app.mjs', 'browser-host.mjs', 'chat-agent.mjs', 'chat-browser.mjs',
   'chat-message.mjs', 'chat-service.mjs', 'core.mjs', 'message-tracker.mjs', 'memory.mjs',
   'qq-sync.mjs', 'runtime-paths.mjs', 'tool-definitions.mjs', 'video-forward.mjs',
   'video-limits.mjs', 'playwright-runtime.mjs', 'receipt-baseline.mjs',

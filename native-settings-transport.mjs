@@ -4,7 +4,10 @@ export const SETTINGS_PREFIX = '/api/douyin-browser';
 export const SETTINGS_RPC_CHANNEL = '/douyin-settings';
 const MAX_BYTES = 262_144;
 const writes = new Set(['diagnostics','diagnostics/repair','interactions/configure','watch/schedule','watch/options','video/configure','video/start','video/stop','browser/open','browser/navigate','persona/configure','persona/context-observations','persona/interest/forget','memory/search','memory/forget','model/configure','mode/configure','watch/start','watch/stop','spark/configure','spark/start','spark/stop','spark/resolve','comments/configure','comments/resolve','share/configure','share/resolve','chat/contacts','chat/configure','chat/start','chat/stop','chat/prepare','chat/resolve','chat/unanswered/resolve','chat/unanswered/end','chat/unanswered/retry','media/configure','media/credentials','reports/generate']);
-const gets = ['/state','/reports/read','/chat/unanswered','/watched?days=14','/watched?days=30'];
+// 只读路由按「路径名」登记（宿主 connection.fetch 是精确 pathname 表，不看查询串）。
+// 早前把 '/watched?days=14' 这类带查询串的路径拿去登记，宿主会因路径段含 '?' 判为非法路由而拒绝登记，
+// 足迹与封面请求因此全部 404（2026-11-10 用户反馈「观看足迹还是 404」）。查询串统一由处理器自己读。
+const gets = ['/state','/reports/read','/chat/unanswered','/watched','/thumb'];
 const valid = (route, write) => write ? writes.has(route.slice(1)) : gets.includes(route) || /^\/watched\?days=\d{1,2}$/.test(route) || /^\/thumb\?videoId=\d{6,}$/.test(route) || /^\/reports\/read\?date=\d{4}-\d{2}-\d{2}$/.test(route);
 const result = (status, error) => ({ status, body: { error } });
 
