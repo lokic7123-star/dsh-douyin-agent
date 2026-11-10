@@ -488,7 +488,7 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
       const summary = (() => {
         if (!ready) return null;
         if (state?.model?.configured !== true) return { label: '模型未配置', tone: 'bad', detail: '还没有选择 DSH 提供商和模型，自动能力都不会运行。', tab: '基础设置', action: { label: '去处理', run: () => setCategory('基础设置') } };
-        if (replyPresence?.status === 'attention' && /浏览器未运行/.test(`${replyPresence?.label || ''} ${presenceReason || ''}`)) return { label: '浏览器未运行', tone: 'bad', detail: '专用浏览器没在运行，后台会自己拉起来重试；点「打开抖音」可立即恢复。', tab: '好友互动', action: { label: '打开抖音', run: () => { void perform('browser', () => api.request('/browser/open', {})); } } };
+        if (replyPresence?.status === 'attention' && /浏览器未运行/.test(`${replyPresence?.label || ''} ${presenceReason || ''}`)) return { label: '浏览器未运行', tone: 'bad', detail: '专用浏览器没在运行。有待回复的消息时后台会自己拉起来；点「打开抖音」可立即恢复。', tab: '好友互动', action: { label: '打开抖音', run: () => { void perform('browser', () => api.request('/browser/open', {})); } } };
         if (state?.video?.allowed === false && state.video.reason) {
           const code = state.video.reasonCode;
           const closed = code === 'disabled';

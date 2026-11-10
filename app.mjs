@@ -80,7 +80,7 @@ export function createApiServer({ controller, config, personaMemory, watchServic
   const usageLedger = new UsageLedger({ stateDir }), optionsService = watchService?.optionsService || new WatchOptions({ stateDir });
   agent.usageLedger = usageLedger;
   for (const service of [chatService, sparkService]) if (service?.agent) { service.agent.usageLedger = usageLedger; service.agent.source = 'api'; }
-  watchSchedule ??= new ScheduledWatch({ stateDir, source: 'api', getVideoLimits: async () => videoLimits, getWatchState: async () => watchService?.state(), stopWatch: async () => watchService?.stop({explicit:true}), startRound: async ({signal}) => { signal.throwIfAborted(); return watchService.start({startSession:true},{explicit:true}); } });
+  watchSchedule ??= new ScheduledWatch({ stateDir, source: 'api', getVideoLimits: async () => videoLimits, getWatchState: async () => watchService?.state(), stopWatch: async () => watchService?.stop({explicit:true}), startRound: async ({signal, expiresAt}) => { signal.throwIfAborted(); return watchService.start({startSession:true, expiresAt},{explicit:true}); } });
   friendInteractions ??= new FriendInteractions({ stateDir, getChat:()=>chatService, getShare:()=>shareService, getSpark:()=>sparkService, modelReady:()=>Boolean(config.apiKey) });
   const interactionSnapshot = () => { const friend=friendInteractions.state(); return interactionStatus({friend,chat:chatService?.state(),share:shareService?.state(),comments:commentService?.state(),watch:watchService?.state(),modelReady:Boolean(config.apiKey)}); };
   const usageSnapshot = () => { const watch=watchService?.state(),chat=chatService?.state(),pendingChat=chat?.contacts?.filter(item=>item.pending?.phase==='model').length||0; return {...usageLedger.state(),checkedAt:new Date().toISOString(),inProgress:{watch:watch?.pendingRequests||0,chat:pendingChat,total:(watch?.pendingRequests||0)+pendingChat},videoDaily:videoLimits?.state().daily||null}; };
@@ -519,7 +519,7 @@ export async function startApiServer({ port = Number(process.env.DOUYIN_API_PORT
     else { const { WatchMode } = await import('./watch-mode.mjs'); modeService = new WatchMode({ stateDir: videoLimits.stateDir ?? resolveRuntimePaths().stateDir, source: 'api' }); }
   }
   if (!sparkService && chatService.browser) sparkService = new SparkService({ browser: chatService.browser, config, personaMemory, stateDir: videoLimits.stateDir ?? resolveRuntimePaths().stateDir, source: 'api' });
-  if (!watchService) watchService = new AutonomousWatch({ controller, config, personaMemory, videoLimits, agent, stateDir: videoLimits.stateDir ?? resolveRuntimePaths().stateDir });
+  if (!watchService) watchService = new AutonomousWatch({ controller, config, personaMemory, videoLimits, agent, memoryStore: typeof controller.store === 'function' ? () => controller.store() : null, stateDir: videoLimits.stateDir ?? resolveRuntimePaths().stateDir });
   watchService.shareService = shareService;
   watchService.commentService = commentService; watchService.ownsCommentService = false;
   if (reportService) watchService.reportService = reportService;

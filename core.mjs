@@ -497,7 +497,7 @@ export class BrowserController {
     try {
       return await observeChatSharedWork({ ...input, videoLimits: this.limits(),
         createInspector: () => new BrowserController({ source: 'api', videoLimits: this.limits(), controlDirectory: this.controlDirectory }),
-        createWatch: controller => new AutonomousWatch({ controller, config: {}, videoLimits: this.limits(), personaMemory: this.getPersonaMemory(), stateDir: this.limits().stateDir, source: 'api' }),
+        createWatch: controller => new AutonomousWatch({ controller, config: {}, videoLimits: this.limits(), personaMemory: this.getPersonaMemory(), memoryStore: () => this.store(), stateDir: this.limits().stateDir, source: 'api' }),
       });
     } finally { release(); }
   }

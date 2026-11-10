@@ -196,7 +196,7 @@ export async function apply(ctx, config = {}) {
     if (!watchPromise) watchPromise=Promise.all([getController(),import('./autonomous-watch.mjs?v=18')]).then(async ([controller,{AutonomousWatch}])=>{
       if(starting) sharedPersona.initialize({importLegacy:false});
       const route=exec.agent?.session?.requestHeader?.()?.config ?? exec.agent?.options ?? {};
-      return new AutonomousWatch({controller,videoLimits:controller.limits(),personaMemory:sharedPersona,commentService:await controller.getComments(),reportService:await controller.getReport(),source:'dsh',config:{apiKey:'',baseUrl:'https://api.deepseek.com',model:route.model||'deepseek-flash'},...(starting?{decisionProvider:createNativeWatchDecision({llm:optionalService(ctx,'llm'),attachments:optionalService(ctx,'attachments'),agent:exec.agent})}:{})});
+      return new AutonomousWatch({controller,videoLimits:controller.limits(),personaMemory:sharedPersona,memoryStore:()=>controller.store(),commentService:await controller.getComments(),reportService:await controller.getReport(),source:'dsh',config:{apiKey:'',baseUrl:'https://api.deepseek.com',model:route.model||'deepseek-flash'},...(starting?{decisionProvider:createNativeWatchDecision({llm:optionalService(ctx,'llm'),attachments:optionalService(ctx,'attachments'),agent:exec.agent})}:{})});
     }).catch(error=>{watchPromise=undefined;throw error;});
     const watch=await watchPromise;
     if(starting) {
@@ -216,7 +216,7 @@ export async function apply(ctx, config = {}) {
     if (starting && !spark.running && !spark.starting && !spark.busy) spark.setGreetingProvider(createNativeSparkGreeting({ llm: optionalService(ctx, 'llm'), agent: exec.agent }));
     return spark;
   };
-  const watchSchedule = new ScheduledWatch({ source:'dsh', getVideoLimits: async () => (await getController()).limits(), getWatchState: async () => (await getWatch(settingsExec(),false)).state(), stopWatch:async()=> (await getWatch(settingsExec(),false)).stop({explicit:true}), startRound: async ({signal}) => { const watch=await getWatch(settingsExec(true),true); signal.throwIfAborted(); return watch.start({startSession:true},{explicit:true}); } });
+  const watchSchedule = new ScheduledWatch({ source:'dsh', getVideoLimits: async () => (await getController()).limits(), getWatchState: async () => (await getWatch(settingsExec(),false)).state(), stopWatch:async()=> (await getWatch(settingsExec(),false)).stop({explicit:true}), startRound: async ({signal, expiresAt}) => { const watch=await getWatch(settingsExec(true),true); signal.throwIfAborted(); return watch.start({startSession:true, expiresAt},{explicit:true}); } });
   const friendInteractions=new FriendInteractions({getChat:async()=>(await getController()).getChatService(),getShare:async()=>(await getWatch(settingsExec(),false)).getShareService(),getSpark:async()=>(await getController()).getSparkService(),modelReady:()=>modelSettings.state().configured,startChat:async(chat,{signal})=>{chat.agent.config.model=modelSettings.state().model;chat.setReplyProvider(request=>{chat.agent.config.model=modelSettings.state().model;return createNativeChatReply({llm:optionalService(ctx,'llm'),attachments:optionalService(ctx,'attachments'),agent:settingsExec(true).agent,maxTokens:1000})(request);});return chat.start({schedule:true,signal});}});
   let diagnostics;
   const getDiagnostics = async () => {

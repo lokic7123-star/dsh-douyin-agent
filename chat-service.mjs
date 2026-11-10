@@ -752,15 +752,10 @@ export class ChatService {
     if (externalSignal?.aborted) externalAbort(); else externalSignal?.addEventListener('abort', externalAbort, { once: true });
     const signal = this.abort.signal;
     try {
-      // 专用浏览器没在运行就自己拉起一次再读，避免后台服务因为浏览器退出就一直不工作。
-      let contacts;
-      try { contacts = await this.browser.listContacts({ signal, backgroundOnly: true }); }
-      catch (error) {
-        signal.throwIfAborted();
-        if (error.code !== 'BROWSER_NOT_RUNNING') throw error;
-        await this.selfHealBrowser();
-        contacts = await this.browser.listContacts({ signal, backgroundOnly: true });
-      }
+      // 启动阶段只读一次联系人不拉起浏览器：没人发消息、也没有欠账要回时，
+      // 不该因为「专用浏览器没在运行」就把抖音打开（2026-11-10 用户裁决：启动不触发）。
+      // 真正有欠账时，轮询阶段会自己拉起一次再读。
+      const contacts = await this.browser.listContacts({ signal, backgroundOnly: true });
       signal.throwIfAborted();
       if (contacts.blocked || contacts.loginRequired || contacts.verificationRequired) throw new Error('抖音私信页面需要手动处理。');
       const verifiedAllowlist = [];
@@ -1342,6 +1337,9 @@ export class ChatService {
       const dueBacklog=new Set(prioritized.filter(contact=>this.autoDue(this.watermarks.contacts[contact.id])).map(contact=>contact.id));
       // 带恢复队列的会话必须读取：恢复核对不依赖未读角标，漏掉会让重启恢复条件失效。
       const recovering=new Set(prioritized.filter(contact=>this.watermarks.contacts[contact.id]?.recoveryQueue).map(contact=>contact.id));
+      // 「有欠账」的会话：待答、要重试、待恢复、明确来了新消息，或角标探针报了未读。
+      // 只有这些会话才允许为了回复而自己拉起浏览器（2026-11-10 用户裁决：没人欠账就不开抖音）。
+      const debt = new Set([...dueBacklog, ...recovering, ...this.incomingPriority]);
       let toRead = new Set(prioritized.map(contact => contact.id));
       if (typeof this.browser.unreadCounts === 'function') {
         const now = Date.now(), fullScan = !this.lastFullScanAt || now - this.lastFullScanAt >= this.fullScanIntervalMs;
@@ -1353,6 +1351,7 @@ export class ChatService {
             if (hints.available === true && hints.counts && typeof hints.counts === 'object') {
               this.unreadProbeUnavailable = false;
               const unread = new Set(Object.entries(hints.counts).filter(([, count]) => Number(count) > 0).map(([id]) => id));
+              for (const id of unread) debt.add(id);
               toRead = new Set([...this.incomingPriority, ...unread, ...dueBacklog, ...recovering]);
               if (!toRead.size) return;
             } else { this.lastFullScanAt = now; this.unreadProbeUnavailable = true; }
@@ -1361,6 +1360,9 @@ export class ChatService {
       }
       for (let contact of prioritized) {
         if (!toRead.has(contact.id)) continue;
+        // 先记住「这条会话被通知过有新消息」：读取失败时要把这个线索还回去，
+        // 否则消息还没确认读到，通知却先丢了，之后再也没人回来读它。
+        const priorityNotified = this.incomingPriority.has(contact.id);
         this.incomingPriority.delete(contact.id);
         signal.throwIfAborted(); this.assertOwned(); const mark = this.watermarks.contacts[contact.id];
         if(!mark)continue;
@@ -1378,7 +1380,12 @@ export class ChatService {
           try { snapshot = await this.browser.readConversation(contact.id, { allowed: true, signal, weak: ['manual', 'existing-conversation', 'existing-group'].includes(contact.authorizationKind), backgroundOnly: true }); }
           catch (error) {
             signal.throwIfAborted();
+            // 这次没读到消息，通知线索要还回去，下一轮才会继续来读这条会话。
+            if (priorityNotified) this.incomingPriority.add(contact.id);
             if (error.code !== 'BROWSER_NOT_RUNNING') throw error;
+            // 只有确实有欠账（待答、要重试、待恢复、明确来了新消息或角标有未读）才自己拉起浏览器；
+            // 没有欠账就不为了「顺便看一眼」把抖音打开（2026-11-10 用户裁决：没人欠账就不开抖音）。
+            if (!debt.has(contact.id)) { error.noDebt = true; throw error; }
             const healed = await this.selfHealBrowser();
             if (!healed) throw error;
             snapshot = await this.browser.readConversation(contact.id, { allowed: true, signal, weak: ['manual', 'existing-conversation', 'existing-group'].includes(contact.authorizationKind), backgroundOnly: true });
@@ -1508,11 +1515,14 @@ export class ChatService {
             // 自愈失败时才落回未运行；登录或验证未完成需要本人接手，其余情况后台会自己重试。
             const failure = this.selfHealFailure;
             mark.status = 'ready';
-            if (failure?.needsUserAction) mark.reason = '专用浏览器需要登录或验证；完成后后台会继续检查。';
+            if (error.noDebt === true) mark.reason = '专用浏览器未运行；当前没有待回复的消息，未自动打开抖音。';
+            else if (failure?.needsUserAction) mark.reason = '专用浏览器需要登录或验证；完成后后台会继续检查。';
             else if (failure?.unsupported) mark.reason = '专用浏览器未运行；当前回复通道不能自动拉起，请打开抖音后继续检查。';
             else mark.reason = '专用浏览器未运行；后台自愈没能拉起，稍后自动重试。';
             mark.accountActionRequired = failure?.needsUserAction === true;
             this.persist();
+            // 未运行本身仍记一条（降频），这样面板和日志都能看出专用浏览器没在运行；
+            // 只是不会因为它去把抖音打开。
             this.browserClosedNotice(contact.id, mark.reason);
             continue;
           }

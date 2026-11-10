@@ -30,11 +30,16 @@ function fixture(t, options = {}) {
   return { service, messages, sent, inputs, directory, browser, agent, heals };
 }
 const prepare = async (f, limit = 40) => { await f.service.configure({ recipientIds: [contact.id], dailyReplyLimit: limit }); await f.service.start({ schedule: false }); };
+// 全量兜底那一轮不查未读角标；把上次全量时间推到当下，让这一轮走未读探针，
+// 「有未读＝有人欠账」这条线索才进得来。
+const prepareWithDebtProbe = async (f) => { await prepare(f); f.service.lastFullScanAt = Date.now(); };
 const events = (f) => fs.readFileSync(f.service.logFile, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
 
 test('浏览器没在运行时后台自己拉起并重读，之后按正常资格回复', async t => {
   const f = fixture(t);
-  await prepare(f);
+  await prepareWithDebtProbe(f);
+  // 角标报未读＝有人确实在等回复，属于「有欠账」，才允许为了回复自己拉起浏览器。
+  f.browser.unreadCounts = async () => ({ available: true, counts: { [contact.id]: 1 } });
   let down = true;
   const read = f.browser.readConversation;
   f.browser.readConversation = async (id, args) => { if (down) { down = false; throw notRunning(); } return read(id, args); };
@@ -51,7 +56,9 @@ test('浏览器没在运行时后台自己拉起并重读，之后按正常资�
 
 test('自愈失败时落回未运行状态并进入冷却，不每轮重复拉起', async t => {
   const f = fixture(t, { browser: { selfHealChat: async () => { throw Object.assign(new Error('合成自愈失败'), { code: 'CHAT_LOGIN_REQUIRED', needsUserAction: true }); } } });
-  await prepare(f);
+  await prepareWithDebtProbe(f);
+  // 同样先制造欠账：有欠账才允许拉起，否则属于「没人欠账就别开抖音」。
+  f.browser.unreadCounts = async () => ({ available: true, counts: { [contact.id]: 1 } });
   f.browser.readConversation = async () => { throw notRunning(); };
   await f.service.poll(); await f.service.poll(); await f.service.poll();
   const row = f.service.state().contacts[0];
@@ -63,21 +70,24 @@ test('自愈失败时落回未运行状态并进入冷却，不每轮重复拉�
   assert.equal(lines.filter(item => item.type === 'message.browser_closed').length, 1, '未运行日志仍降频记录一条');
 });
 
-test('启动阶段浏览器没在运行也会自愈一次再建立基线', async t => {
+test('启动阶段浏览器没在运行也不拉起：没人欠账就不该打开抖音', async t => {
   const f = fixture(t);
   await f.service.configure({ recipientIds: [contact.id], dailyReplyLimit: 40 });
   let down = true;
   const list = f.browser.listContacts;
   f.browser.listContacts = async (options) => { if (down) { down = false; throw notRunning(); } return list(options); };
-  await f.service.start({ schedule: false });
-  assert.equal(f.heals.length, 1);
-  assert.equal(f.service.state().running, true);
+  // 启动阶段只读一次联系人不拉起浏览器（2026-11-10 用户裁决：启动不触发）。
+  await assert.rejects(() => f.service.start({ schedule: false }), error => error.code === 'BROWSER_NOT_RUNNING');
+  assert.equal(f.heals.length, 0, '启动阶段不自己拉起浏览器');
+  assert.equal(f.service.state().running, false);
 });
 
 test('自愈只在浏览器控制器支持时启用，不支持时保持原样记录未运行', async t => {
   const f = fixture(t);
   delete f.browser.selfHealChat;
-  await prepare(f);
+  await prepareWithDebtProbe(f);
+  // 有欠账才会尝试自愈；这里控制器不支持自愈，于是保持原样记为未运行。
+  f.browser.unreadCounts = async () => ({ available: true, counts: { [contact.id]: 1 } });
   f.browser.readConversation = async () => { throw notRunning(); };
   await f.service.poll();
   const row = f.service.state().contacts[0];

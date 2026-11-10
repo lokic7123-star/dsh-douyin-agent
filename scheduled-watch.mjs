@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveRuntimePaths } from './runtime-paths.mjs';
+import { ensurePlan, planSession, closeSession, savePlan, cooldownMinutes, resumePlan, loadPlan, planDate } from './watch-plan.mjs';
 
 const DAY=86400000, defaultPolicy={enabled:false};
 const load=(file,fallback)=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch(error){if(error.code==='ENOENT')return fallback;throw new Error('自动启动记录无法读取，未重置原记录。');}};
@@ -15,48 +16,93 @@ export function scheduledSlot(policy,now) {
 }
 function policyOf(value){if(!value||Array.isArray(value)||Object.keys(value).some(key=>!['enabled','maxRequests'].includes(key))||typeof value.enabled!=='boolean')throw new Error('允许观看只接受开关。');return{enabled:value.enabled};}
 
-// 总允许开关保持开启时，在允许时段和每日额度内自动继续；异常保留到人工处理。
+// 「允许观看」开着的时候，按当天随机日程自己刷：
+// 启动本身不构成「想刷」——第一次看要等一个随机点；每场看多久、两场之间歇多久都随机；
+// 一天可能看不满，也可能一场都不看。异常保留到人工处理。
 export class ScheduledWatch {
-  constructor({stateDir=resolveRuntimePaths().stateDir,getVideoLimits,getWatchState,startRound,source='api',now=Date.now,intervalMs=5000}={}){Object.assign(this,{stateDir,getVideoLimits,getWatchState,startRound,source,now,intervalMs});this.policyFile=path.join(stateDir,'watch-schedule-policy.json');this.ledgerFile=path.join(stateDir,'watch-schedule-runs.json');this.guardFile=path.join(stateDir,'watch-schedule.guard');this.closed=false;}
+  constructor({stateDir=resolveRuntimePaths().stateDir,getVideoLimits,getWatchState,startRound,source='api',now=Date.now,intervalMs=5000,random=Math.random,firstDelayMinutes=null,allowLazy=true}={}){Object.assign(this,{stateDir,getVideoLimits,getWatchState,startRound,source,now,intervalMs,random,firstDelayMinutes,allowLazy});this.policyFile=path.join(stateDir,'watch-schedule-policy.json');this.ledgerFile=path.join(stateDir,'watch-schedule-runs.json');this.guardFile=path.join(stateDir,'watch-schedule.guard');this.closed=false;}
   policy(){return policyOf(load(this.policyFile,{...defaultPolicy}));}
-  ledger(){const value=load(this.ledgerFile,{version:1,runs:[]});if(value?.version!==1||!Array.isArray(value.runs)||value.runs.some(item=>!item?.key||!['starting','started','failed','occupied','acknowledged'].includes(item.status)))throw new Error('自动观看回执损坏，未覆盖或重试。');return value;}
-  state(){const policy=this.policy(),ledger=this.ledger(),last=ledger.runs.at(-1)||null,lastError=Object.hasOwn(ledger,'lastError')?ledger.lastError:last?.status==='failed'?last.error||this.error||'自主观看异常停止，请检查后重新开启允许观看。':this.error||'';return{protocol:'scheduled-watch-v2',policy,last,busy:Boolean(this.pending),lastError,note:'允许观看后，在设置时段和每日时长、模型次数范围内自动观看；登录、验证或运行异常需要处理后重新开启允许观看。'};}
+  ledger(){const value=load(this.ledgerFile,{version:1,runs:[]});if(value?.version!==1||!Array.isArray(value.runs)||value.runs.some(item=>!item?.key||!['starting','started','failed','occupied','completed','acknowledged'].includes(item.status)))throw new Error('自动观看回执损坏，未覆盖或重试。');return value;}
+  state(){const policy=this.policy(),ledger=this.ledger(),last=ledger.runs.at(-1)||null,lastError=Object.hasOwn(ledger,'lastError')?ledger.lastError:last?.status==='failed'?last.error||this.error||'自主观看异常停止，请检查后重新开启允许观看。':this.error||'';return{protocol:'scheduled-watch-v2',policy,last,busy:Boolean(this.pending),lastError,note:'允许观看后，按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；登录、验证或运行异常需要处理后重新开启允许观看。'};}
   control(action){fs.mkdirSync(this.stateDir,{recursive:true});let fd;const owner={pid:process.pid,token:randomUUID()};try{fd=fs.openSync(this.guardFile,'wx',0o600);}catch(error){if(error.code==='EEXIST')throw Object.assign(new Error('另一个入口正在检查自动观看。'),{code:'SCHEDULE_BUSY'});throw error;}try{fs.writeFileSync(fd,JSON.stringify(owner));return action();}finally{fs.closeSync(fd);const current=load(this.guardFile,null);if(current?.pid===owner.pid&&current.token===owner.token)fs.unlinkSync(this.guardFile);}}
   configure(value,{explicit=false}={}){if(!explicit)throw new Error('允许观看需要本人明确保存。');const policy=policyOf(value);this.control(()=>{
     const previous=load(this.policyFile,defaultPolicy),videoFile=path.join(this.stateDir,'video-policy.json'),video=load(videoFile,null),legacy=previous.maxRequests??value.maxRequests;
     if(video&&video.dailyRequests===undefined&&legacy!==undefined){if(legacy!==null&&(!Number.isSafeInteger(legacy)||legacy<1))throw new Error('旧每日请求设置损坏，未覆盖。');write(videoFile,{...video,dailyRequests:legacy});}
-    write(this.policyFile,policy);if(policy.enabled){const ledger=this.ledger();for(const item of ledger.runs)if(['failed','occupied'].includes(item.status))item.status='acknowledged';ledger.lastError='';write(this.ledgerFile,ledger);this.error='';}
+    write(this.policyFile,policy);if(policy.enabled){const ledger=this.ledger();for(const item of ledger.runs)if(['failed','occupied'].includes(item.status))item.status='acknowledged';ledger.lastError='';write(this.ledgerFile,ledger);this.error='';this.resumeToday(video||{});}
   });if(!policy.enabled)this.abort?.abort(new Error('已关闭允许观看。'));return this.state();}
-  start(){if(!this.timer){this.timer=setInterval(()=>{void this.tick();},this.intervalMs);this.timer.unref?.();void this.tick();}return this;}
+  // 本人明确开启允许观看：当天日程从现在开始（第一次看的等待不算），冷却与出错计数一并清掉。
+  resumeToday(policy={}){const now=this.now(),date=planDate(now);const existing=loadPlan({stateDir:this.stateDir,date});
+    const plan=existing||ensurePlan({stateDir:this.stateDir,date,policy,now,random:this.random,firstDelayMinutes:0,allowLazy:false});
+    return resumePlan({stateDir:this.stateDir,date,plan,now});}
+  // 刚启动时如果当天还没开始看，把第一次看的时刻往后挪：启动本身不构成「想刷」。
+  deferFirstStart(){const now=this.now(),date=planDate(now),plan=loadPlan({stateDir:this.stateDir,date});if(!plan||(plan.sessions||[]).length||!Number.isFinite(plan.firstStartAt)||plan.firstStartAt>now)return;
+    const delay=this.randomFirstDelay();savePlan({stateDir:this.stateDir,date,plan:{...plan,firstStartAt:now+delay},now});}
+  randomFirstDelay(){const minutes=Number.isFinite(this.firstDelayMinutes)?Math.max(0,Math.floor(this.firstDelayMinutes)):10+Math.floor(this.random()*36);return minutes*60000;}
+  start(){if(!this.timer){this.deferFirstStart();this.timer=setInterval(()=>{void this.tick();},this.intervalMs);this.timer.unref?.();void this.tick();}return this;}
   tick(){if(this.closed||this.pending)return this.pending||Promise.resolve(this.state());this.pending=this.perform().catch(error=>{if(error.code!=='SCHEDULE_BUSY'){this.error=explain(error);try{this.control(()=>{const ledger=this.ledger();ledger.lastError=this.error;write(this.ledgerFile,ledger);});}catch{}}}).finally(()=>{this.pending=null;});return this.pending;}
   async perform(){const limits=await this.getVideoLimits();if(!this.policy().enabled){this.abort?.abort(new Error('已关闭允许观看。'));limits.settleWatching?.();return;}
-    const time=limits.state(),slot=scheduledSlot(time.policy,this.now());if(!slot||!time.allowed)return;
+    const time=limits.state();if(!time.allowed)return;
     const manual=load(path.join(this.stateDir,'watch-manual.lock'),null);
     if(manual){if(!Number.isSafeInteger(manual.pid)||manual.pid<1||typeof manual.token!=='string')throw new Error('手动视频操作锁无法核对，未启动自主观看。');try{process.kill(manual.pid,0);return;}catch(error){if(error.code==='EPERM')return;if(error.code!=='ESRCH')throw error;}}
     const watch=await this.getWatchState();if(watch?.running||watch?.busy||watch?.pendingRequests>0)return;
-    let operation;this.control(()=>{if(!this.policy().enabled)return;const ledger=this.ledger(),last=ledger.runs.at(-1);
-      if(ledger.runs.some(item=>item.key===slot.key&&item.status==='occupied'&&item.requiresUser===true)){
-        // needs_user（登录/验证等需人工处理）停止本时段永不自动重试，仍等人工处理；
+    const now=this.now(),date=planDate(now),windowEnd=Number.isFinite(time.window?.expiresAt)?time.window.expiresAt:null;
+    const plan=ensurePlan({stateDir:this.stateDir,date,policy:time.policy,now,random:this.random,firstDelayMinutes:this.firstDelayMinutes,allowLazy:this.allowLazy});
+    // 上一场的结局先结清：自主观看已经停了（看完了、异常了、还是等着本人处理），
+    // 就把这一场记掉，再决定歇多久开下一场——随机日程不能盖掉真实结局。
+    if(this.settleRound({plan,watch,now,date}))return;
+    const session=planSession({plan,now,random:this.random,windowEnd});if(!session)return;
+    if(plan.roundSession?.key!==session.key)savePlan({stateDir:this.stateDir,date,plan:{...plan,roundSession:session},now});
+    const key=session.key;let operation;this.control(()=>{if(!this.policy().enabled)return;const ledger=this.ledger();
+      const entries=ledger.runs.filter(item=>item.key===key),last=entries.at(-1);
+      if(last?.status==='occupied'&&last.requiresUser===true){
+        // 需要人工处理（登录、验证等）之后不再自动重试，仍等本人处理；
         // 只有本人显式重新开启允许观看（configure 翻成 acknowledged）后才能再次开始。
-        // 聊天采样等临时占用（WATCH_MANUAL_OCCUPIED，无 requiresUser 标记）释放后按既有契约自动继续。
         return;
       }
-      if(ledger.runs.some(item=>item.key===slot.key&&item.status==='failed')){
-        // 普通失败同时段不永久趴窝：15 分钟退避后再试。
-        const failedAt=Date.parse(ledger.runs.filter(item=>item.key===slot.key&&item.status==='failed').at(-1)?.completedAt||'');
-        if(Number.isSafeInteger(failedAt)&&this.now()-failedAt<15*60_000)return;
-        const attempts=ledger.runs.filter(item=>item.key===slot.key&&['failed','acknowledged'].includes(item.status)).length;
+      if(last?.status==='failed'){
+        // 普通失败同一场不永久趴窝：15 分钟退避后再试。
+        const failedAt=Date.parse(last.completedAt||'');
+        if(Number.isSafeInteger(failedAt)&&now-failedAt<15*60_000)return;
+        const attempts=entries.filter(item=>['failed','acknowledged'].includes(item.status)).length;
         // 用户裁决（2026-11-09）：24/7 单时段策略下固定 3 次会让全天趴窝；上限随时段时长缩放
         //（每 15 分钟退避一次、覆盖整个时段），短时段仍不低于原 3 次。
-        const maxAttempts=Math.max(3,Math.floor((slot.expiresAt-slot.startAt)/(15*60_000)));
+        const maxAttempts=Math.max(3,Math.floor((session.expiresAt-session.startAt)/(15*60_000)));
         if(attempts>=maxAttempts)return;
       }
-      if(last?.key===slot.key&&last.status==='starting')return;
-      if(last?.key===slot.key&&last.status==='started'&&['failed','needs_user'].includes(watch?.status)){const needsUser=watch?.status==='needs_user';last.status=needsUser?'occupied':'failed';if(needsUser)last.requiresUser=true;last.completedAt=new Date(this.now()).toISOString();last.error=explain(watch.lastError||(needsUser?'自主观看等待人工处理，请处理后重新开启允许观看。':'自主观看异常停止，请处理后重新开启允许观看。'));ledger.lastError=last.error;write(this.ledgerFile,ledger);this.error=last.error;return;}
-      operation={...slot,id:randomUUID(),source:this.source,pid:process.pid,startedAt:new Date(this.now()).toISOString(),status:'starting'};ledger.runs.push(operation);write(this.ledgerFile,ledger);
+      // 这一场已经开过（还在跑，或刚跑完正在记账）：不再开第二轮。
+      if(last?.status==='started'||last?.status==='starting')return;
+      operation={...session,id:randomUUID(),source:this.source,pid:process.pid,startedAt:new Date(now).toISOString(),status:'starting'};ledger.runs.push(operation);write(this.ledgerFile,ledger);
     });if(!operation)return;this.abort=new AbortController();
-    try{if(!this.policy().enabled)throw new Error('允许观看已关闭');const result=await this.startRound({signal:this.abort.signal});this.finish(operation.id,'started',result?.sessionId||null);this.error='';}
+    try{if(!this.policy().enabled)throw new Error('允许观看已关闭');const result=await this.startRound({signal:this.abort.signal,expiresAt:session.expiresAt});this.finish(operation.id,'started',result?.sessionId||null);this.error='';}
     catch(error){if(error.code==='WATCH_MANUAL_OCCUPIED'){this.finish(operation.id,'occupied',null);return;}this.finish(operation.id,'failed',null,explain(error));throw error;}finally{this.abort=null;}
+  }
+  // 结清上一场：自主观看停了才记账。看完了就记今天看了多久并歇一阵；
+  // 出错或要人工处理就把这一场标成 failed / occupied，轮次不推进，
+  // 同一场的编号不变——回执与重试仍落在同一场里。
+  settleRound({plan,watch,now,date}){const session=plan.roundSession;if(!session)return false;let settled=false,failed=false,usedMinutes=0;
+    this.control(()=>{const ledger=this.ledger();const entries=ledger.runs.filter(item=>item.key===session.key),last=entries.at(-1);
+      if(last?.status==='started'&&!last.settledAt){
+        const status=watch?.status;
+        if(status==='failed'||status==='needs_user'){
+          const needsUser=status==='needs_user';
+          last.status=needsUser?'occupied':'failed';
+          if(needsUser)last.requiresUser=true;
+          last.completedAt=new Date(now).toISOString();
+          last.error=explain(watch.lastError||(needsUser?'自主观看等待人工处理，请处理后重新开启允许观看。':'自主观看异常停止，请处理后重新开启允许观看。'));
+          ledger.lastError=last.error;write(this.ledgerFile,ledger);this.error=last.error;
+          settled=true;failed=true;return;
+        }
+        if(!watch?.running){
+          const used=Math.max(0,Math.min(session.minutes,Math.round((now-session.startAt)/60000)));
+          last.settledAt=new Date(now).toISOString();last.usedMinutes=used;write(this.ledgerFile,ledger);
+          settled=true;failed=false;usedMinutes=used;return;
+        }
+      }
+      // 这一场的时间到了但没有对应回执（换了实例或进程重启过）：按没看成记账，不占今天的时长。
+      if(Number.isFinite(session.expiresAt)&&now>=session.expiresAt){settled=true;failed=false;usedMinutes=0;}
+    });
+    if(!settled)return false;
+    savePlan({stateDir:this.stateDir,date,plan:closeSession({plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});return true;
   }
   finish(id,status,sessionId,error=''){this.control(()=>{const ledger=this.ledger(),entry=ledger.runs.find(item=>item.id===id);if(!entry)throw new Error('自动观看回执丢失');Object.assign(entry,{status,sessionId,completedAt:new Date(this.now()).toISOString(),...(error?{error}:{})});ledger.lastError=status==='failed'?error:'';write(this.ledgerFile,ledger);});}
   async close(){this.closed=true;clearInterval(this.timer);this.abort?.abort(new Error('自动观看入口已关闭。'));await this.pending;}

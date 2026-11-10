@@ -53,9 +53,9 @@ function readSwitchDiagnostic(value) {
 }
 // API 与原生入口通过同一锁、有限视频轮次和持久预算协调，不在重启时恢复循环。
 export class AutonomousWatch {
-  constructor({ controller, config = {}, videoLimits, personaMemory, agent, shareService, commentService, commentAgent, reportService, decisionProvider, stateDir = resolveRuntimePaths().stateDir, source = 'api', fetchImpl = fetch, now = Date.now, delayImpl = (ms, signal) => delay(ms, undefined, { signal }), onEvent = () => {} } = {}) {
+  constructor({ controller, config = {}, videoLimits, personaMemory, agent, shareService, commentService, commentAgent, reportService, decisionProvider, memoryStore = null, stateDir = resolveRuntimePaths().stateDir, source = 'api', fetchImpl = fetch, now = Date.now, delayImpl = (ms, signal) => delay(ms, undefined, { signal }), onEvent = () => {} } = {}) {
     if (!controller?.execute || !videoLimits?.state || !personaMemory?.context || !['api', 'dsh'].includes(source)) throw new Error('自主观看缺少浏览器、时限或共同人格接口。');
-    Object.assign(this, { controller, config, videoLimits, personaMemory, shareService, decisionProvider, stateDir, source, now, delayImpl, onEvent });
+    Object.assign(this, { controller, config, videoLimits, personaMemory, shareService, decisionProvider, memoryStore, stateDir, source, now, delayImpl, onEvent });
     this.optionsService = new WatchOptions({ stateDir });
     this.usageLedger = new UsageLedger({ stateDir, now });
     // 观看决策带 4 帧图 + 2 万字上下文，GLM 经网关常超 60 秒；观看回合单独放宽到 180 秒（硬上限 600 秒）。
@@ -124,8 +124,9 @@ export class AutonomousWatch {
       }
     };
   }
-  start({ startSession = true, maxRequests: _legacyMaxRequests } = {}, { explicit = false } = {}) {
+  start({ startSession = true, maxRequests: _legacyMaxRequests, expiresAt = null } = {}, { explicit = false } = {}) {
     if (!explicit) throw Object.assign(new Error('自主观看只能由用户明确启动。'), { status: 403 });
+    if (expiresAt !== null && expiresAt !== undefined && !Number.isFinite(expiresAt)) throw Object.assign(new Error('自主观看截止时间格式无效。'), { status: 400 });
     if (typeof startSession !== 'boolean') throw Object.assign(new Error('内部启动选项格式无效。'), { status: 400 });
     if (!this.decisionProvider && !this.config.apiKey) throw Object.assign(new Error('请先配置 API Key，再启动自主观看。'), { status: 400 });
     if (this.running || this.completion) throw Object.assign(new Error('当前自主观看正在执行或结束。'), { status: 409 });
@@ -143,6 +144,12 @@ export class AutonomousWatch {
       write(this.files.lock, { version: 1, pid: process.pid, runId: this.runId, sessionId: this.sessionId, source: this.source, status: 'running', heartbeatAt: this.now() });
     });
     this.abort = new AbortController(); this.running = true; this.playbackClosed=false;this.phase='waiting';this.pendingRequests=0;this.startedDate = day(this.now());
+    // 一场随机日程有截止时间：到点就收尾，不让这一场无限拖下去。
+    this.expiresAt = Number.isFinite(expiresAt) ? expiresAt : null;
+    if (this.expiresAt !== null) {
+      this.deadline = setTimeout(() => { this.abort?.abort(failure('本场自主观看已到随机日程的结束时间，自动收尾。', 'stopped')); }, Math.max(0, this.expiresAt - this.now()));
+      this.deadline.unref?.();
+    }
     try {
     this.save({ status: 'running', phase:'waiting',pendingRequests:0,lastError: '', lastDecision: null });
     this.heartbeat = setInterval(() => {
@@ -285,6 +292,45 @@ export class AutonomousWatch {
   }
   behavior(evidenceId, action, operationId) {
     return this.personaMemory.recordBehavior?.({ evidenceId, action, confirmed: true, sampleId: `watch:${this.runId}:${action}:${randomUUID()}`, ...(operationId ? { operationId } : {}) }, { source: this.source });
+  }
+  // 停留时长：模型给的秒数照用，但不许越过本场的随机截止时间。
+  stayDelayMs(seconds) {
+    const base = Math.max(0, Math.floor(Number(seconds) || 0)) * 1000;
+    if (!Number.isFinite(this.expiresAt)) return base;
+    return Math.max(0, Math.min(base, this.expiresAt - this.now()));
+  }
+  // 把「这一场看到什么、学到了什么」写进中心记忆库：只记作品身份、标题作者与模型给出的理由与兴趣，
+  // 不写未经核实的画面内容或私密信息；写不进去也不阻断观看。
+  rememberWatchLearning({ observedState, decision, evidenceId }) {
+    const store = typeof this.memoryStore === 'function' ? this.memoryStore() : this.memoryStore;
+    if (!store?.remember) return;
+    const video = observedState?.video || {};
+    const topics = Array.isArray(decision?.topics) ? decision.topics.map(item => String(item?.topic || '').trim()).filter(Boolean).slice(0, 8) : [];
+    const title = String(video.title || '').trim();
+    const author = String(video.author || '').trim();
+    const reason = String(decision?.reason || '').trim();
+    const reflection = String(decision?.reflection || '').trim();
+    const parts = [];
+    if (title) parts.push(`作品：${title}`);
+    if (author) parts.push(`作者：${author}`);
+    if (reason) parts.push(`判断：${reason}`);
+    if (reflection) parts.push(`学到：${reflection}`);
+    if (topics.length) parts.push(`兴趣：${topics.join('、')}`);
+    if (!parts.length) return;
+    try {
+      store.remember({
+        kind: 'note',
+        content: `自主观看记录：${parts.join('；')}`,
+        source: this.source,
+        videoId: /^\d{1,64}$/.test(String(video.id || '')) ? String(video.id) : undefined,
+        url: typeof video.url === 'string' ? video.url : undefined,
+        author: author || undefined,
+        title: title || undefined,
+        metadata: { observedAt: this.now(), sourceType: 'watch-learning', evidenceId: evidenceId || null, decisionAction: decision?.action || null, topics },
+      });
+    } catch (error) {
+      this.onEvent({ type: 'watch.learning_not_stored', message: redact(error.message || String(error), [this.config.apiKey]) });
+    }
   }
   async skipLivePreviews(current) {
     // 只跳过已在当前推荐卡片核实的直播入口，不采样、不调用模型或续开轮次。
@@ -433,7 +479,7 @@ export class AutonomousWatch {
           const stayBefore = current, beforeState = freshState;
           if (beforeState.video?.id !== observedState.video.id || beforeState.video.paused !== false) throw failure('停留前作品或播放状态已变化，已停止自主观看，没有学习本次停留。', 'needs_user');
           const stayStartedAt = freshAt;
-          this.phase='waiting';this.save({phase:this.phase,pendingRequests:0});await this.delayImpl(decision.seconds * 1000, this.abort.signal); this.assertAllowed();
+          this.phase='waiting';this.save({phase:this.phase,pendingRequests:0});await this.delayImpl(this.stayDelayMs(decision.seconds), this.abort.signal); this.assertAllowed();
           current = await this.execute('douyin_status');
           const afterState = current.state || current;
           if (afterState.video?.id !== beforeState.video.id) { this.onEvent({ type: 'watch.decision-discarded', action: 'stay', reasonCode: 'video-changed-during-stay', expectedVideoId: beforeState.video.id, currentVideoId: afterState.video?.id ?? null, message: '停留期间作品已切换，没有学习本次停留，继续观察当前作品。' }); continue; }
@@ -442,6 +488,8 @@ export class AutonomousWatch {
           if (stayed?.accepted === true) learned = this.behavior(evidenceId, 'stay')?.accepted === true;
         }
         if (learned && decision.topics.length) this.personaMemory.updateAgentInterests({ evidenceId, topics: decision.topics, reflection: decision.reflection }, { source: this.source });
+        // 看过什么、学到了什么，落到中心记忆库：只记作品身份与模型判断，不写未经核实的私密内容。
+        this.rememberWatchLearning({ observedState, decision, evidenceId });
         if (['share', 'comment'].includes(decision.action)) current = await this.execute('douyin_status');
         } catch (error) {
           // 用户裁决（2026-11-09）：运营故障降级不停车；needs_user/limited/锁丢失/用户停止立即终局。
