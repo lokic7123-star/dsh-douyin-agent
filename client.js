@@ -16,140 +16,174 @@ window.__ModuleLoader__.load({
     const muted = { color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, margin: 0 };
     const formControl = { font: 'inherit', color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-base)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 9, maxWidth: '100%', width: '100%', boxSizing: 'border-box' };
     const videoPolicyKey = policy => policy && JSON.stringify([Array.isArray(policy.windows) ? [...new Set(policy.windows)] : null, policy.weekendWindows || null, policy.sessionMinutes]);
-    const fallbackCategories = { '基础设置': ['人格与兴趣', 'DSH 模型'], '视频观看': ['观看主题', '视频时间与自主观看'], '自检与用量': ['自检与用量'], '好友互动': ['好友互动'], '观看足迹': ['观看足迹'], '记忆管理': ['记忆管理'], '公开评论': ['自主公开视频评论'], '音频与密钥': ['可选音频'], '观看日报': ['观看日报'] };
+    const fallbackCategories = { '基础设置': ['人格与兴趣', 'DSH 模型'], '视频观看': ['观看主题', '视频时间与自主观看'], '自检与用量': ['自检与用量'], '好友互动': ['好友互动'], '观看足迹': ['观看足迹'], '记忆管理': ['记忆管理'], '公开评论': ['自主公开视频评论'], '音频与密钥': ['可选音频'], '观看日报': ['观看日报'], '分享记录': ['分享记录'] };
     // 用量分组按 kind 区分场景，同一模型会拆成多行；补中文标签才看得出三行同名分别是什么。
     const USAGE_KIND_LABELS = { watch: '自主观看', chat: '好友回复', comment: '公开评论', spark: '火花', task: '任务' };
     // 面板样式：class 体系 + 单 <style> 注入（与 dsh-plugin-wallpaper-engine / dsh-qq-tts 同模式）。
-    // CSS 与 docs/mockups/panel-redesign-v2.html 预览稿逐字一致（v2.4 已获用户批准）；实装用 dsw-alias 令牌，深色主题自动适配。
+    // CSS 与 docs/mockups/panel-redesign-v6.html 预览稿逐字一致（v6.2 已获用户批准）；实装用 dsw-alias 令牌，深色主题自动适配。
     const PANEL_CSS = `
 .dy-wrap{display:flex;flex-direction:column;gap:12px;min-width:0}
-.dy-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.dy-head h2{margin:0;font-size:17px;font-weight:600}
+.dy-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dy-head h2{margin:0;font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .dy-head .sp{flex:1}
-.dy-statusline{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:6px 2px;min-width:0}
-.dy-dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-success-primary,#16a34a);flex:none}
-.dy-dot.warn{background:var(--dsw-alias-state-warn-primary,#d97706)}
-.dy-dot.err{background:var(--dsw-alias-state-error-primary,#dc2626)}
-.dy-dot.idle{background:var(--dsw-alias-label-tertiary,#6b7280)}
-.dy-num{font-size:13px;font-weight:600;white-space:nowrap}
-.dy-cap{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px}
-.dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
-.dy-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
-.dy-nav button{font:inherit;font-size:12px;padding:7px 4px;border-radius:9px;cursor:pointer;text-align:center;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1,#f7f8fa);color:var(--dsw-alias-label-secondary,#4b5563)}
-.dy-nav button:hover{background:var(--dsw-alias-bg-layer-2,#eef1f5)}
-.dy-nav button[aria-selected="true"]{background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));color:#fff;font-weight:600}
-.dy-nav .grp{grid-column:1/-1;font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280);margin:2px 0 -2px}
-/* v4：状态摘要一行三态（标题只说真实原因，细节留给下一行） */
-.dy-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;padding:8px 12px;min-width:0}
-.dy-summary .dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d97706);flex:none}
-.dy-summary .dot.bad{background:var(--dsw-alias-state-error-primary,#dc2626)}
-.dy-summary .dot.good{background:var(--dsw-alias-state-success-primary,#16a34a)}
-.dy-summary .lb{font-size:13px;font-weight:600;flex:none;color:var(--dsw-alias-label-primary)}
-.dy-summary .dt{font-size:12px;color:var(--dsw-alias-label-secondary,#4b5563);flex:1;min-width:0;overflow-wrap:anywhere}
-.dy-card{background:var(--dsw-alias-bg-layer-1,#f7f8fa);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
-.dy-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.dy-card-top h3{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
-.dy-card-top .sp{flex:1}
-.dy-inner{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-l1));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
-.dy-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.dy-row .sp{flex:1}
-.dy-label{font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563)}
-.dy-note{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;margin:0;overflow-wrap:anywhere}
+.dy-statusline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:4px 2px 12px;min-width:0}
+.dy-dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-success-primary);flex:none}
+.dy-dot.warn{background:var(--dsw-alias-state-warn-primary)}
+.dy-dot.err{background:var(--dsw-alias-state-error-primary)}
+.dy-dot.idle{background:var(--dsw-alias-label-tertiary)}
+.dy-num{font-size:13px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dy-cap{font-size:11.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.dy-foot{font-size:11.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dy-note{font-size:11.5px;line-height:1.45;color:var(--dsw-alias-label-tertiary);margin:0;overflow-wrap:anywhere}
 .dy-strong{color:var(--dsw-alias-label-primary);font-weight:600}
-.dy-input{font:inherit;font-size:12.5px;width:100%;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);
-  border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:4px 9px;height:30px}
-.dy-input:focus{outline:none;border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
-.dy-sel{position:relative;display:inline-flex;flex:none;min-width:0}
-.dy-sel::after{content:'';position:absolute;right:10px;top:50%;transform:translateY(-50%);
-  border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--dsw-alias-label-tertiary,#6b7280);pointer-events:none}
-.dy-sel select{-webkit-appearance:none;appearance:none;padding-right:26px;cursor:pointer;text-overflow:ellipsis}
-select.dy-input option{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
-.dy-textarea{font:inherit;font-size:12.5px;width:100%;max-width:100%;box-sizing:border-box;min-height:0;resize:vertical;color:var(--dsw-alias-label-primary);
-  background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:6px 9px;line-height:1.5;display:block}
-textarea.dy-big{min-height:110px}
-.dy-btn{font:inherit;font-size:12.5px;padding:5px 13px;border-radius:999px;cursor:pointer;white-space:nowrap;
-  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary)}
-.dy-btn:hover{background:var(--dsw-alias-bg-layer-1,#f7f8fa)}
-.dy-btn.primary{background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));color:#fff}
-.dy-btn.primary:hover{opacity:.88;background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
+.dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
+.dy-sp{flex:1;min-width:4px}
+.dy-btn{font:inherit;font-size:12.5px;font-weight:500;line-height:1.2;padding:5px 12px;border-radius:999px;
+  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);
+  cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none}
+.dy-btn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}
+.dy-btn.primary{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground);font-weight:600}
+.dy-btn.primary:hover:not(:disabled){opacity:.9}
+.dy-btn.danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.dy-btn.danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent)}
+.dy-btn.tiny{font-size:11.5px;padding:3px 9px;border-radius:999px}
 .dy-btn:disabled{opacity:.45;cursor:default}
-.dy-btn.tiny{font-size:11.5px;padding:2px 8px;border-radius:7px}
-.dy-btn.danger{color:var(--dsw-alias-state-error-primary,#dc2626);border-color:var(--dsw-alias-state-error-primary,#dc2626)}
-.dy-chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 10px;font-size:11.5px;font-weight:500;white-space:nowrap}
+.dy-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;
+  white-space:nowrap;flex:none;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}
 .dy-chip .d{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
-.dy-chip.ok{color:var(--dsw-alias-state-success-primary,#16a34a);background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#16a34a) 10%,transparent)}
-.dy-chip.warn{color:var(--dsw-alias-state-warn-primary,#d97706);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d97706) 12%,transparent)}
-.dy-chip.err{color:var(--dsw-alias-state-error-primary,#dc2626);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 10%,transparent)}
-.dy-chip.info{color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));background:color-mix(in srgb,var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb)) 10%,transparent)}
-.dy-chip.violet{color:#7c3aed;background:color-mix(in srgb,#7c3aed 10%,transparent)}
-.dy-kv{display:flex;gap:8px;font-size:12.5px;flex-wrap:wrap;min-width:0;margin:0}
-.dy-kv .k{color:var(--dsw-alias-label-tertiary,#6b7280);flex:none}
-.dy-meter{height:5px;border-radius:3px;background:var(--dsw-alias-border-l1);overflow:hidden;margin-top:6px}
-.dy-meter i{display:block;height:100%;border-radius:3px;background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
-.dy-meter i.warn{background:var(--dsw-alias-state-warn-primary,#d97706)}
-.dy-empty{padding:18px 10px;text-align:center;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12.5px}
-.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:12.5px;min-width:0;overflow-wrap:anywhere;margin:0}
-.dy-rowline .t{flex:none;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11.5px;font-variant-numeric:tabular-nums}
-.dy-perm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));min-width:0}
-.dy-perm:last-child{border-bottom:0}
-.dy-perm .nm{font-weight:500;font-size:13px;width:150px;flex:none;overflow-wrap:anywhere}
-.dy-switch{width:34px;height:20px;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;flex:none;cursor:pointer}
-.dy-switch::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
-.dy-switch.on{background:var(--dsw-alias-state-success-primary,#16a34a)}
-.dy-switch.on::after{left:16px}
-.dy-foot{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11.5px;font-variant-numeric:tabular-nums}
-/* 现代化勾选框：appearance:none 圆角框 + clip-path 对勾，选中用品牌主色；数字输入去原生加减箭头（预览稿 v2 同步） */
-/* 多选联系人勾选：自绘圆角方框 + 强调色填充 + 白勾动画（保留原生 role=checkbox 语义与键盘操作）；
-   布尔项一律用 dy-switch（胶囊开关），面板不再出现原生 Windows 勾选框（用户裁决 2026-11-09 候选 C） */
-.dy-wrap input[type=checkbox]{appearance:none;-webkit-appearance:none;width:17px;height:17px;margin:0;flex:none;cursor:pointer;border:1.5px solid var(--dsw-alias-border-l2,rgba(0,0,0,.12));border-radius:5px;background:var(--dsw-alias-bg-base,#fff);display:inline-grid;place-content:center;transition:background .12s ease,border-color .12s ease}
-.dy-wrap input[type=checkbox]::before{content:'';width:9px;height:9px;clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);background:#fff;transform:scale(0);transition:transform .12s ease-in-out}
-.dy-wrap input[type=checkbox]:checked{background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
+.dy-chip.ok{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
+.dy-chip.warn{color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 15%,transparent)}
+.dy-chip.err{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
+.dy-chip.info{color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 14%,transparent)}
+.dy-chip.violet{color:var(--dsw-alias-label-secondary)}
+.status-top-box{background:var(--dsw-alias-bg-layer-1);border-radius:12px;padding:10px 16px;display:flex;flex-direction:column;gap:8px}
+.dy-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:8px;border-bottom:.5px solid var(--dsw-alias-border-l1)}
+.dy-summary:last-child{padding-bottom:0;border-bottom:none}
+.dy-summary .dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-warn-primary);flex:none}
+.dy-summary .dot.bad{background:var(--dsw-alias-state-error-primary)}
+.dy-summary .dot.good{background:var(--dsw-alias-state-success-primary)}
+.dy-summary .lb{font-size:13px;font-weight:600;flex:none;color:var(--dsw-alias-label-primary)}
+.dy-summary .dt{font-size:12px;color:var(--dsw-alias-label-secondary);flex:1;min-width:160px;overflow-wrap:anywhere}
+.dy-stat2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.dy-stat{background:var(--dsw-alias-bg-base);border-radius:10px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.dy-stat-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;min-width:0}
+.dy-stat .v{font-size:16.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:normal;overflow-wrap:anywhere}
+.dy-stat .k{font-size:11.5px;font-weight:500;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.dy-stat .sub{font-size:11px;line-height:1.35;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.dy-meter{height:4px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);margin-top:3px;overflow:hidden}
+.dy-meter i{display:block;height:100%;border-radius:999px;background:var(--dsw-alias-brand-primary)}
+.dy-meter i.warn{background:var(--dsw-alias-state-warn-primary)}
+.dy-meter i.ok{background:var(--dsw-alias-state-success-primary)}
+.nav-box{background:var(--dsw-alias-bg-layer-1);border-radius:12px;padding:8px 12px 10px}
+.dy-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.dy-nav .grp{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 4px 0;
+  font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.dy-nav button{font:inherit;font-size:12px;font-weight:500;padding:6px 4px;border-radius:999px;border:none;
+  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dy-nav button:hover{color:var(--dsw-alias-label-primary)}
+.dy-nav button[aria-selected="true"]{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-foreground);font-weight:600}
+.dy-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);flex:none}
+.dy-seg button{font:inherit;font-size:11.5px;font-weight:500;padding:3px 11px;border-radius:999px;border:none;
+  background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}
+.dy-seg button[aria-selected="true"]{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-foreground)}
+.ios-section{display:flex;flex-direction:column;gap:4px}
+.ios-sec-head{display:flex;align-items:center;gap:8px;padding:0 16px;min-height:22px;font-size:11.5px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.ios-sec-foot{padding:0 16px;font-size:11.5px;color:var(--dsw-alias-label-tertiary)}
+.ios-card{background:var(--dsw-alias-bg-layer-1);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.ios-card-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 16px;min-height:44px;border-bottom:.5px solid var(--dsw-alias-border-l1)}
+.ios-card-head h4{margin:0;font-size:13.5px;font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap}
+.ios-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:8px 16px;min-height:46px;border-top:.5px solid var(--dsw-alias-border-l1)}
+.ios-card > .ios-row:first-child,.ios-card-head + .ios-row{border-top:none}
+.ios-main{flex:1 1 200px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ios-t{font-size:13.5px;font-weight:500;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ios-s{font-size:11.5px;line-height:1.35;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.ios-right{flex:0 1 auto;max-width:100%;flex-wrap:wrap;display:inline-flex;align-items:center;gap:8px;min-width:0;font-variant-numeric:tabular-nums}
+.ios-v{font-size:13px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.ios-chev{font-size:15px;color:var(--dsw-alias-label-tertiary);flex:none}
+details.ios-interest{border-top:.5px solid var(--dsw-alias-border-l1)}
+.ios-card > details.ios-interest:first-child{border-top:none}
+details.ios-interest > summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;min-height:48px;cursor:pointer}
+details.ios-interest > summary::-webkit-details-marker{display:none}
+details.ios-interest[open] > summary .ios-chev{transform:rotate(90deg)}
+.interest-drawer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px 10px;
+  background:var(--dsw-alias-bg-base);border-top:.5px solid var(--dsw-alias-border-l1)}
+.interest-drawer-info{flex:1;font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.interest-drawer-actions{display:inline-flex;gap:6px;flex:none;white-space:nowrap;margin-left:auto}
+.dy-dayhead{display:flex;align-items:center;gap:8px;padding:4px 16px 12px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dy-dayhead b{color:var(--dsw-alias-label-primary);font-weight:600}
+.dy-dayhead .ln{flex:1;height:.5px;background:var(--dsw-alias-border-l1)}
+.dy-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:8px 16px 12px}
+.dy-vitem{display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);border:.5px solid var(--dsw-alias-border-l1);
+  border-radius:10px;overflow:hidden;text-decoration:none;color:inherit}
+.dy-thumb{width:100%;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2);display:flex;align-items:center;justify-content:space-between;
+  padding:6px 8px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dy-thumb-img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.dy-vbody{padding:7px 9px 9px;display:flex;flex-direction:column;gap:3px}
+.dy-vt{font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.dy-vn{font-size:11px;line-height:1.35;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.dy-input{font:inherit;font-size:13px;width:100%;max-width:100%;min-width:0;color:var(--dsw-alias-label-primary);
+  background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:5px 10px;height:32px;box-sizing:border-box}
+.dy-input.w-lg{width:240px}
+.dy-input.w-md{width:170px;max-width:100%;min-width:96px}
+.dy-input.w-sm{width:88px;text-align:right;font-variant-numeric:tabular-nums}
+.dy-textarea{font:inherit;font-size:13px;line-height:1.5;width:100%;max-width:100%;box-sizing:border-box;resize:vertical;
+  color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:9px;padding:8px 10px;display:block}
+textarea.dy-big{min-height:110px}
+.dy-switch{width:40px;height:24px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);
+  position:relative;flex:none;cursor:pointer}
+.dy-switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
+  background:var(--dsw-alias-label-primary-foreground);transition:transform .15s}
+.dy-switch.on{background:var(--dsw-alias-state-success-primary)}
+.dy-switch.on::after{transform:translateX(16px)}
+.dy-wrap input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;flex:none;cursor:pointer;
+  border:1.5px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-base);display:inline-grid;place-content:center;
+  transition:background .12s ease,border-color .12s ease}
+.dy-wrap input[type=checkbox]::before{content:'';width:10px;height:10px;clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);
+  background:var(--dsw-alias-label-primary-foreground);transform:scale(0);transition:transform .12s ease-in-out}
+.dy-wrap input[type=checkbox]:checked{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
 .dy-wrap input[type=checkbox]:checked::before{transform:scale(1)}
-.dy-wrap input[type=checkbox]:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
-.dy-wrap input[type=checkbox]:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));outline-offset:2px}
+.dy-wrap input[type=checkbox]:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}
+.dy-wrap input[type=checkbox]:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .dy-wrap input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
 .dy-wrap input[type=number]{-moz-appearance:textfield;appearance:textfield}
 .dy-wrap input[type=number]::-webkit-inner-spin-button,.dy-wrap input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.dy-card{background:var(--dsw-alias-bg-layer-1);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.dy-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-card-top h3{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dy-card-top .sp{flex:1}
+.dy-inner{background:var(--dsw-alias-bg-base);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.dy-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dy-row .sp{flex:1}
+.dy-label{font-size:12.5px;color:var(--dsw-alias-label-secondary)}
+.dy-kv{display:flex;gap:8px;font-size:12.5px;flex-wrap:wrap;min-width:0;margin:0}
+.dy-kv .k{color:var(--dsw-alias-label-tertiary);flex:none}
+.dy-sel{position:relative;display:inline-flex;flex:none;min-width:0}
+.dy-sel::after{content:'';position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--dsw-alias-label-tertiary);pointer-events:none}
+.dy-sel select{-webkit-appearance:none;appearance:none;padding-right:26px;cursor:pointer;text-overflow:ellipsis}
+select.dy-input option{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+.dy-empty{padding:18px 10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12.5px}
+.dy-rowline{display:flex;gap:10px;align-items:baseline;font-size:12.5px;min-width:0;overflow-wrap:anywhere;margin:0}
+.dy-rowline .t{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11.5px;font-variant-numeric:tabular-nums}
+.dy-checkrow{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:.5px solid var(--dsw-alias-border-l1)}
+.dy-checkrow:last-child{border-bottom:none}
+.dy-checkmsg{flex:1;min-width:0;font-size:12.5px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dy-wall{display:flex;flex-direction:column;gap:12px}
-.dy-dayhead{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563)}
-.dy-dayhead b{color:var(--dsw-alias-label-primary);font-weight:600}
-.dy-dayhead .ln{flex:1;height:1px;background:var(--dsw-alias-border-l1,var(--dsw-alias-border-l2))}
-.dy-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-.dy-vitem{display:flex;flex-direction:column;gap:6px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));
-  border-radius:10px;overflow:hidden;text-decoration:none;color:inherit}
-.dy-vitem:hover{border-color:var(--dsw-alias-border-l2)}
-.dy-thumb{width:100%;aspect-ratio:16/9;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#f7f8fa));display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}
-.dy-thumb-img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;display:block}
-.dy-vbody{padding:0 10px 10px;display:flex;flex-direction:column;gap:3px}
-.dy-vt{font-size:12px;font-weight:500;color:var(--dsw-alias-label-primary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.dy-vn{font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280)}
-.dy-mtabs{display:flex;gap:6px;flex-wrap:wrap}
-.dy-mtab{font:inherit;font-size:12px;padding:3px 11px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer}
-.dy-mtab[aria-selected="true"]{background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));border-color:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb));color:#fff;font-weight:500}
 .dy-tl{display:flex;flex-direction:column;gap:6px}
-.dy-tl-item{display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:8px;background:var(--dsw-alias-bg-base);min-width:0}
-.dy-tl-bar{width:3px;border-radius:2px;align-self:stretch;flex:none;background:var(--dsw-alias-brand-primary,var(--dy-accent,#2563eb))}
-.dy-tl-bar.pref{background:#f0a35e}.dy-tl-bar.fact{background:var(--dsw-alias-state-success-primary,#16a34a)}
-.dy-tl-bar.habit{background:#7c3aed}.dy-tl-bar.mention{background:var(--dsw-alias-state-warn-primary,#d97706)}
-.dy-tl-text{font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.dy-tl-item{display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border-radius:8px;background:var(--dsw-alias-bg-base);min-width:0}
+.dy-tl-bar{width:3px;border-radius:2px;align-self:stretch;flex:none;background:var(--dsw-alias-brand-primary)}
+.dy-tl-bar.fact{background:var(--dsw-alias-state-success-primary)}
+.dy-tl-bar.habit{background:var(--dsw-alias-brand-primary)}
+.dy-tl-bar.mention{background:var(--dsw-alias-state-warn-primary)}
+.dy-tl-bar.pref{background:var(--dsw-alias-brand-primary)}
 .dy-tl-main{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
 .dy-tl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.dy-tl-topic{font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary,#111827)}
-.dy-tl-count{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#6b7280);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 自检行：标签左、说明中、错误码右（用户反馈旧版消息挤在右侧显得散乱） */
-.dy-checkrow{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2))}
-.dy-checkrow:last-child{border-bottom:0}
-.dy-checkmsg{flex:1;min-width:0;font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563);overflow-wrap:anywhere}
-.dy-tl-meta{font-size:11px;color:var(--dsw-alias-label-tertiary,#6b7280);flex:none;margin-left:auto}
-.dy-stat2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.dy-stat{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;padding:10px 12px}
-.dy-stat .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
-.dy-stat .k{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#6b7280)}
-/* v4：可折叠区块（原始记录、最近观察展开） */
-details.dy-inner{border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:10px;padding:8px 12px;margin-top:6px}
-details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;font-weight:500}
+.dy-tl-topic{font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dy-tl-count{font-size:11.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dy-tl-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);flex:none;margin-left:auto}
+details.dy-inner{border-radius:10px;padding:8px 12px;margin-top:6px}
+details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-weight:500}
 `;
     function injectStyles() {
       if (typeof document === 'undefined') return;
@@ -330,6 +364,7 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
       const [watched, setWatched] = useState(null), [watchedError, setWatchedError] = useState(''), [watchedDays, setWatchedDays] = useState('14'), [memTab, setMemTab] = useState('character'), [panelErrorsTick, setPanelErrorsTick] = useState(0);
       const [memoryQuery, setMemoryQuery] = useState(''), [memoryResults, setMemoryResults] = useState(null), [memoryConfirm, setMemoryConfirm] = useState('');
       const [interestConfirm, setInterestConfirm] = useState('');
+      const [usageScope, setUsageScope] = useState('today');
       useEffect(() => { if (category === '观看足迹' && ready) { void loadWatched(watchedDays); } }, [category, ready, watchedDays]);
       const existingAuthorization = useRef(false); const alive = useRef(true), refreshing = useRef(null), refreshAgain = useRef(false), locks = useRef(new Set()), submitted = useRef(new Set()), keyValues = useRef(credentials);
       const active = value => value?.running || value?.starting || value?.busy || value?.worker?.alive;
@@ -484,6 +519,17 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
         ...unanswered.items.map(unansweredCard),
         historyView,
       ].filter(Boolean);
+      // v6.2：视频状态用中文短句；下一个允许时段从 policy.windows 里取今天还没到的第一个起点。
+      const nextWindowStart = (() => {
+        const windows = state?.video?.policy?.windows || [];
+        if (!windows.length) return '';
+        const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+        const now = Number(parts.find(item => item.type === 'hour')?.value || 0) * 60 + Number(parts.find(item => item.type === 'minute')?.value || 0);
+        const starts = windows.map(item => String(item).split('-')[0]).filter(Boolean).map(value => { const [h, m] = value.split(':').map(Number); return h * 60 + m; }).filter(value => Number.isSafeInteger(value)).sort((a, b) => a - b);
+        if (!starts.length) return '';
+        const chosen = starts.find(value => value > now) ?? starts[0];
+        return `${String(Math.floor(chosen / 60)).padStart(2, '0')}:${String(chosen % 60).padStart(2, '0')}`;
+      })();
       // v4：标题只说真实原因（按 reasonCode 分开「开关关闭」「不在时段」「额度用完」「浏览器没跑」），细节留下一行。
       const summary = (() => {
         if (!ready) return null;
@@ -493,7 +539,12 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
           const code = state.video.reasonCode;
           const closed = code === 'disabled';
           const label = closed ? '允许观看已关闭' : code === 'daily-time' ? '今天的观看时长已用完' : code === 'daily-requests' ? '今天的模型请求已用完' : '不在允许观看时段';
-          const detail = closed ? `自主观看总开关现在是关闭的；时段 ${(state?.video?.policy?.windows || []).join('、') || '不限'} 无所谓，先把开关打开才会看。` : state.video.reason;
+          const notSentCount = (state?.comments?.notSent || []).length;
+          const detail = closed
+            ? '开启后按设定时段自动运行'
+            : code === 'outside-window'
+              ? `下一个允许时段 ${nextWindowStart || '稍后'} 开始${notSentCount ? `；另有 ${notSentCount} 条公开评论未发出` : ''}`
+              : state.video.reason;
           const action = code === 'outside-window' ? { label: '查看时段', run: () => setCategory('视频观看') } : { label: '去处理', run: () => setCategory('视频观看') };
           return { label, tone: closed ? 'bad' : '', detail, tab: '视频观看', action };
         }
@@ -514,16 +565,35 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
           (((state?.chat?.unansweredGroups?.needsManual ?? 0) + (state?.chat?.unansweredGroups?.uncertain ?? 0)) > 0) && h('span', null, h('span', { className: 'dy-dot err', 'aria-hidden': 'true' }), ' ', h('span', { className: 'dy-num' }, String((state.chat.unansweredGroups.needsManual ?? 0) + (state.chat.unansweredGroups.uncertain ?? 0))), ' ', h('span', { className: 'dy-cap' }, '已转人工')),
           watchState?.active && h('span', { role: 'status', 'aria-label': '自主观看状态', title: watchState.reason }, h('span', { className: 'dy-dot', 'aria-hidden': 'true' }), ' ', h('span', { className: 'dy-cap' }, `◉ ${watchLabel}`)),
           (['attention', 'preparing'].includes(replyPresence?.status) || watchState?.active && replyPresence?.online !== true) && h('small', { role: replyPresence?.status === 'attention' ? 'alert' : 'status', className: 'dy-cap', style: { whiteSpace: 'normal' } }, presenceReason)),
-        summary && h('div', { role: 'status', 'aria-label': '当前状态摘要', className: 'dy-summary', title: summary.detail },
-          h('span', { className: `dot ${summary.tone || ''}`, 'aria-hidden': 'true' }),
-          h('span', { className: 'lb' }, summary.label),
-          h('span', { className: 'dt' }, summary.detail),
-          summary.action && button(summary.action.label, 'statusGoto', summary.action.run)),
+        summary && h('div', { className: 'status-top-box', role: 'region', 'aria-label': '今日概览与数字块' },
+          h('div', { role: 'status', 'aria-label': '当前状态摘要', className: 'dy-summary', title: summary.detail },
+            h('span', { className: `dot ${summary.tone || ''}`, 'aria-hidden': 'true' }),
+            h('span', { className: 'lb' }, summary.label),
+            h('span', { className: 'dt' }, summary.detail),
+            summary.action && button(summary.action.label, 'statusGoto', summary.action.run)),
+          h('div', { className: 'dy-stat2' },
+            h('div', { className: 'dy-stat' },
+              h('div', { className: 'dy-stat-head' }, h('span', { className: 'k' }, '今日观看分钟'), h('span', { className: 'v' }, `${Math.floor((state?.video?.daily?.usedSeconds || 0) / 60)} / ${state?.video?.policy?.dailyMinutes ?? '不限'} 分钟`)),
+              h('div', { className: 'sub' }, `今日剩余 ${state?.video?.daily?.remainingSeconds === null || state?.video?.daily?.remainingSeconds === undefined ? '不限' : `${Math.floor(state.video.daily.remainingSeconds / 60)} 分钟`}`),
+              typeof state?.video?.policy?.dailyMinutes === 'number' && state.video.policy.dailyMinutes > 0 ? h('div', { className: 'dy-meter' }, h('i', { className: (state?.video?.daily?.usedSeconds || 0) >= state.video.policy.dailyMinutes * 60 ? 'warn' : '', style: { width: `${Math.min(100, Math.round((state?.video?.daily?.usedSeconds || 0) * 100 / (state.video.policy.dailyMinutes * 60)))}%` } })) : null),
+            h('div', { className: 'dy-stat' },
+              h('div', { className: 'dy-stat-head' }, h('span', { className: 'k' }, '今日模型次数'), h('span', { className: 'v' }, `${state?.video?.daily?.requests || 0} / ${state?.video?.policy?.dailyRequests ?? '不限'} 次`)),
+              h('div', { className: 'sub' }, `全场景累计 ${state?.usage?.total?.requests || 0} 次 · ${state?.usage?.total?.totalTokens || 0} Token`),
+              typeof state?.video?.policy?.dailyRequests === 'number' && state.video.policy.dailyRequests > 0 ? h('div', { className: 'dy-meter' }, h('i', { className: (state?.video?.daily?.requests || 0) >= state.video.policy.dailyRequests ? 'warn' : '', style: { width: `${Math.min(100, Math.round((state?.video?.daily?.requests || 0) * 100 / state.video.policy.dailyRequests))}%` } })) : null),
+            h('div', { className: 'dy-stat' },
+              h('div', { className: 'dy-stat-head' }, h('span', { className: 'k' }, '今日好友回复'), h('span', { className: 'v' }, `${state?.chat?.daily?.requests || 0} 次`)),
+              h('div', { className: 'sub' }, `待答 ${state?.chat?.unansweredCount || 0} 条 · 自动恢复 ${state?.chat?.unansweredGroups?.autoRecovering || 0} 条`),
+              h('div', { className: 'dy-meter' }, h('i', { className: 'ok', style: { width: `${Math.min(100, Math.round((state?.chat?.daily?.requests || 0) * 100 / Math.max(1, state?.chat?.unansweredGroups?.autoRecovering || 0 || (state?.chat?.daily?.requests || 0) || 1)))}%` } }))),
+            h('div', { className: 'dy-stat' },
+              h('div', { className: 'dy-stat-head' }, h('span', { className: 'k' }, '今日分享与评论'), h('span', { className: 'v' }, `分享 ${state?.share?.daily?.attempts || 0} · 评论 ${state?.comments?.daily?.attempts || 0}`)),
+              h('div', { className: 'sub' }, `${(state?.comments?.notSent || []).length ? `${state.comments.notSent.length} 条公开评论未发出` : '没有未发出的公开评论'}`),
+              h('div', { className: 'dy-meter' }, h('i', { style: { width: `${Math.min(100, Math.round(((state?.share?.daily?.attempts || 0) + (state?.comments?.daily?.attempts || 0)) * 100 / Math.max(1, (state?.share?.daily?.attempts || 0) + (state?.comments?.daily?.attempts || 0) || 1)))}%` } })))),
+        ),
         h('nav', { className: 'dy-nav', role: 'tablist', 'aria-label': '抖音设置分类', tabIndex: 0 },
           h('span', { className: 'grp' }, '日常'),
           ...['基础设置', '视频观看', '好友互动', '公开评论', '音频与密钥'].filter(name => fallbackCategories[name]).map(name => h('button', { key: name, role: 'tab', type: 'button', 'aria-selected': category === name, onClick: () => setCategory(name) }, name)),
           h('span', { className: 'grp' }, '数据与记录'),
-          ...['自检与用量', '观看足迹', '记忆管理', '观看日报'].filter(name => fallbackCategories[name]).map(name => h('button', { key: name, role: 'tab', type: 'button', 'aria-selected': category === name, onClick: () => setCategory(name) }, name))),
+          ...['自检与用量', '观看足迹', '记忆管理', '观看日报', '分享记录'].filter(name => fallbackCategories[name]).map(name => h('button', { key: name, role: 'tab', type: 'button', 'aria-selected': category === name, onClick: () => setCategory(name) }, name))),
         category === '基础设置' && h('div', { className: 'dy-wrap' },
           dyCard(
             h('div', { className: 'dy-card-top' }, h('h3', null, '模型连接'), h('span', { className: 'sp' }), h('span', { className: `dy-chip ${state?.model?.configured ? 'ok' : 'err'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), state?.model?.configured ? '已配置' : '未配置')),
@@ -628,21 +698,12 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
                 h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)', lineHeight: 1.9, marginTop: 4, overflowWrap: 'anywhere' } },
                   ...(state?.chat?.events || []).filter(event => !event.recipientId || event.recipientId === item.id).slice(-20).reverse().map((event, index) => h('div', { key: index }, `${event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false }) : ''} ${event.message || event.type || '运行事件'}`)))))),
             !(state?.chat?.contacts || []).length && h('p', { className: 'dy-note' }, '暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。'),
-            h('details', { className: 'dy-inner' }, h('summary', null, '复制原始数据（排查用，界面不展示）'), h('div', null,
-              h('p', { className: 'dy-note' }, '点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。'),
-              h('div', { className: 'dy-row' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); }))))),
-          // 最近分享记录（v3 预览稿已确认）：行卡 + 状态胶囊；空态给引导。
-          h('div', { className: 'dy-card' },
-            h('div', { className: 'dy-card-top' }, h('h3', null, '最近分享记录'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '发送对象是许可名单里的好友')),
-            ...(state?.share?.recent || []).slice().reverse().slice(0, 10).map(item => h('div', { key: item.operationId || item.videoId || item.at, className: 'dy-tl-item' },
-              h('span', { className: 'dy-tl-bar', 'aria-hidden': 'true' }),
-              h('span', { className: 'dy-tl-main' },
-                h('span', { className: 'dy-tl-head' },
-                  h('b', { className: 'dy-tl-topic', style: { fontWeight: 500 } }, item.videoId ? `作品 ${item.videoId}` : '消息'),
-                  h('span', { className: `dy-chip ${item.status === 'confirmed' ? 'ok' : ['not-sent', 'resolved-not-sent'].includes(item.status) ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}`),
-                  h('span', { className: 'dy-tl-meta' }, `${item.recipientName ? `→ ${item.recipientName}` : ''}${item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`)),
-                shareFailureMessage(item) && h('span', { className: 'dy-tl-count' }, `原因：${shareFailureMessage(item)}`)))),
-            !(state?.share?.recent || []).length && h('div', { className: 'dy-empty' }, '还没有分享记录；自主观看中看到值得分享的作品时，会发给许可名单里的好友。'))
+            h('div', { className: 'dy-card' },
+              h('div', { className: 'dy-card-top' }, h('h3', null, '运行数据'), h('span', { className: 'sp' }),
+                h('details', { className: 'dy-inner' }, h('summary', null, '复制原始数据（排查用，界面不展示）'), h('div', null,
+                  h('p', { className: 'dy-note' }, '点下面按钮把完整运行数据复制到剪贴板，粘给排查工具或 Agent 用。'),
+                  h('div', { className: 'dy-row' }, button('复制原始数据', 'copyChatDebug', () => { copyData(() => JSON.stringify({ recovery: state?.chat?.recovery, contacts: state?.chat?.contacts, events: state?.chat?.events }, null, 2)); })))))
+        ),
         ),
         // 观看足迹（吞噬新增）：读取 /watched 聚合，按日分组卡片墙；点击在专用浏览器打开原作品。
         category === '观看足迹' && h('div', { className: 'dy-wrap' },
@@ -657,61 +718,75 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
             h('div', { className: 'dy-dayhead' }, h('b', null, group.day), h('span', { className: 'dy-cap' }, `${group.count} 条`), h('span', { className: 'ln' })),
             h('div', { className: 'dy-grid' }, ...group.items.map(item => h('a', { key: item.videoId + item.at, className: 'dy-vitem', href: item.url || '#', onClick: event => { event.preventDefault(); if (item.url) void perform('browser', () => api.request('/browser/navigate', { url: item.url })); } },
               h(ThumbImg, { api, videoId: item.videoId }),
-              h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}`)))))))),
+              h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title || '无文案作品'), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)))))))),
           watched && !!watched.groups.length && h('p', { className: 'dy-note' }, '分层来自实际观看行为：转发 > 停留观看 > 短暂停留 / 跳过；「跳过·超过 60 分钟」类长视频保留跳过标记。')),
-        // 记忆管理（v3 预览稿已确认）：兴趣可删改 + 最近观察精简 + 原始记录；删除级联并自动快照。
+        // 记忆管理（v6.2 视觉稿已确认）：iOS 分组列表 + 兴趣单行抽屉；删除级联并自动快照。
         category === '记忆管理' && h('div', { className: 'dy-wrap' },
-          h('div', { className: 'dy-card' },
-            h('div', { className: 'dy-card-top' },
-              h('div', { className: 'dy-mtabs', role: 'tablist', 'aria-label': '记忆分区' },
-                ...[['interests', '兴趣'], ['character', '角色卡'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, className: 'dy-mtab', role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label))),
-              h('span', { className: 'sp' }),
-              state?.persona?.personaFolder && button('打开抖音', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} })),
-            memTab === 'interests' && h('div', { className: 'dy-tl' },
-              ...(state?.persona?.interests || []).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : ''; return h('div', { key: item.topic, className: 'dy-tl-item' },
-                h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }),
-                h('span', { className: 'dy-tl-main' },
-                  h('span', { className: 'dy-tl-head' },
-                    h('b', { className: 'dy-tl-topic' }, item.topic),
+          h('div', { className: 'ios-section' },
+            h('div', { className: 'ios-sec-head' }, h('span', null, '记忆分区'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, state?.persona?.personaFolder ? '本地记忆库已就绪' : '本地记忆库读取中')),
+            h('div', { className: 'ios-card' },
+              h('div', { className: 'ios-row' },
+                h('div', { className: 'ios-main' },
+                  h('div', { className: 'dy-seg', role: 'tablist', 'aria-label': '记忆分区' },
+                    ...[['interests', '兴趣'], ['character', '角色卡'], ['observations', '最近观察'], ['raw', '原始记录']].map(([key, label]) => h('button', { key, role: 'tab', type: 'button', 'aria-selected': memTab === key, onClick: () => setMemTab(key) }, label)))),
+                h('div', { className: 'ios-right' },
+                  state?.persona?.personaFolder && button('打开抖音', 'openMemory', () => { try { void api.request('/browser/open', {}); } catch {} }))),
+              memTab === 'interests' && h('div', null,
+                ...(state?.persona?.interests || []).map(item => h('details', { key: item.topic, className: 'ios-interest' },
+                  h('summary', null,
+                    h('span', { className: 'ios-main' },
+                      h('span', { className: 'ios-t' }, item.topic),
+                      h('span', { className: 'ios-s' }, `${item.counts?.like ?? 0} 正向 · ${item.counts?.dislike ?? 0} 负向 · ${item.counts?.neutral ?? 0} 待观察 · 最近：${(item.evidence || []).slice(-1).map(row => row.title || row.videoId).join('') || '暂无证据摘要'}`)),
+                    h('span', { className: 'ios-right' },
+                      h('span', { className: `dy-chip ${item.signal === 'like' ? 'ok' : item.signal === 'dislike' ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal),
+                      h('span', { className: 'ios-chev', 'aria-hidden': 'true' }, '›'))),
+                  h('div', { className: 'interest-drawer' },
+                    h('span', { className: 'interest-drawer-info' }, item.privacy === 'internal-reference' ? '内部参考，不对外' : '本地记录'),
+                    h('span', { className: 'interest-drawer-actions' },
+                      h('button', { type: 'button', className: 'dy-btn tiny', disabled: busy.has('interestForget'), onClick: () => { setMemTab('raw'); setMemoryQuery(item.topic); void perform('memorySearch', () => api.request('/memory/search', { query: item.topic }).then(value => { setMemoryResults(value); return value; })); } }, '看证据'),
+                      h('button', { type: 'button', className: 'dy-btn tiny', disabled: busy.has('interestForget'), onClick: () => { void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic, signal: 'dislike' }); void refresh(true); return result; }); } }, '不感兴趣'),
+                      item.signal === 'neutral' && h('button', { type: 'button', className: 'dy-btn tiny primary', disabled: busy.has('interestForget'), onClick: () => { void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic, signal: 'like' }); void refresh(true); return result; }); } }, '感兴趣'),
+                      interestConfirm === item.topic ? h('button', { type: 'button', className: 'dy-btn tiny danger', disabled: busy.has('interestForget'), onClick: () => { setInterestConfirm(''); void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic }); void refresh(true); return result; }); } }, '确认删除') : h('button', { type: 'button', className: 'dy-btn tiny danger', disabled: busy.has('interestForget'), onClick: () => setInterestConfirm(item.topic) }, '删除'))))),
+                !(state?.persona?.interests || []).length && h('div', { className: 'ios-row' }, h('div', { className: 'ios-main' }, h('span', { className: 'ios-t' }, '暂无兴趣记忆'), h('span', { className: 'ios-s' }, '观看并互动后会自动整理。'))),
+                interestConfirm && h('p', { className: 'dy-note' }, '再点一次「确认删除」才会执行。')),
+              memTab === 'character' && h('div', null,
+                ...(state?.persona?.interests || []).slice(0, 12).map(item => h('div', { key: item.topic, className: 'ios-row' },
+                  h('div', { className: 'ios-main' },
+                    h('span', { className: 'ios-t' }, item.topic),
+                    h('span', { className: 'ios-s' }, item.basis || '按不同作品汇总的观看与互动记录。')),
+                  h('div', { className: 'ios-right' },
                     h('span', { className: `dy-chip ${item.signal === 'like' ? 'ok' : item.signal === 'dislike' ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal),
-                    h('span', { className: 'dy-tl-meta' }, `${item.counts?.like ?? 0} 正向 · ${item.counts?.dislike ?? 0} 负向 · ${item.counts?.neutral ?? 0} 待观察`),
-                    h('button', { type: 'button', className: 'dy-btn tiny', disabled: busy.has('interestForget'), onClick: () => { setMemTab('raw'); setMemoryQuery(item.topic); void perform('memorySearch', () => api.request('/memory/search', { query: item.topic }).then(value => { setMemoryResults(value); return value; })); } }, '看证据'),
-                    interestConfirm === item.topic ? h('button', { type: 'button', className: 'dy-btn tiny danger', disabled: busy.has('interestForget'), onClick: () => { setInterestConfirm(''); void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic }); void refresh(true); return result; }); } }, '确认删除') : h('button', { type: 'button', className: 'dy-btn tiny danger', disabled: busy.has('interestForget'), onClick: () => setInterestConfirm(item.topic) }, '删除'),
-                    item.signal !== 'dislike' && h('button', { type: 'button', className: 'dy-btn tiny', disabled: busy.has('interestForget'), onClick: () => { void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic, signal: 'dislike' }); void refresh(true); return result; }); } }, '不感兴趣'),
-                    item.signal === 'neutral' && h('button', { type: 'button', className: 'dy-btn tiny primary', disabled: busy.has('interestForget'), onClick: () => { void perform('interestForget', async () => { const result = await api.request('/persona/interest/forget', { topic: item.topic, signal: 'like' }); void refresh(true); return result; }); } }, '感兴趣')),
-                  h('span', { className: 'dy-tl-count' }, `最近：${(item.evidence || []).slice(-1).map(row => row.title || row.videoId).join('') || '暂无证据摘要'}`))); }),
-              !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。'),
-              interestConfirm && h('p', { className: 'dy-note' }, '再点一次「确认删除」才会执行。')),
-            memTab === 'character' && h('div', { className: 'dy-inner' },
-              h('p', { className: 'dy-note' }, '这里展示观看后自动整理的兴趣记忆（内部参考，不对外）；人格正文在「基础设置 → 人格与兴趣」编辑。'),
-              ...(state?.persona?.interests || []).slice(0, 12).map(item => { const kindClass = item.signal === 'like' ? 'fact' : item.signal === 'dislike' ? 'mention' : 'pref'; return h('div', { key: item.topic, className: 'dy-tl-item' },
-                h('span', { className: `dy-tl-bar ${kindClass}`, 'aria-hidden': 'true' }),
-                h('span', { className: 'dy-tl-main' },
-                  h('span', { className: 'dy-tl-head' },
-                    h('b', { className: 'dy-tl-topic' }, item.topic),
-                    h('span', { className: `dy-chip ${item.signal === 'like' ? 'ok' : item.signal === 'dislike' ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ like: '感兴趣', dislike: '不感兴趣', neutral: '待观察' })[item.signal] || item.signal),
-                    h('span', { className: 'dy-tl-meta' }, item.privacy === 'internal-reference' ? '内部参考' : '')),
-                  h('span', { className: 'dy-tl-count' }, item.basis || '按不同作品汇总的观看与互动记录。'))); }),
-              !(state?.persona?.interests || []).length && h('p', { className: 'dy-note' }, '暂无兴趣记忆；观看并互动后会自动整理。')),
-            memTab === 'observations' && h('div', { className: 'dy-tl' },
-              ...(() => { const rows = (state?.persona?.recentObservations || []).slice(-20).reverse(); const render = item => h('div', { key: item.evidenceId || item.videoId, className: 'dy-tl-item' },
-                h('span', { className: 'dy-tl-bar', 'aria-hidden': 'true' }),
-                h('span', { className: 'dy-tl-main' },
-                  h('span', { className: 'dy-tl-head' },
-                    h('b', { className: 'dy-tl-topic', style: { fontWeight: 500 } }, item.title || '无文案作品'),
-                    h('span', { className: 'dy-tl-meta' }, `${item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}${item.author ? ` · @${item.author}` : ''}`)))); return rows.length > 5 ? [...rows.slice(0, 5).map(render), h('details', { key: 'obs-more', className: 'dy-inner' }, h('summary', null, `展开全部 ${rows.length} 条观察`), h('div', { className: 'dy-tl' }, ...rows.slice(5).map(render)))] : rows.map(render); })(),
-              !(state?.persona?.recentObservations || []).length && h('p', { className: 'dy-note' }, '暂无观察记录。')),
-            memTab === 'raw' && h('details', { className: 'dy-inner' },
-              h('summary', null, '原始记录（记忆文件夹 · 搜索 · 删除）'),
-              h('p', { className: 'dy-note' }, `记忆文件夹：${state?.persona?.personaFolder || '读取中…'}`),
-              h('div', { className: 'dy-row' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); })),
-              h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '搜索记忆'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 160 }, 'aria-label': '记忆搜索关键词', value: memoryQuery, placeholder: '文案 / 作者 / 作品编号', disabled: !ready, onChange: event => setMemoryQuery(event.target.value), onKeyDown: event => { if (event.key === 'Enter') void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); } }), button('搜索', 'memorySearch', () => { void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); })),
-              ...(memoryResults?.items || []).map(item => h('div', { key: item.evidenceId, className: 'dy-row' },
-                h('span', { className: 'dy-note', style: { flex: 1, minWidth: 0 } }, `${item.title}${item.author ? ` · @${item.author}` : ''} · ${item.tier}`),
-                memoryConfirm === item.evidenceId ? h('button', { type: 'button', className: 'dy-btn primary', disabled: busy.has('memoryForget'), onClick: () => { setMemoryConfirm(''); void perform('memoryForget', async () => { const result = await api.request('/memory/forget', { evidenceId: item.evidenceId }); setMemoryResults(old => old ? { ...old, items: old.items.filter(row => row.evidenceId !== item.evidenceId) } : old); void refresh(true); return result; }); } }, '确认删除') : h('button', { type: 'button', className: 'dy-btn', disabled: busy.has('memoryForget'), onClick: () => setMemoryConfirm(item.evidenceId) }, '删除'))),
-              memoryResults && !memoryResults.items.length && h('p', { className: 'dy-note' }, '没有匹配的记忆记录。'),
-              memoryConfirm && h('p', { className: 'dy-note' }, '再点一次「确认删除」才会执行；删除前自动写快照到 forget-snapshots。'),
-              h('p', { className: 'dy-note' }, '删除会级联清理该作品关联的兴趣证据与观看/互动样本，并同步人格卡生成区；快照保留在记忆文件夹里可查。')))),
+                    h('span', { className: 'dy-cap' }, item.privacy === 'internal-reference' ? '内部参考' : '')))),
+                !(state?.persona?.interests || []).length && h('div', { className: 'ios-row' }, h('div', { className: 'ios-main' }, h('span', { className: 'ios-t' }, '暂无兴趣记忆'), h('span', { className: 'ios-s' }, '观看并互动后会自动整理；人格正文在「基础设置 → 人格与兴趣」编辑。')))),
+              memTab === 'observations' && h('div', null,
+                ...(() => { const rows = (state?.persona?.recentObservations || []).slice(-20).reverse(); return rows.map(item => h('div', { key: item.evidenceId || item.videoId, className: 'ios-row' },
+                  h('div', { className: 'ios-main' },
+                    h('span', { className: 'ios-t' }, item.title || '无文案作品'),
+                    h('span', { className: 'ios-s' }, `${item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}${item.author ? ` · @${item.author}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
+                  h('div', { className: 'ios-right' }, h('span', { className: 'ios-chev', 'aria-hidden': 'true' }, '›')))); })(),
+                !(state?.persona?.recentObservations || []).length && h('div', { className: 'ios-row' }, h('div', { className: 'ios-main' }, h('span', { className: 'ios-t' }, '暂无观察记录'), h('span', { className: 'ios-s' }, '开启自主观看后，最近看过的作品会出现在这里。')))),
+              memTab === 'raw' && h('div', null,
+                h('div', { className: 'ios-row' },
+                  h('div', { className: 'ios-main' },
+                    h('span', { className: 'ios-t' }, '记忆文件夹'),
+                    h('span', { className: 'ios-s' }, state?.persona?.personaFolder || '读取中…')),
+                  h('div', { className: 'ios-right' }, button('复制记忆快照', 'copyMemory', () => { copyData(() => JSON.stringify({ interests: state?.persona?.interests, recentObservations: state?.persona?.recentObservations }, null, 2)); }))),
+                h('div', { className: 'ios-row' },
+                  h('div', { className: 'ios-main' },
+                    h('span', { className: 'ios-t' }, '搜索记忆'),
+                    h('span', { className: 'ios-s' }, '按文案、作者或作品编号检索本地记录')),
+                  h('div', { className: 'ios-right' },
+                    h('input', { className: 'dy-input w-md', 'aria-label': '记忆搜索关键词', value: memoryQuery, placeholder: '文案 / 作者 / 作品编号', disabled: !ready, onChange: event => setMemoryQuery(event.target.value), onKeyDown: event => { if (event.key === 'Enter') void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); } }),
+                    button('搜索', 'memorySearch', () => { void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); }))),
+                ...(memoryResults?.items || []).map(item => h('div', { key: item.evidenceId, className: 'ios-row' },
+                  h('div', { className: 'ios-main' },
+                    h('span', { className: 'ios-t' }, item.title || '无标题记录'),
+                    h('span', { className: 'ios-s' }, `${item.author ? `@${item.author}` : ''}${item.tier ? ` · ${item.tier}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
+                  h('div', { className: 'ios-right' },
+                    memoryConfirm === item.evidenceId ? h('button', { type: 'button', className: 'dy-btn tiny danger', disabled: busy.has('memoryForget'), onClick: () => { setMemoryConfirm(''); void perform('memoryForget', async () => { const result = await api.request('/memory/forget', { evidenceId: item.evidenceId }); setMemoryResults(old => old ? { ...old, items: old.items.filter(row => row.evidenceId !== item.evidenceId) } : old); void refresh(true); return result; }); } }, '确认删除') : h('button', { type: 'button', className: 'dy-btn tiny danger', disabled: busy.has('memoryForget'), onClick: () => setMemoryConfirm(item.evidenceId) }, '删除')))),
+                memoryResults && !memoryResults.items.length && h('div', { className: 'ios-row' }, h('div', { className: 'ios-main' }, h('span', { className: 'ios-t' }, '没有匹配的记忆记录'), h('span', { className: 'ios-s' }, '换个关键词再搜一次。'))),
+                memoryConfirm && h('p', { className: 'dy-note' }, '再点一次「确认删除」才会执行；删除前自动写快照到 forget-snapshots。'),
+                h('div', { className: 'ios-row' }, h('div', { className: 'ios-main' }, h('span', { className: 'ios-s' }, '删除会级联清理该作品关联的兴趣证据与观看/互动样本，并同步人格卡生成区；快照保留在记忆文件夹里可查。')))))))),
         category === '公开评论' && h('div', { className: 'dy-wrap' },
           dyCard(
             h('div', { className: 'dy-card-top' }, h('h3', null, '公开评论'), dySwitch(comments.draft.enabled, { 'aria-label': '允许自主发布评论', onClick: () => comments.edit({ enabled: !comments.draft.enabled }, { immediate: true }) }), h('span', { className: 'dy-cap' }, '默认关闭')),
@@ -746,6 +821,21 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
               ? h(MarkdownText, { text: report.markdown || '暂无内容', labels: markdownLabels })
               : h('p', { className: 'dy-note', style: { whiteSpace: 'pre-wrap', margin: 0 } }, report.markdown || '暂无内容')))
         ),
+        category === '分享记录' && h('div', { className: 'dy-wrap' },
+          h('div', { className: 'ios-section' },
+            h('div', { className: 'ios-sec-head' }, h('span', null, '分享过的作品列表'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, `今日分享 ${state?.share?.daily?.attempts || 0} 次`)),
+            h('div', { className: 'ios-card' },
+              ...(state?.share?.recent || []).slice().reverse().slice(0, 10).map(item => h('div', { key: item.operationId || item.videoId || item.at, className: 'ios-row' },
+                h('div', { className: 'ios-main' },
+                  h('span', { className: 'ios-t' }, item.title || '作品分享'),
+                  h('span', { className: 'ios-s' }, `${item.recipientName ? `分享给 ${item.recipientName}` : ''}${item.at ? ` · ${new Date(item.at).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}${shareFailureMessage(item) ? ` · ${shareFailureMessage(item)}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
+                h('div', { className: 'ios-right' },
+                  h('span', { className: `dy-chip ${item.status === 'confirmed' ? 'ok' : ['not-sent', 'resolved-not-sent'].includes(item.status) ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}`),
+                  h('button', { type: 'button', className: 'dy-btn tiny', onClick: () => { void perform(`shareResolve:${item.operationId}`, () => api.request('/share/resolve', { operationId: item.operationId, outcome: 'confirmed' })); } }, '已核对发送成功'),
+                  h('button', { type: 'button', className: 'dy-btn tiny danger', onClick: () => { void perform(`shareResolve:${item.operationId}`, () => api.request('/share/resolve', { operationId: item.operationId, outcome: 'not-sent' })); } }, '已核对未发送'))),
+              !(state?.share?.recent || []).length && h('div', { className: 'ios-row' },
+                h('div', { className: 'ios-main' }, h('span', { className: 'ios-t' }, '还没有分享记录'), h('span', { className: 'ios-s' }, '自主观看中看到值得分享的作品时，会发给许可名单里的好友。'))))))
+        ),
         category === '自检与用量' && h('div', { className: 'dy-wrap' },
           dyCard(
             h('div', { className: 'dy-card-top' }, h('h3', null, '自检'), h('span', { className: 'sp' }), button('一键自检', 'diagnostics', () => { void perform('diagnostics', async () => { const value = await api.request('/diagnostics', {}); setDiagnostics(value); setRepairResult(''); return value; }); }), button('复制完整报告', 'copyDiagnostics', () => { copyData(() => JSON.stringify(diagnostics, null, 2)); })),
@@ -768,15 +858,25 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary,
             h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '观看时长'), (() => { const used = Math.floor((state?.video?.daily?.usedSeconds || 0) / 60), cap = state?.video?.policy?.dailyMinutes; return h('span', { style: { flex: 1, minWidth: 0 } }, h('span', { style: { fontWeight: 600 } }, String(used)), ` / ${cap ?? '不限'} 分钟`, typeof cap === 'number' && cap > 0 ? h('div', { className: 'dy-meter' }, h('i', { className: used >= cap ? 'warn' : '', style: { width: `${Math.min(100, Math.round(used * 100 / cap))}%` } })) : null); })()),
             h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '模型请求'), (() => { const used = state?.video?.daily?.requests || 0, cap = state?.video?.policy?.dailyRequests; return h('span', { style: { flex: 1, minWidth: 0 } }, h('span', { style: { fontWeight: 600 } }, String(used)), ` / ${cap ?? '不限'} 次`, typeof cap === 'number' && used >= cap ? '（已达上限，等待次日恢复）' : '', typeof cap === 'number' && cap > 0 ? h('div', { className: 'dy-meter' }, h('i', { className: used >= cap ? 'warn' : '', style: { width: `${Math.min(100, Math.round(used * 100 / cap))}%` } })) : null); })())),
           dyCard(
-            h('div', { className: 'dy-card-top' }, h('h3', null, 'Token 明细'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '只统计本助手发起的模型响应')),
+            h('div', { className: 'dy-card-top' }, h('h3', null, 'Token 明细'), h('span', { className: 'sp' }),
+              h('div', { className: 'dy-seg', role: 'tablist', 'aria-label': '用量范围' },
+                h('button', { type: 'button', role: 'tab', 'aria-selected': usageScope === 'today', onClick: () => setUsageScope('today') }, '今日'),
+                h('button', { type: 'button', role: 'tab', 'aria-selected': usageScope === 'total', onClick: () => setUsageScope('total') }, '累计')),
+              h('span', { className: 'dy-cap' }, '只统计本助手发起的模型响应')),
             h('div', { className: 'dy-stat2' },
-              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.totalTokens || 0)), h('div', { className: 'k' }, 'Token 合计')),
-              h('div', { className: 'dy-stat' }, h('div', { className: 'v' }, String(state?.usage?.today?.requests || 0)), h('div', { className: 'k' }, '模型响应（次）'))),
-            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '输入'), h('span', { className: 'v' }, String(state?.usage?.today?.promptTokens || 0))),
-            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '输出'), h('span', { className: 'v' }, String(state?.usage?.today?.completionTokens || 0))),
-            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '缓存命中'), h('span', { className: 'v' }, state?.usage?.today?.cacheReportedRequests ? `${state.usage.today.cachedTokens}（${state.usage.today.cacheReportedRequests} 次报告）` : '未逐次报告')),
-            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '用量未知'), h('span', { className: 'v' }, `${state?.usage?.today?.unknownRequests || 0} 次 · 未报告的请求不按零消耗计`)),
+              h('div', { className: 'dy-stat' }, h('div', { className: 'dy-stat-head' }, h('span', { className: 'k' }, 'Token 合计'), h('span', { className: 'v' }, String(usageScope === 'total' ? (state?.usage?.total?.totalTokens || 0) : (state?.usage?.today?.totalTokens || 0)))), h('div', { className: 'sub' }, usageScope === 'total' ? '最近 30 个有记录的日期合计' : (state?.usage?.today?.date || '今天'))),
+              h('div', { className: 'dy-stat' }, h('div', { className: 'dy-stat-head' }, h('span', { className: 'k' }, '模型响应（次）'), h('span', { className: 'v' }, String(usageScope === 'total' ? (state?.usage?.total?.requests || 0) : (state?.usage?.today?.requests || 0)))), h('div', { className: 'sub' }, usageScope === 'total' ? '累计响应次数' : '今天发起的响应次数'))),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '输入'), h('span', { className: 'v' }, String(usageScope === 'total' ? (state?.usage?.total?.promptTokens || 0) : (state?.usage?.today?.promptTokens || 0)))),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '输出'), h('span', { className: 'v' }, String(usageScope === 'total' ? (state?.usage?.total?.completionTokens || 0) : (state?.usage?.today?.completionTokens || 0)))),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '缓存命中'), h('span', { className: 'v' }, (usageScope === 'total' ? state?.usage?.total?.cacheReportedRequests : state?.usage?.today?.cacheReportedRequests) ? `${usageScope === 'total' ? (state?.usage?.total?.cachedTokens || 0) : (state?.usage?.today?.cachedTokens || 0)}（${usageScope === 'total' ? state.usage.total.cacheReportedRequests : state.usage.today.cacheReportedRequests} 次报告）` : '未逐次报告')),
+            h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '用量未知'), h('span', { className: 'v' }, `${usageScope === 'total' ? (state?.usage?.total?.unknownRequests || 0) : (state?.usage?.today?.unknownRequests || 0)} 次 · 未报告的请求不按零消耗计`)),
             state?.usage?.inFlight > 0 && h('p', { className: 'dy-note' }, `请求中 ${state.usage.inFlight} 次，Token 等模型返回后记录。`),
+            (state?.usage?.days || []).length ? h('div', { className: 'dy-inner', style: { marginTop: 8 } },
+              h('div', { className: 'dy-card-top', style: { marginBottom: 4 } }, h('h3', { style: { fontSize: 12.5, margin: 0 } }, '按日明细'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, `最近 ${state.usage.days.length} 天`)),
+              ...state.usage.days.slice().reverse().map(day => h('div', { key: day.date, className: 'dy-row' },
+                h('span', { className: 'dy-label', style: { minWidth: 96 } }, day.date),
+                h('span', { className: 'dy-note', style: { flex: 1, minWidth: 0 } }, `${day.requests || 0} 次响应 · ${day.totalTokens || 0} Token`),
+                h('span', { className: 'dy-cap' }, `输入 ${day.promptTokens || 0} / 输出 ${day.completionTokens || 0}`)))) : null,
             ...((state?.usage?.groups || []).length ? [h('div', { className: 'dy-inner', style: { marginTop: 8 } },
               h('div', { className: 'dy-card-top', style: { marginBottom: 4 } }, h('h3', { style: { fontSize: 12.5, margin: 0 } }, '分模型'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '同名按场景分行')),
               ...state.usage.groups.map(item => h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, item.model), h('span', { className: 'v' }, h('b', null, USAGE_KIND_LABELS[item.kind] || item.kind || '其他'), ` · ${item.requests} 次响应 · ${item.totalTokens} Token`))))] : []),

@@ -175,7 +175,7 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(await page.getByLabel('好友互动状态', { exact: true }).getAttribute('title'), '好友互动已关闭。');
   assert.equal(await page.getByRole('dialog', { name: '遗留待处理消息' }).count(), 0);
   assert.equal(calls.some(item => item.route === '/chat/unanswered/resolve'), false);
-  assert.equal(await page.getByRole('tab').count(), 9); assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
+  assert.equal(await page.getByRole('tab').count(), 10); assert.equal(await page.getByRole('button', { name: /^保存/ }).count(), 0);
   const tablistBox = await page.getByRole('tablist', { name: '抖音设置分类' }).evaluate(node => { const cs = getComputedStyle(node); return { display: cs.display, columns: cs.gridTemplateColumns.split(' ').filter(Boolean).length, rows: [...new Set([...node.querySelectorAll('[role="tab"]')].map(item => Math.round(item.getBoundingClientRect().top)))].length, groups: node.querySelectorAll('.grp').length }; });
   // v4 预览稿：顶部栏目改 5 列等宽网格并分组（不再折行胶囊），两行分组小标题。
   assert.equal(tablistBox.display, 'grid'); assert.equal(tablistBox.columns, 5); assert.equal(tablistBox.groups, 2); assert.equal(tablistBox.rows, 2);
@@ -233,9 +233,10 @@ test('原生设置自动保存有效输入，保留并发草稿，好友共用�
   assert.equal(await page.getByRole('switch', { name: '允许好友互动', exact: true }).getAttribute('aria-checked'), 'true');
   state.share.recent = [{ operationId: 'synthetic-share-failure', videoId: '11111', status: 'not-sent', failure: { code: 'SHARE_PANEL_UNAVAILABLE', stage: 'open-panel', message: '合成分享面板未显示。' } }, { operationId: 'synthetic-share-legacy', videoId: '22222', status: 'not-sent' }];
   await page.getByRole('button', { name: '刷新插件状态', exact: true }).click();
-  await page.getByText('最近分享记录', { exact: true }).click();
-  await page.getByText('原因：合成分享面板未显示。', { exact: false }).first().waitFor();
-  await page.getByText('原因：旧记录没有保存详细失败原因。', { exact: false }).first().waitFor();
+  await page.getByRole('tab', { name: '分享记录', exact: true }).click();
+  await page.getByText('合成分享面板未显示。', { exact: false }).first().waitFor();
+  await page.getByText('旧记录没有保存详细失败原因。', { exact: false }).first().waitFor();
+  await page.getByRole('tab', { name: '好友互动', exact: true }).click();
 
   assert.equal(await page.getByRole('spinbutton').count(), 0); assert.equal(await page.getByRole('button', { name: /启用|停止|保存|问候/ }).count(), 0);
   const beforeListSave = calls.filter(item => item.route === '/chat/configure').length;

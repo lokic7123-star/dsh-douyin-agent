@@ -9,4 +9,5 @@ export const SETTINGS_SECTIONS = Object.freeze({
   '音频与密钥': ['可选音频'],
   '观看日报': ['观看日报'],
   '自检与用量': ['自检与用量'],
+  '分享记录': ['分享记录'],
 });
