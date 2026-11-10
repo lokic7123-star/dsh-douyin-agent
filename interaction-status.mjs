@@ -49,7 +49,7 @@ export function interactionPresence({chat={},share={},watch={},modelReady=false,
     if (friend?.lastError && (!hasAutomatic || friendAction)) return result('attention',false,'回复暂缓',friendAction ? '请完成专用浏览器登录或验证，并确认许可设置。' : '回复服务暂未恢复，详细原因保留在好友互动。');
     if (chat.starting || friend?.status==='starting') return result('preparing',false,'准备中','正在核对会话身份并准备接收消息。');
     // 专用浏览器没在运行时会话仍标为 ready，不能当成在线：消息实际读不到，也就不会回复。
-    if (contacts.some(item=>/浏览器未运行/.test(String(item?.reason||'')))) return result('attention',false,'浏览器未运行','专用浏览器未运行，打开抖音后继续检查。');
+    if (contacts.some(item=>/浏览器未运行/.test(String(item?.reason||'')))) return result('attention',false,'浏览器未运行','专用浏览器未运行，后台会自动重试；也可打开抖音立即恢复。');
     if (!chat.running || chat.worker?.alive!==true || !freshAt(chat.worker?.heartbeatAt,5000)) return result('attention',false,'回复未就绪','回复服务未运行或连接已失效，暂不能确认在线。');
     const isolated = contacts.filter(item=>item.status==='paused' && actionable(item));
     const available = contacts.filter(item=>!isolated.includes(item) && (item.status==='ready' || item.status==='inflight' && pendingPhases.has(item.pending?.phase) || automaticCount(item)>0 && !actionable(item) && ['paused','delivery-uncertain','auto-readback'].includes(item.status) || automaticCount(item)>0 && !actionable(item) && item.status==='inflight' && item.pending?.phase==='auto-backlog'));
