@@ -1,0 +1,2108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抖音浏览器 · 设置 — 大肥鱼抖音助手</title>
+<style>
+:root {
+  color-scheme: light dark;
+  /* 浅色回退值（仅在 :root 集中声明 12 个允许使用的 dsw-alias 令牌） */
+  --dsw-alias-bg-base: #f2f2f7;
+  --dsw-alias-bg-layer-1: #ffffff;
+  --dsw-alias-bg-layer-2: #e5e5ea;
+  --dsw-alias-border-l1: #d8d8dc;
+  --dsw-alias-border-l2: #aeaeb2;
+  --dsw-alias-label-primary: #1c1c1e;
+  --dsw-alias-label-secondary: #3c3c43;
+  --dsw-alias-label-tertiary: #6c6c70;
+  --dsw-alias-state-warn-primary: #d97706;
+  --dsw-alias-state-error-primary: #ff3b30;
+  --dsw-alias-state-success-primary: #34c759;
+  --dsw-alias-brand-primary: #007aff;
+
+  /* 浅色 / 深色双态令牌映射（随容器 color-scheme 自动切换，不写死业务色值） */
+  --dsw-alias-bg-base: light-dark(#f2f2f7, #000000);
+  --dsw-alias-bg-layer-1: light-dark(#ffffff, #1c1c1e);
+  --dsw-alias-bg-layer-2: light-dark(#e5e5ea, #2c2c2e);
+  --dsw-alias-border-l1: light-dark(#d8d8dc, #38383a);
+  --dsw-alias-border-l2: light-dark(#aeaeb2, #636366);
+  --dsw-alias-label-primary: light-dark(#1c1c1e, #f2f2f7);
+  --dsw-alias-label-secondary: light-dark(#3c3c43, #ebebf5);
+  --dsw-alias-label-tertiary: light-dark(#6c6c70, #98989d);
+  --dsw-alias-state-warn-primary: light-dark(#d97706, #ff9f0a);
+  --dsw-alias-state-error-primary: light-dark(#ff3b30, #ff453a);
+  --dsw-alias-state-success-primary: light-dark(#34c759, #30d158);
+  --dsw-alias-brand-primary: light-dark(#007aff, #0a84ff);
+}
+
+html, body, div, span, h1, h2, h3, p, nav, section, label, input, select, textarea, button, details, summary {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  font-family: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color-scheme: light;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* 主题作用域容器：依靠 color-scheme 驱动 dsw-alias 令牌自动切换 */
+.theme-light {
+  color-scheme: light;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+.theme-dark {
+  color-scheme: dark;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 顶层预览说明条 */
+.page-lead {
+  max-width: 860px;
+  margin: 0 auto 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.page-lead-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.page-lead-sub {
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 弹层主容器（适配 760–900px 宽度） */
+.dialog {
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  border-radius: 12px;
+  padding: 14px 16px 20px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.dy-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 顶部标题栏 + 在线状态条 */
+.dy-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.dy-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sp {
+  flex: 1;
+  min-width: 4px;
+}
+
+.dy-statusline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 4px 2px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  min-width: 0;
+}
+
+.dy-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-success-primary);
+  flex: none;
+}
+
+.dy-dot.warn {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.dy-dot.err {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.dy-dot.idle {
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.dy-num {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+}
+
+.dy-cap {
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dy-foot {
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dy-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+/* 按钮体系：
+   1. 主操作 (.dy-btn.primary)：填充强调色，无描边，胶囊 999px
+   2. 次级操作 (.dy-btn / .dy-btn.tiny)：透明底 + 1px 实线可见描边 (--dsw-alias-border-l2)
+   3. 破坏性操作 (.dy-btn.danger)：透明底 + 1px 错误色可见描边 (--dsw-alias-state-error-primary) */
+.dy-btn {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: none;
+}
+
+.dy-btn:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.dy-btn.primary {
+  background: var(--dsw-alias-brand-primary);
+  border-color: transparent;
+  color: light-dark(var(--dsw-alias-bg-layer-1), var(--dsw-alias-label-primary));
+  font-weight: 600;
+}
+
+.dy-btn.primary:hover:not(:disabled) {
+  opacity: 0.9;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.dy-btn.danger {
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+  background: transparent;
+}
+
+.dy-btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+}
+
+.dy-btn.tiny {
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.dy-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 状态胶囊 */
+.dy-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.dy-chip .d {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+
+.dy-chip.ok {
+  color: var(--dsw-alias-state-success-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+}
+
+.dy-chip.warn {
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 15%, transparent);
+}
+
+.dy-chip.err {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
+}
+
+.dy-chip.info {
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent);
+}
+
+/* 置顶状态摘要 + 2×2 高密度数字块 */
+.status-top-box {
+  background: var(--dsw-alias-bg-layer-1);
+  border-radius: 12px;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dy-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  min-width: 0;
+}
+
+.dy-summary .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-warn-primary);
+  flex: none;
+}
+
+.dy-summary .dot.bad {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.dy-summary .dot.good {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.dy-summary .lb {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  flex: none;
+}
+
+.dy-summary .dt {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  flex: 1;
+  min-width: 160px;
+  overflow-wrap: anywhere;
+}
+
+/* 2×2 数字块（高信息密度，tabular-nums） */
+.dy-stat2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.dy-stat {
+  background: var(--dsw-alias-bg-base);
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dy-stat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dy-stat .v {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+}
+
+.dy-stat .k {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.dy-stat .sub {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.dy-meter {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  overflow: hidden;
+  margin-top: 3px;
+}
+
+.dy-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.dy-meter i.warn {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.dy-meter i.ok {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+/* 顶部 5×2 分组分段导航 */
+.nav-box {
+  background: var(--dsw-alias-bg-layer-1);
+  border-radius: 12px;
+  padding: 8px 12px 10px;
+}
+
+.dy-nav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.dy-nav .grp {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  padding: 2px 4px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dy-nav button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 4px;
+  border-radius: 999px;
+  border: none;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dy-nav button:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dy-nav button[aria-selected="true"] {
+  background: var(--dsw-alias-brand-primary);
+  color: light-dark(var(--dsw-alias-bg-layer-1), var(--dsw-alias-label-primary));
+  font-weight: 600;
+}
+
+/* iOS Segmented Control 通用分段控件 */
+.dy-seg {
+  display: inline-flex;
+  align-items: center;
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+  flex: none;
+}
+
+.dy-seg button {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dy-seg button[aria-selected="true"] {
+  background: var(--dsw-alias-brand-primary);
+  color: light-dark(var(--dsw-alias-bg-layer-1), var(--dsw-alias-label-primary));
+  font-weight: 600;
+}
+
+/* 栏目区块标题条 */
+.cat-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cat-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px 0;
+  min-width: 0;
+}
+
+.cat-banner h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* iOS Inset Grouped 分组列表卡片体系 */
+.ios-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ios-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  min-height: 22px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  min-width: 0;
+}
+
+.ios-sec-foot {
+  padding: 0 16px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 无边框分组卡：圆角 12px，行间 0.5px 淡分割线，左右内边距 16px，行高 44–56px */
+.ios-card {
+  background: var(--dsw-alias-bg-layer-1);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ios-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  min-height: 44px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  min-width: 0;
+}
+
+.ios-card-head h4 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.ios-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 16px;
+  min-height: 46px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  min-width: 0;
+}
+
+.ios-card > .ios-row:first-child,
+.ios-card-head + .ios-row {
+  border-top: none;
+}
+
+.ios-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ios-t {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ios-s {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.ios-right {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ios-v {
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ios-chev {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--dsw-alias-label-tertiary);
+  flex: none;
+}
+
+/* 表单输入与定宽控件（圆角 8–10px） */
+.dy-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 5px 10px;
+  height: 32px;
+  min-width: 0;
+}
+
+.dy-input.w-lg {
+  width: 240px;
+}
+
+.dy-input.w-md {
+  width: 170px;
+}
+
+.dy-input.w-sm {
+  width: 88px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dy-textarea {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  width: 100%;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 9px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+/* iOS 胶囊布尔开关 */
+.dy-switch {
+  display: inline-block;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
+  position: relative;
+  flex: none;
+  cursor: pointer;
+}
+
+.dy-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: light-dark(var(--dsw-alias-bg-layer-1), var(--dsw-alias-label-primary));
+  transition: transform 0.15s ease;
+}
+
+.dy-switch.on {
+  background: var(--dsw-alias-state-success-primary);
+  border-color: var(--dsw-alias-state-success-primary);
+}
+
+.dy-switch.on::after {
+  transform: translateX(16px);
+}
+
+/* 现代化勾选框（联系人白名单） */
+.ios-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: 5px;
+  border: 1.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+  flex: none;
+}
+
+.ios-check::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  clip-path: polygon(14% 44%, 0 62%, 40% 100%, 100% 18%, 84% 6%, 38% 72%);
+  background: light-dark(var(--dsw-alias-bg-layer-1), var(--dsw-alias-label-primary));
+  transform: scale(0);
+}
+
+.ios-check:checked {
+  background: var(--dsw-alias-brand-primary);
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.ios-check:checked::before {
+  transform: scale(1);
+}
+
+/* 主题标签与「去除」带描边按钮 */
+.tag-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.topic-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 10px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-base);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 记忆管理 — 兴趣单行可展开（长标题截断不换行，展开后操作按钮带描边且固定在右侧） */
+details.ios-interest {
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  min-width: 0;
+}
+
+details.ios-interest:first-child {
+  border-top: none;
+}
+
+details.ios-interest > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 16px;
+  min-height: 48px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+details.ios-interest > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.ios-interest[open] > summary .ios-chev {
+  transform: rotate(90deg);
+}
+
+.interest-drawer {
+  padding: 8px 16px 10px;
+  background: var(--dsw-alias-bg-base);
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.interest-drawer-info {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.interest-drawer-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* 观看足迹卡片墙 */
+.dy-dayhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dy-dayhead .ln {
+  flex: 1;
+  height: 0.5px;
+  background: var(--dsw-alias-border-l1);
+}
+
+.dy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 16px 12px;
+  min-width: 0;
+}
+
+.dy-vitem {
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.dy-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--dsw-alias-bg-layer-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dy-vbody {
+  padding: 7px 9px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dy-vt {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dy-vn {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* 浅色 + 深色两版并排预览区（适配 760–900px 宽度不横向溢出） */
+.compare-wrap {
+  max-width: 860px;
+  width: 100%;
+  margin: 22px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.compare-pane {
+  border-radius: 12px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+@media (max-width: 820px) {
+  .dy-input.w-lg {
+    width: 180px;
+  }
+  .dy-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="page-lead">
+  <div>
+    <div class="page-lead-title">抖音浏览器 · 设置</div>
+    <div class="page-lead-sub">管理自主观看时段、好友自动回复、公开评论与本地记忆库 · 当前回复通道在线，自主观看待命</div>
+  </div>
+  <div class="dy-seg" role="tablist" aria-label="视图模式切换">
+    <button type="button" role="tab" aria-selected="true" data-view-mode="all">展开全部栏目</button>
+    <button type="button" role="tab" aria-selected="false" data-view-mode="single">按选中栏目浏览</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     主面板（默认浅色，760–900px 弹层规格，覆盖完整 10 个栏目）
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="dialog theme-light" id="main-dialog">
+  <div class="dy-wrap">
+
+    <!-- 1. 顶部标题与主次动作 -->
+    <div class="dy-head">
+      <h2>大肥鱼抖音助手</h2>
+      <span class="dy-statusline" role="status" aria-live="polite">
+        <span class="dy-dot" aria-hidden="true"></span>
+        <span class="dy-num">回复通道在线</span>
+        <span class="dy-dot warn" aria-hidden="true"></span>
+        <span class="dy-num">1</span><span class="dy-cap">自动恢复中</span>
+        <span class="dy-dot err" aria-hidden="true"></span>
+        <span class="dy-num">2</span><span class="dy-cap">评论未发出</span>
+        <span class="dy-cap">◉ 自主观看待命</span>
+      </span>
+      <span class="sp"></span>
+      <button class="dy-btn" type="button">刷新插件状态</button>
+      <button class="dy-btn primary" type="button">打开抖音</button>
+    </div>
+
+    <!-- 2. 置顶状态摘要（所有栏目可见）+ 2×2 高信息密度数字块 -->
+    <div class="status-top-box" role="region" aria-label="当前状态摘要与今日数字块">
+      <div class="dy-summary">
+        <span class="dot bad" aria-hidden="true"></span>
+        <span class="lb">允许观看已关闭</span>
+        <span class="dt">自主观看总开关现在是关闭的；开启后将按设定时段 00:00-09:00 / 12:00-14:00 / 18:00-24:00 自动运行（reasonCode: disabled）</span>
+        <button class="dy-btn tiny" type="button" data-jump-cat="视频观看">去处理</button>
+      </div>
+      <div class="dy-summary" style="padding-bottom:6px">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="lb">不在允许观看时段</span>
+        <span class="dt">当前不在允许观看时段，下一个允许时段 18:00 开始；另有 2 条公开评论未发出可核对（reasonCode: outside-window）</span>
+        <button class="dy-btn tiny" type="button" data-jump-cat="视频观看">查看时段</button>
+        <button class="dy-btn tiny" type="button" data-jump-cat="公开评论">看未发出评论</button>
+      </div>
+      <div class="dy-stat2">
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日观看分钟</span><span class="v">18 / 30 分钟</span></div>
+          <div class="sub">已观看 18 分钟，今日剩余 12 分钟（state.video.daily.usedSeconds）</div>
+          <div class="dy-meter"><i style="width:60%"></i></div>
+        </div>
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日模型次数</span><span class="v">24 / 30 次</span></div>
+          <div class="sub">观看请求 24 次，全场景累计 170 次 / 1,554,650 Token（state.video.daily.requests）</div>
+          <div class="dy-meter"><i class="warn" style="width:80%"></i></div>
+        </div>
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日好友回复</span><span class="v">9 次</span></div>
+          <div class="sub">已自动回复 9 次，待答 1 条自动恢复，3 个会话正常接收（state.chat.daily.requests）</div>
+          <div class="dy-meter"><i class="ok" style="width:45%"></i></div>
+        </div>
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日分享与评论</span><span class="v">分享 3 次 · 评论 2 次</span></div>
+          <div class="sub">已分享 3 次，2 条公开评论未发出（state.share.daily.attempts / state.comments.notSent）</div>
+          <div class="dy-meter"><i style="width:50%"></i></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 顶部 5 列网格导航：上下两组各 5 个 -->
+    <div class="nav-box">
+      <nav class="dy-nav" role="tablist" aria-label="抖音设置分类">
+        <span class="grp"><span>日常</span><span class="dy-cap">基础配置与日常互动开关</span></span>
+        <button role="tab" type="button" aria-selected="true" data-cat-tab="基础设置">基础设置</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="视频观看">视频观看</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="好友互动">好友互动</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="公开评论">公开评论</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="音频与密钥">音频与密钥</button>
+        <span class="grp"><span>数据与记录</span><span class="dy-cap">用量统计、观看足迹与本地记忆</span></span>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="自检与用量">自检与用量</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="观看足迹">观看足迹</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="记忆管理">记忆管理</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="观看日报">观看日报</button>
+        <button role="tab" type="button" aria-selected="false" data-cat-tab="分享记录">分享记录</button>
+      </nav>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 1：基础设置
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="基础设置" aria-label="基础设置">
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>模型连接（state.model）</span><span class="sp"></span><span class="dy-chip ok"><span class="d" aria-hidden="true"></span>已配置</span></div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">提供商</span>
+              <span class="ios-s">选择 DSH 已接入的模型服务商（state.model.provider）</span>
+            </div>
+            <div class="ios-right">
+              <select class="dy-input w-md" aria-label="模型提供商">
+                <option value="zhipu">智谱 GLM (DSH)</option>
+                <option value="deepseek">DeepSeek 官方</option>
+              </select>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">模型</span>
+              <span class="ios-s">观看、回复、分享、评论共用的主模型（state.model.model）</span>
+            </div>
+            <div class="ios-right">
+              <select class="dy-input w-md" aria-label="模型名称">
+                <option value="glm-5.3-flash">glm-5.3-flash</option>
+                <option value="deepseek-chat">deepseek-chat</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="ios-sec-foot">选择已配置的 DSH 模型。配置后观看、回复、分享等自动能力按各自的开关运行。</div>
+      </div>
+
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>人格与兴趣（state.persona）</span><span class="sp"></span><span class="dy-cap">D:\总数据库\Identities\dafeiyu\persona</span></div>
+        <div class="ios-card">
+          <div class="ios-card-head">
+            <h4>观察注入上下文</h4>
+            <span class="dy-cap">最近作品观察随人设进入上下文（recentObservations）</span>
+            <span class="sp"></span>
+            <button class="dy-btn tiny" type="button">载入最新人格</button>
+            <span class="dy-switch on" role="switch" aria-checked="true" aria-label="观察注入上下文"></span>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">上下文预算</span>
+              <span class="ios-s">超过 2,000 字转黄，超过 3,000 字转红，不阻断保存</span>
+            </div>
+            <div class="ios-right">
+              <span class="ios-v">1,420 / 2,000 字 · 约 947 Token</span>
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>健康</span>
+            </div>
+          </div>
+          <div class="ios-row" style="flex-direction:column;align-items:stretch;gap:6px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span class="ios-t">大肥鱼人格正文（manualText）</span>
+              <span class="dy-foot">版本 48（revision）· 离开输入框后自动保存</span>
+            </div>
+            <textarea class="dy-textarea" rows="3" aria-label="大肥鱼人格正文">你是大肥鱼，偏好硬核 AI 推理、开源工具链、浏览器自动化与桌面插件生态；说话直接简洁，不灌水，遇到营销号与鸡汤直接划走。</textarea>
+          </div>
+        </div>
+        <div class="ios-sec-foot">插件与软件共用人格，未保存草稿不会被后台轮询覆盖。</div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 2：视频观看
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="视频观看" aria-label="视频观看">
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>自主观看与每日配额（state.schedule / state.video）</span><span class="sp"></span><span class="dy-cap">今日 18 分钟 · 请求 24 次</span></div>
+        <div class="ios-card">
+          <div class="ios-card-head">
+            <h4>允许自动观看</h4>
+            <span class="dy-cap">state.schedule.policy.enabled</span>
+            <span class="sp"></span>
+            <button class="dy-btn tiny primary" type="button">开始自主观看</button>
+            <button class="dy-btn tiny" type="button">暂停观看</button>
+            <span class="dy-switch on" role="switch" aria-checked="true" aria-label="允许自动观看"></span>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">快捷时段预设</span>
+              <span class="ios-s">一键填入常用时段规则</span>
+            </div>
+            <div class="ios-right">
+              <div class="dy-seg" role="group" aria-label="快捷时段预设">
+                <button type="button" aria-selected="false">全天</button>
+                <button type="button" aria-selected="true">谷时段（DeepSeek）</button>
+                <button type="button" aria-selected="false">晚间 20–22 点</button>
+              </div>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">每日允许视频时段</span>
+              <span class="ios-s">可设置多段允许观看时间，斜杠或空格分隔（state.video.policy.windows）</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-lg" type="text" aria-label="每日允许视频时段" value="00:00-09:00 / 12:00-14:00 / 18:00-24:00">
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">周末全天允许</span>
+              <span class="ios-s">周六、周日全天 00:00-24:00 允许观看（state.video.policy.weekendWindows）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-switch on" role="switch" aria-checked="true" aria-label="周末全天允许"></span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">每日观看上限（分钟）</span>
+              <span class="ios-s">开启「不限」后数字框停用（state.video.policy.dailyMinutes）</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-sm" type="number" aria-label="每日观看上限（分钟）" value="30">
+              <span class="dy-cap">分钟 · 不限</span>
+              <span class="dy-switch" role="switch" aria-checked="false" aria-label="不限每日观看时长"></span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">每日观看模型请求上限</span>
+              <span class="ios-s">达到上限后当日暂停，等待次日恢复（state.video.policy.dailyRequests）</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-sm" type="number" aria-label="每日观看模型请求上限" value="30">
+              <span class="dy-cap">次 · 不限</span>
+              <span class="dy-switch" role="switch" aria-checked="false" aria-label="不限每日模型请求次数"></span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">静默观看</span>
+              <span class="ios-s">静音播放，核实窗口归属后尝试最小化（state.mode.silent）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-switch on" role="switch" aria-checked="true" aria-label="静默观看"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>观看主题与排除词（state.watchOptions.policy）</span><span class="sp"></span><span class="dy-chip info"><span class="d" aria-hidden="true"></span>围绕指定主题观看</span></div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">观看方式</span>
+              <span class="ios-s">选择围绕指定主题或自主挑选推荐作品（state.watchOptions.policy.mode）</span>
+            </div>
+            <div class="ios-right">
+              <select class="dy-input w-md" aria-label="观看方式">
+                <option value="topic">围绕指定主题观看</option>
+                <option value="recommend">自主挑选推荐</option>
+              </select>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">想看的主题标签（topics）</span>
+              <span class="ios-s">优先停留并记录命中以下主题的作品（state.watchOptions.policy.topics）</span>
+            </div>
+            <div class="ios-right tag-flow">
+              <span class="topic-pill">AI 推理 <button class="dy-btn tiny" type="button">去除</button></span>
+              <span class="topic-pill">DeepSeek <button class="dy-btn tiny" type="button">去除</button></span>
+              <span class="topic-pill">开源项目 <button class="dy-btn tiny" type="button">去除</button></span>
+              <input class="dy-input w-md" type="text" aria-label="想看的主题" value="AI 推理 / DeepSeek / 开源项目">
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">排除关键词（exclude）</span>
+              <span class="ios-s">命中排除词的作品立即划走，不计入正向兴趣（state.watchOptions.policy.exclude）</span>
+            </div>
+            <div class="ios-right tag-flow">
+              <span class="topic-pill">直播带货 <button class="dy-btn tiny danger" type="button">去除</button></span>
+              <span class="topic-pill">情感鸡汤 <button class="dy-btn tiny danger" type="button">去除</button></span>
+              <input class="dy-input w-md" type="text" aria-label="排除关键词" value="直播带货 / 情感鸡汤">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 3：好友互动
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="好友互动" aria-label="好友互动">
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>互动总开关与通道（state.interactions / state.chat）</span><span class="sp"></span><span class="dy-cap">今日回复 9 次 · 今日分享 3 次</span></div>
+        <div class="ios-card">
+          <div class="ios-card-head">
+            <h4>允许好友互动</h4>
+            <span class="dy-cap">只与许可名单内的好友及群聊互动（state.interactions.policy.enabled）</span>
+            <span class="sp"></span>
+            <button class="dy-btn tiny" type="button">准备回复通道</button>
+            <span class="dy-switch on" role="switch" aria-checked="true" aria-label="允许好友互动"></span>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">许可名单读取与现有会话授权</span>
+              <span class="ios-s">开启后群聊与已核对的现有会话可勾选（allowConversationOnly）</span>
+            </div>
+            <div class="ios-right">
+              <button class="dy-btn tiny" type="button">读取联系人与群聊</button>
+              <span class="dy-switch on" role="switch" aria-checked="true" aria-label="授权已核对的现有会话"></span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+                <input class="ios-check" type="checkbox" checked aria-label="许可联系人 大肥鱼">
+                <span class="ios-t">大肥鱼（个人会话 · 互相关注）</span>
+              </label>
+              <span class="ios-s">待答 0 条 · 最后检查 20:10:05 · 自动回复正常接收</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>正常接收</span>
+              <button class="dy-btn tiny" type="button">去除</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+                <input class="ios-check" type="checkbox" checked aria-label="许可联系人 秋实KL">
+                <span class="ios-t">秋实KL（个人会话 · 互相关注）</span>
+              </label>
+              <span class="ios-s">待答 1 条（等待自动恢复 · 下次尝试 20:15）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip warn"><span class="d" aria-hidden="true"></span>等待自动恢复</span>
+              <button class="dy-btn tiny" type="button">安全重新检查</button>
+              <button class="dy-btn tiny danger" type="button">结束待答</button>
+              <button class="dy-btn tiny" type="button">去除</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+                <input class="ios-check" type="checkbox" checked aria-label="许可群聊 DSH 插件研发群">
+                <span class="ios-t">DSH 插件研发群（群聊 · 仅被 @ 或叫到响应昵称时回复）</span>
+              </label>
+              <span class="ios-s">群聊响应昵称：大肥鱼, 小鱼助手</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-md" type="text" aria-label="群聊响应昵称" value="大肥鱼, 小鱼助手">
+              <button class="dy-btn tiny" type="button">去除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ios-section">
+        <div class="ios-sec-head">
+          <span>最近分享记录摘要（state.share.recent）</span>
+          <span class="sp"></span>
+          <button class="dy-btn tiny" type="button" data-jump-cat="分享记录">查看全部「分享记录」</button>
+        </div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">小显卡运行 DeepSeek R1 量化实测</span>
+              <span class="ios-s">@大肥鱼 · 11-10 19:45 · 分享给好友「大肥鱼」· 编号 7688677221380230450</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>已确认送达</span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">本地 Agent 浏览器自动化方案对比</span>
+              <span class="ios-s">@AI硬核实验室 · 11-10 18:31 · 分享给好友「大肥鱼」未找到目标会话 · 编号 7688677221380230451</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 4：公开评论
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="公开评论" aria-label="公开评论">
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>公开评论策略与未发出记录（state.comments）</span><span class="sp"></span><span class="dy-cap">今日已尝试 2 次</span></div>
+        <div class="ios-card">
+          <div class="ios-card-head">
+            <h4>允许自主发布评论</h4>
+            <span class="dy-cap">不使用私信或人格原文（state.comments.enabled）</span>
+            <span class="sp"></span>
+            <span class="dy-switch on" role="switch" aria-checked="true" aria-label="允许自主发布评论"></span>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">评论每日尝试上限 / 每次观看上限</span>
+              <span class="ios-s">达到上限后不再尝试评论（state.comments.policy.dailyLimit / perSessionLimit）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-cap">每日</span>
+              <input class="dy-input w-sm" type="number" aria-label="评论每日尝试上限" value="3">
+              <span class="dy-cap">次 · 每次观看</span>
+              <input class="dy-input w-sm" type="number" aria-label="评论每次观看尝试上限" value="1">
+              <span class="dy-cap">次</span>
+            </div>
+          </div>
+          <!-- 未发出条目 1（重点核对） -->
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">小显卡运行 DeepSeek R1 量化实测</span>
+              <span class="ios-s">@AI硬核实验室 · 11-10 18:33 · 评论面板未打开，未改用其他发送方式（state.comments.notSent）· 编号 7688677221380230450</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
+              <span class="dy-foot">11-10 18:33</span>
+              <button class="dy-btn tiny" type="button">看证据</button>
+              <button class="dy-btn tiny danger" type="button">去除</button>
+            </div>
+          </div>
+          <!-- 未发出条目 2（重点核对） -->
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">本地 Agent 浏览器控制基准测试</span>
+              <span class="ios-s">@大肥鱼 · 11-09 21:14 · 输入框焦点校验未通过，确认未发出（state.comments.notSent）· 编号 7688610948201938177</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
+              <span class="dy-foot">11-09 21:14</span>
+              <button class="dy-btn tiny" type="button">看证据</button>
+              <button class="dy-btn tiny danger" type="button">去除</button>
+            </div>
+          </div>
+          <!-- 待核对评论 -->
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">Github 一周热点 136 期</span>
+              <span class="ios-s">@IT咖啡馆 · 11-09 20:10 · 发送后页面切换，请人工确认是否已发出（needsReview）· 编号 7688551234567890123</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip warn"><span class="d" aria-hidden="true"></span>待核对</span>
+              <button class="dy-btn tiny" type="button">已核对发送成功</button>
+              <button class="dy-btn tiny danger" type="button">已核对未发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 5：音频与密钥
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="音频与密钥" aria-label="音频与密钥">
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>音频理解与后端密钥（state.media）</span><span class="sp"></span><span class="dy-cap">保存 Key 不会自动开启音频</span></div>
+        <div class="ios-card">
+          <div class="ios-card-head">
+            <h4>读取视频声音</h4>
+            <span class="dy-cap">关闭时仅使用画面与字幕（state.media.enabled）</span>
+            <span class="sp"></span>
+            <span class="dy-switch on" role="switch" aria-checked="true" aria-label="读取视频声音"></span>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">音频后端</span>
+              <span class="ios-s">选择语音转写或声音理解服务（state.media.backend）</span>
+            </div>
+            <div class="ios-right">
+              <select class="dy-input w-md" aria-label="音频后端">
+                <option value="mimo">MiMo</option>
+                <option value="local-whisper">本机 Whisper</option>
+                <option value="minimax">MiniMax</option>
+              </select>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">MiMo API Key</span>
+              <span class="ios-s">已配置；填写新 Key 后离开输入框或点「保存」即可替换</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-lg" type="password" aria-label="MiMo API Key" value="••••••••••••••••">
+              <button class="dy-btn tiny primary" type="button">保存</button>
+              <button class="dy-btn tiny danger" type="button">去除</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">MiniMax API Key</span>
+              <span class="ios-s">未配置；密文保存在本机凭据库，界面不回显</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-lg" type="password" aria-label="MiniMax API Key" placeholder="填写 Key，离开输入框后保存">
+              <button class="dy-btn tiny primary" type="button">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 6：自检与用量
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="自检与用量" aria-label="自检与用量">
+      <!-- 6.1 自检 + 最近前端错误 + 今日预算 -->
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>自检结果、前端错误与今日预算（diagnostics / state.video.daily）</span><span class="sp"></span><span class="dy-foot">2026-11-10</span></div>
+        <div class="ios-card">
+          <div class="ios-card-head">
+            <h4>一键自检与修复</h4>
+            <span class="dy-cap">完整报告进剪贴板</span>
+            <span class="sp"></span>
+            <button class="dy-btn tiny" type="button">一键自检</button>
+            <button class="dy-btn tiny" type="button">复制完整报告</button>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">专用浏览器与 CDP 通道</span>
+              <span class="ios-s">Edge 实例连接正常，标签页焦点可读写（BROWSER_READY）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>通过</span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">评论面板状态锁</span>
+              <span class="ios-s">上次评论面板未打开已安全中止，可一键重置状态锁（COMMENT_LOCK_WARN）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip warn"><span class="d" aria-hidden="true"></span>注意</span>
+              <button class="dy-btn tiny" type="button">修复：重置评论锁</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">最近前端错误（douyin-panel-errors · 环形缓存 20 条）</span>
+              <span class="ios-s">11-10 18:33 · 读取观看足迹：等待本机服务超时（20 秒）</span>
+            </div>
+            <div class="ios-right">
+              <button class="dy-btn tiny danger" type="button">清空</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">今日预算：观看时长 18 / 30 分钟 · 模型请求 24 / 30 次</span>
+              <span class="ios-s">达到今日上限后自动暂停，次日 00:00 恢复（state.video.daily）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip info"><span class="d" aria-hidden="true"></span>余量 20%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6.2 Token 明细（今日/累计切换 + 按日列表 ≥4 天 + 分模型场景） -->
+      <div class="ios-section">
+        <div class="ios-sec-head">
+          <span>Token 明细（state.usage.today / total / days / groups）</span>
+          <span class="sp"></span>
+          <div class="dy-seg" role="tablist" aria-label="Token 用量口径">
+            <button role="tab" type="button" aria-selected="true" data-usage-scope="today">今日</button>
+            <button role="tab" type="button" aria-selected="false" data-usage-scope="total">累计</button>
+          </div>
+        </div>
+        <div class="ios-card">
+          <div class="ios-row" style="padding-top:10px;padding-bottom:10px">
+            <div class="dy-stat2" style="width:100%">
+              <div class="dy-stat">
+                <div class="dy-stat-head"><span class="k">Token 合计（totalTokens）</span><span class="v" id="usage-total-tokens">1,554,650 Token</span></div>
+                <div class="sub" id="usage-io-tokens">今日全场景输入 1,412,300 · 输出 142,350（promptTokens / completionTokens）</div>
+              </div>
+              <div class="dy-stat">
+                <div class="dy-stat-head"><span class="k">模型响应（requests）</span><span class="v" id="usage-total-reqs">170 次调用</span></div>
+                <div class="sub" id="usage-cache-info">142 次命中缓存（824,100 Token），0 次用量未知（cacheReportedRequests / unknownRequests）</div>
+              </div>
+            </div>
+          </div>
+          <!-- 按日列表（state.usage.days，4 天完整明细） -->
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">今天 · 2026-11-10（state.usage.days[0]）</span>
+              <span class="ios-s">170 次请求 · 输入 1,412,300 / 输出 142,350 · 自主观看 168 · 好友回复 1 · 公开评论 1</span>
+            </div>
+            <div class="ios-right">
+              <span class="ios-v">1,554,650 Token</span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">昨天 · 2026-11-09（state.usage.days[1]）</span>
+              <span class="ios-s">64 次请求 · 输入 628,400 / 输出 61,120 · 自主观看 58 · 好友回复 4 · 火花 2</span>
+            </div>
+            <div class="ios-right">
+              <span class="ios-v">689,520 Token</span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">2026-11-08（state.usage.days[2]）</span>
+              <span class="ios-s">48 次请求 · 输入 531,200 / 输出 49,610 · 自主观看 45 · 公开评论 2 · 任务 1</span>
+            </div>
+            <div class="ios-right">
+              <span class="ios-v">580,810 Token</span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">2026-11-07（state.usage.days[3]）</span>
+              <span class="ios-s">30 次请求 · 输入 398,100 / 输出 38,810 · 自主观看 29 · 好友回复 1</span>
+            </div>
+            <div class="ios-right">
+              <span class="ios-v">436,910 Token</span>
+            </div>
+          </div>
+          <!-- 分模型与场景（state.usage.groups，USAGE_KIND_LABELS 映射） -->
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">分模型 · glm-5.3-flash（自主观看）</span>
+              <span class="ios-s">同名模型按场景分行 · 168 次响应 · 平均每次 9,225 Token（source: dsh | kind: watch）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip info"><span class="d" aria-hidden="true"></span>自主观看</span>
+              <span class="ios-v">1,549,954 Token</span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">分模型 · glm-5.3-flash（好友回复 / 公开评论）</span>
+              <span class="ios-s">好友回复 1 次（3,027 Token）· 公开评论 1 次（1,669 Token）· 火花/任务 0 次（kind: chat / comment）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>好友回复 · 公开评论</span>
+              <span class="ios-v">4,696 Token</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 7：观看足迹
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="观看足迹" aria-label="观看足迹">
+      <div class="ios-section">
+        <div class="ios-sec-head">
+          <span>已看作品卡片墙（/watched?days=14 · 共 42 条）</span>
+          <span class="sp"></span>
+          <div class="dy-seg" role="tablist" aria-label="足迹范围">
+            <button role="tab" type="button" aria-selected="true">最近 14 天</button>
+            <button role="tab" type="button" aria-selected="false">最近 30 天</button>
+          </div>
+          <button class="dy-btn tiny" type="button">刷新足迹</button>
+        </div>
+        <div class="ios-card">
+          <div class="dy-dayhead"><b>2026-11-10</b><span class="dy-cap">18 条</span><span class="ln"></span></div>
+          <div class="dy-grid">
+            <div class="dy-vitem">
+              <div class="dy-thumb"><span>视频封面已缓存</span><span>04:52</span></div>
+              <div class="dy-vbody">
+                <div class="dy-vt">小显卡运行 DeepSeek R1 量化实测，显存控制技巧</div>
+                <div class="dy-vn">@AI硬核实验室 · 11-10 19:45 · 转发 · 停留 5 分钟 · 编号 7688677221380230450</div>
+              </div>
+            </div>
+            <div class="dy-vitem">
+              <div class="dy-thumb"><span>视频封面已缓存</span><span>03:18</span></div>
+              <div class="dy-vbody">
+                <div class="dy-vt">零成本用上 Opus 5.5！WorkBuddy 积分几乎不花</div>
+                <div class="dy-vn">@秋实KL · 11-10 19:40 · 停留观看 · 3 分 15 秒 · 编号 7688651092837465120</div>
+              </div>
+            </div>
+            <div class="dy-vitem">
+              <div class="dy-thumb"><span>视频封面已缓存</span><span>06:10</span></div>
+              <div class="dy-vbody">
+                <div class="dy-vt">Github 一周热点 136 期：本地 Agent 与浏览器自动化</div>
+                <div class="dy-vn">@IT咖啡馆 · 11-10 19:38 · 停留观看 · 4 分钟 · 编号 7688620918273645091</div>
+              </div>
+            </div>
+            <div class="dy-vitem">
+              <div class="dy-thumb"><span>暂无封面</span><span>01:45</span></div>
+              <div class="dy-vbody">
+                <div class="dy-vt">蓝发鲸鱼娘桌宠更新：支持自定义语音与动作反馈</div>
+                <div class="dy-vn">@桌宠工坊 · 11-10 19:20 · 短暂停留 · 35 秒 · 编号 7688599102938475612</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 8：记忆管理（四分区：兴趣 / 角色卡 / 最近观察 / 原始记录）
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="记忆管理" aria-label="记忆管理">
+      <!-- 8.0 分区导航条 -->
+      <div class="ios-card" style="padding:8px 16px;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div class="dy-seg" role="tablist" aria-label="记忆分区">
+          <button role="tab" type="button" aria-selected="true">兴趣（19）</button>
+          <button role="tab" type="button" aria-selected="false">角色卡（12）</button>
+          <button role="tab" type="button" aria-selected="false">最近观察（20）</button>
+          <button role="tab" type="button" aria-selected="false">原始记录</button>
+        </div>
+        <span class="dy-cap">D:\总数据库\Identities\dafeiyu\memory（state.persona.memoryDir）</span>
+      </div>
+
+      <!-- 8.1 兴趣 -->
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>兴趣偏好（state.persona.interests）</span></div>
+        <div class="ios-card">
+          <details class="ios-interest" open>
+            <summary>
+              <div class="ios-main">
+                <span class="ios-t">DSH 插件与生态（DeepSeek Harness 浏览器自动化、本地记忆库与多模型调度）</span>
+                <span class="ios-s">3 正向 · 0 负向 · 1 待观察 · 最近：大肥鱼插件把抖音变成自己的记忆库（停留 4 分钟）</span>
+              </div>
+              <div class="ios-right">
+                <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span>
+                <span class="ios-chev" aria-hidden="true">›</span>
+              </div>
+            </summary>
+            <div class="interest-drawer">
+              <span class="interest-drawer-info">依据 3 条深度观看与转发样本 · 更新于 2026-11-10 19:45（topic: DSH 插件与生态 / updatedAt）</span>
+              <div class="interest-drawer-actions">
+                <button class="dy-btn tiny" type="button">看证据</button>
+                <button class="dy-btn tiny" type="button">去除</button>
+                <button class="dy-btn tiny" type="button">不感兴趣</button>
+                <button class="dy-btn tiny danger" type="button">删除</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="ios-interest">
+            <summary>
+              <div class="ios-main">
+                <span class="ios-t">ai</span>
+                <span class="ios-s">12 正向 · 0 负向 · 1 待观察 · 最近：小显卡运行 DeepSeek R1 量化实测（停留 5 分钟）</span>
+              </div>
+              <div class="ios-right">
+                <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span>
+                <span class="ios-chev" aria-hidden="true">›</span>
+              </div>
+            </summary>
+            <div class="interest-drawer">
+              <span class="interest-drawer-info">依据 12 条停留观看样本 · 更新于 2026-11-10 19:45（topic: ai / updatedAt）</span>
+              <div class="interest-drawer-actions">
+                <button class="dy-btn tiny" type="button">看证据</button>
+                <button class="dy-btn tiny" type="button">去除</button>
+                <button class="dy-btn tiny" type="button">不感兴趣</button>
+                <button class="dy-btn tiny danger" type="button">删除</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="ios-interest">
+            <summary>
+              <div class="ios-main">
+                <span class="ios-t">桌宠</span>
+                <span class="ios-s">0 正向 · 0 负向 · 1 待观察 · 最近：蓝发鲸鱼娘桌宠（看完 91%）</span>
+              </div>
+              <div class="ios-right">
+                <span class="dy-chip info"><span class="d" aria-hidden="true"></span>待观察</span>
+                <span class="ios-chev" aria-hidden="true">›</span>
+              </div>
+            </summary>
+            <div class="interest-drawer">
+              <span class="interest-drawer-info">当前为待观察状态，可转为「感兴趣」或「不感兴趣」（topic: 桌宠 / signal: neutral）</span>
+              <div class="interest-drawer-actions">
+                <button class="dy-btn tiny" type="button">看证据</button>
+                <button class="dy-btn tiny" type="button">感兴趣</button>
+                <button class="dy-btn tiny" type="button">不感兴趣</button>
+                <button class="dy-btn tiny danger" type="button">删除</button>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- 8.2 角色卡（前若干条 + 内部参考，紧凑） -->
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>角色卡（state.persona.character · 内部参考，不对外公开）</span></div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">deepseek 与本地量化推理</span>
+              <span class="ios-s">按 6 部作品汇总的观看与转发记录，偏好实测数据与显存优化对比（basis）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span>
+              <span class="dy-chip">内部参考</span>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">GitHub 开源 Agent 工具链</span>
+              <span class="ios-s">按 5 部作品汇总的停留观看记录，关注 MCP 与浏览器自动化（basis）</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span>
+              <span class="dy-chip">内部参考</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8.3 最近观察 -->
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>最近观察（state.persona.recentObservations）</span></div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">零成本用上 Opus 5.5！WorkBuddy 积分几乎不花</span>
+              <span class="ios-s">@秋实KL · 11-10 19:40 · 停留观看 3 分 15 秒 · 编号 7688651092837465120</span>
+            </div>
+            <div class="ios-right"><span class="ios-chev" aria-hidden="true">›</span></div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">Github 一周热点 136 期：本地 Agent 与浏览器自动化</span>
+              <span class="ios-s">@IT咖啡馆 · 11-10 19:38 · 停留观看 4 分钟 · 编号 7688620918273645091</span>
+            </div>
+            <div class="ios-right"><span class="ios-chev" aria-hidden="true">›</span></div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">大肥鱼插件：把抖音变成自己的本地记忆库</span>
+              <span class="ios-s">@大肥鱼 · 11-10 18:02 · 转发给好友 · 编号 7688580019283746501</span>
+            </div>
+            <div class="ios-right"><span class="ios-chev" aria-hidden="true">›</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8.4 原始记录（直接铺开，不折叠：路径、搜索框、结果列表） -->
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>原始记录（state.persona.memoryDir）</span></div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">记忆文件夹路径（state.persona.memoryDir）</span>
+              <span class="ios-s">D:\总数据库\Identities\dafeiyu\memory · 删除前自动写快照到 forget-snapshots</span>
+            </div>
+            <div class="ios-right">
+              <button class="dy-btn tiny" type="button">复制记忆快照</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">搜索记忆（/memory/search）</span>
+              <span class="ios-s">支持按作品文案、作者昵称或作品编号检索原始观察证据</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-lg" type="text" aria-label="记忆搜索关键词" value="DeepSeek">
+              <button class="dy-btn tiny" type="button">搜索</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">小显卡运行 DeepSeek R1 量化实测</span>
+              <span class="ios-s">@AI硬核实验室 · 11-10 19:45 · 转发 · 关联 2 条兴趣证据（evidenceId: ev_76886772）· 编号 7688677221380230450</span>
+            </div>
+            <div class="ios-right">
+              <button class="dy-btn tiny" type="button">去除</button>
+              <button class="dy-btn tiny danger" type="button">删除</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">DeepInfer 推理框架讲解</span>
+              <span class="ios-s">@FredTalk · 11-09 22:18 · 停留观看 · 关联 1 条兴趣证据（evidenceId: ev_76885012）· 编号 7688501293847561028</span>
+            </div>
+            <div class="ios-right">
+              <button class="dy-btn tiny" type="button">去除</button>
+              <button class="dy-btn tiny danger" type="button">删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 9：观看日报
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="观看日报" aria-label="观看日报">
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>观看日报（/reports/read · /reports/generate）</span><span class="sp"></span><span class="dy-cap">D:\总数据库\Identities\dafeiyu\reports</span></div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">日报日期</span>
+              <span class="ios-s">选择日期读取本地 Markdown 日报或立即生成今日日报</span>
+            </div>
+            <div class="ios-right">
+              <input class="dy-input w-md" type="date" aria-label="日报日期" value="2026-11-10">
+              <button class="dy-btn tiny" type="button">读取所选日报</button>
+              <button class="dy-btn tiny primary" type="button">生成今天日报</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">2026-11-10 观看日报摘要</span>
+              <span class="ios-s">共观看 18 分钟（14 部作品）· 深度停留 5 部 · 转发 1 部给「大肥鱼」· 主要话题：DeepSeek R1 量化、GitHub 开源 Agent</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>已生成</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         栏目 10：分享记录（下组第 5 栏，独立展示）
+         ══════════════════════════════════════════════════════════════════════ -->
+    <section class="cat-block" data-cat-panel="分享记录" aria-label="分享记录">
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>分享过的作品列表（state.share.recent · 发送对象为许可名单好友）</span><span class="sp"></span><span class="dy-cap">今日分享 3 次</span></div>
+        <div class="ios-card">
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">小显卡运行 DeepSeek R1 量化实测</span>
+              <span class="ios-s">@AI硬核实验室 · 11-10 19:45 · 分享给好友「大肥鱼」（operationId: share_901）· 编号 7688677221380230450</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>已确认送达</span>
+              <button class="dy-btn tiny" type="button">去除</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">本地 Agent 浏览器自动化方案对比</span>
+              <span class="ios-s">@AI硬核实验室 · 11-10 18:31 · 分享给好友「大肥鱼」未找到目标会话，未改用其他发送方式 · 编号 7688677221380230451</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
+              <button class="dy-btn tiny" type="button">去除</button>
+            </div>
+          </div>
+          <div class="ios-row">
+            <div class="ios-main">
+              <span class="ios-t">Github 一周热点 136 期</span>
+              <span class="ios-s">@IT咖啡馆 · 11-09 21:05 · 分享给好友「秋实KL」送达未确认（needsReview）· 编号 7688512093847561029</span>
+            </div>
+            <div class="ios-right">
+              <span class="dy-chip warn"><span class="d" aria-hidden="true"></span>送达未确认</span>
+              <button class="dy-btn tiny" type="button">已核对发送成功</button>
+              <button class="dy-btn tiny danger" type="button">已核对未发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     浅色 + 深色两版并排预览
+     ══════════════════════════════════════════════════════════════════════════ -->
+<section class="compare-wrap" aria-label="浅色与深色并排预览">
+  <div class="page-lead" style="margin-bottom:0">
+    <div>
+      <div class="page-lead-title">浅色与深色主题预览</div>
+      <div class="page-lead-sub">大肥鱼抖音助手 · 浅色模式（Light）与深色模式（Dark）双栏显示效果</div>
+    </div>
+  </div>
+
+  <div class="compare-grid">
+    <!-- 左：浅色版 (.theme-light) -->
+    <div class="compare-pane theme-light" aria-label="浅色主题组件预览">
+      <div class="dy-head">
+        <h2 style="font-size:14.5px">浅色模式（Light）</h2>
+        <span class="sp"></span>
+        <button class="dy-btn tiny" type="button">刷新状态</button>
+        <button class="dy-btn tiny primary" type="button">打开抖音</button>
+      </div>
+
+      <div class="dy-stat2">
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日观看时长</span><span class="v">18 / 30 分钟</span></div>
+          <div class="sub">已看 18 分钟，剩余 12 分钟（state.video.daily.usedSeconds）</div>
+        </div>
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日互动统计</span><span class="v">回复 9 次 · 分享 3 次</span></div>
+          <div class="sub">模型调用 170 次，2 条评论未发出（state.comments.notSent）</div>
+        </div>
+      </div>
+
+      <div class="ios-card">
+        <div class="ios-card-head">
+          <h4>允许自动观看</h4>
+          <span class="sp"></span>
+          <span class="dy-switch on" role="switch" aria-checked="true" aria-label="浅色预览允许自动观看"></span>
+        </div>
+        <div class="ios-row">
+          <div class="ios-main">
+            <span class="ios-t">主题：AI 推理 / DeepSeek</span>
+            <span class="ios-s">围绕指定主题观看（state.watchOptions.policy.topics）</span>
+          </div>
+          <div class="ios-right">
+            <button class="dy-btn tiny" type="button">去除</button>
+            <button class="dy-btn tiny danger" type="button">删除</button>
+          </div>
+        </div>
+        <div class="ios-row">
+          <div class="ios-main">
+            <span class="ios-t">DSH 插件与生态</span>
+            <span class="ios-s">3 正向 · 最近：大肥鱼记忆库</span>
+          </div>
+          <div class="ios-right">
+            <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span>
+            <button class="dy-btn tiny" type="button">看证据</button>
+            <button class="dy-btn tiny" type="button">不感兴趣</button>
+          </div>
+        </div>
+        <div class="ios-row">
+          <div class="ios-main">
+            <span class="ios-t">小显卡运行 DeepSeek R1 量化实测</span>
+            <span class="ios-s">@大肥鱼 · 11-10 19:02 · 评论面板未打开 · 编号 7688677221380230450</span>
+          </div>
+          <div class="ios-right">
+            <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：深色版 (.theme-dark) -->
+    <div class="compare-pane theme-dark" aria-label="深色主题组件预览">
+      <div class="dy-head">
+        <h2 style="font-size:14.5px">深色模式（Dark）</h2>
+        <span class="sp"></span>
+        <button class="dy-btn tiny" type="button">刷新状态</button>
+        <button class="dy-btn tiny primary" type="button">打开抖音</button>
+      </div>
+
+      <div class="dy-stat2">
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日观看时长</span><span class="v">18 / 30 分钟</span></div>
+          <div class="sub">已看 18 分钟，剩余 12 分钟（state.video.daily.usedSeconds）</div>
+        </div>
+        <div class="dy-stat">
+          <div class="dy-stat-head"><span class="k">今日互动统计</span><span class="v">回复 9 次 · 分享 3 次</span></div>
+          <div class="sub">模型调用 170 次，2 条评论未发出（state.comments.notSent）</div>
+        </div>
+      </div>
+
+      <div class="ios-card">
+        <div class="ios-card-head">
+          <h4>允许自动观看</h4>
+          <span class="sp"></span>
+          <span class="dy-switch on" role="switch" aria-checked="true" aria-label="深色预览允许自动观看"></span>
+        </div>
+        <div class="ios-row">
+          <div class="ios-main">
+            <span class="ios-t">主题：AI 推理 / DeepSeek</span>
+            <span class="ios-s">围绕指定主题观看（state.watchOptions.policy.topics）</span>
+          </div>
+          <div class="ios-right">
+            <button class="dy-btn tiny" type="button">去除</button>
+            <button class="dy-btn tiny danger" type="button">删除</button>
+          </div>
+        </div>
+        <div class="ios-row">
+          <div class="ios-main">
+            <span class="ios-t">DSH 插件与生态</span>
+            <span class="ios-s">3 正向 · 最近：大肥鱼记忆库</span>
+          </div>
+          <div class="ios-right">
+            <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>感兴趣</span>
+            <button class="dy-btn tiny" type="button">看证据</button>
+            <button class="dy-btn tiny" type="button">不感兴趣</button>
+          </div>
+        </div>
+        <div class="ios-row">
+          <div class="ios-main">
+            <span class="ios-t">小显卡运行 DeepSeek R1 量化实测</span>
+            <span class="ios-s">@大肥鱼 · 11-10 19:02 · 评论面板未打开 · 编号 7688677221380230450</span>
+          </div>
+          <div class="ios-right">
+            <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  var viewMode = 'all';
+  var activeCat = '基础设置';
+  var catTabs = document.querySelectorAll('[data-cat-tab]');
+  var catPanels = document.querySelectorAll('[data-cat-panel]');
+  var modeBtns = document.querySelectorAll('[data-view-mode]');
+
+  function syncCategories() {
+    catTabs.forEach(function (btn) {
+      btn.setAttribute('aria-selected', String(btn.getAttribute('data-cat-tab') === activeCat));
+    });
+    catPanels.forEach(function (panel) {
+      var match = panel.getAttribute('data-cat-panel') === activeCat;
+      panel.style.display = (viewMode === 'all' || match) ? '' : 'none';
+    });
+  }
+
+  catTabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activeCat = btn.getAttribute('data-cat-tab');
+      syncCategories();
+      if (viewMode === 'all') {
+        var target = document.querySelector('[data-cat-panel="' + activeCat + '"]');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  });
+
+  modeBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      viewMode = btn.getAttribute('data-view-mode');
+      modeBtns.forEach(function (b) {
+        b.setAttribute('aria-selected', String(b === btn));
+      });
+      syncCategories();
+    });
+  });
+
+  document.querySelectorAll('[data-jump-cat]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activeCat = btn.getAttribute('data-jump-cat');
+      syncCategories();
+      var target = document.querySelector('[data-cat-panel="' + activeCat + '"]');
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
+
+  document.querySelectorAll('.dy-switch').forEach(function (sw) {
+    sw.addEventListener('click', function () {
+      var on = sw.classList.toggle('on');
+      sw.setAttribute('aria-checked', String(on));
+    });
+  });
+
+  var usageBtns = document.querySelectorAll('[data-usage-scope]');
+  usageBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var scope = btn.getAttribute('data-usage-scope');
+      usageBtns.forEach(function (b) { b.setAttribute('aria-selected', String(b === btn)); });
+      var totalEl = document.getElementById('usage-total-tokens');
+      var reqEl = document.getElementById('usage-total-reqs');
+      var ioEl = document.getElementById('usage-io-tokens');
+      var cacheEl = document.getElementById('usage-cache-info');
+      if (scope === 'total') {
+        totalEl.textContent = '3,261,890 Token';
+        reqEl.textContent = '312 次调用';
+        ioEl.textContent = '累计全场景输入 2,970,000 · 输出 291,890（promptTokens / completionTokens）';
+        cacheEl.textContent = '276 次命中缓存（1,640,200 Token），0 次用量未知（cacheReportedRequests / unknownRequests）';
+      } else {
+        totalEl.textContent = '1,554,650 Token';
+        reqEl.textContent = '170 次调用';
+        ioEl.textContent = '今日全场景输入 1,412,300 · 输出 142,350（promptTokens / completionTokens）';
+        cacheEl.textContent = '142 次命中缓存（824,100 Token），0 次用量未知（cacheReportedRequests / unknownRequests）';
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>
