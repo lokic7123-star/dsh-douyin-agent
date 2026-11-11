@@ -513,9 +513,9 @@
   resize: vertical;
 }.dy-switch{
   display: inline-block;
-  width: 44px;
-  height: 26px;
-  border-radius: 13px;
+  width: 46px;
+  height: 24px;
+  border-radius: 999px;
   background: color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);
   border: 1px solid var(--dy-stroke-strong);
   position: relative;
@@ -526,8 +526,8 @@
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--dsw-alias-label-primary);
   box-shadow: 0 1px 2px color-mix(in srgb,var(--dsw-alias-label-primary) 28%,transparent);
@@ -537,7 +537,7 @@
   border-color: transparent;
 }.dy-switch.on::after{
   background: var(--dsw-alias-label-primary-foreground);
-  transform: translateX(18px);
+  transform: translateX(22px);
 }.ios-check{
   appearance: none;
   -webkit-appearance: none;
@@ -740,16 +740,18 @@
         <span class="dy-cap">◉ 自主观看待命</span>
       </span>
       <span class="sp"></span>
+      <span class="dy-cap">已连上本机插件</span>
       <button class="dy-btn" type="button">刷新插件状态</button>
       <button class="dy-btn primary" type="button">打开抖音</button>
     </div>
+    <p class="dy-note" style="margin:0 0 8px">「刷新插件状态」= 重新读取一次本机插件的当前状态（开关、额度、待答、未发出记录），不改动任何设置；页面本来每 2.5 秒也会自动读一次。</p>
 
     <!-- 2. 置顶状态摘要（所有栏目可见）+ 2×2 高信息密度数字块 -->
     <div class="status-top-box" role="region" aria-label="当前状态摘要与今日数字块">
       <div class="dy-summary">
         <span class="dot bad" aria-hidden="true"></span>
         <span class="lb">允许观看已关闭</span>
-        <span class="dt">开启后按设定时段自动运行</span>
+        <span class="dt">开关是关的（用户停止自主观看。）。打开后按当天的随机日程自己看，不会一开就开抖音。</span>
         <button class="dy-btn tiny" type="button" data-jump-cat="视频观看">去处理</button>
       </div>
       <div class="dy-summary" style="padding-bottom:6px">
@@ -881,8 +883,10 @@
             <span class="sp"></span>
             <button class="dy-btn tiny primary" type="button">开始自主观看</button>
             <button class="dy-btn tiny" type="button">暂停观看</button>
-            <span class="dy-switch on" role="switch" aria-checked="true" aria-label="允许自动观看"></span>
+            <span class="dy-switch" role="switch" aria-checked="false" aria-label="允许自动观看"></span>
           </div>
+          <p class="dy-note" style="margin:0 0 6px">开关打开后按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；每日上限是天花板，不是要刷满的额度。</p>
+          <p class="dy-note" role="status" style="margin:0 0 6px">现在没在自动看：用户停止自主观看。想继续就把上面的开关打开，或点「开始自主观看」。</p>
           <div class="ios-row">
             <div class="ios-main">
               <span class="ios-t">快捷时段预设</span>
@@ -1114,6 +1118,7 @@
             </div>
           </div>
           <!-- 未发出条目 1 -->
+          <p class="dy-note" style="margin:0 0 6px">下面 2 条是已经确认没发出去的公开评论，附上当时的原因，不需要你再点确认。</p>
           <div class="ios-row">
             <div class="ios-main">
               <span class="ios-t">小显卡运行 DeepSeek 量化实测</span>
@@ -1122,8 +1127,6 @@
             <div class="ios-right">
               <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
               <span class="dy-foot">11-10 18:33</span>
-              <button class="dy-btn tiny" type="button">看证据</button>
-              <button class="dy-btn tiny danger" type="button">去除</button>
             </div>
           </div>
           <!-- 未发出条目 2 -->
@@ -1135,8 +1138,6 @@
             <div class="ios-right">
               <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
               <span class="dy-foot">11-09 21:14</span>
-              <button class="dy-btn tiny" type="button">看证据</button>
-              <button class="dy-btn tiny danger" type="button">去除</button>
             </div>
           </div>
           <!-- 待核对评论 -->
@@ -1635,6 +1636,7 @@
       <div class="ios-section">
         <div class="ios-sec-head"><span>分享过的作品列表</span><span class="sp"></span><span class="dy-cap">今日分享 3 次</span></div>
         <div class="ios-card">
+          <p class="dy-note" style="margin:0 0 6px">「送达未确认」「已预留，待核对」「处理中，待核对」这几种才需要你人工核对一次；「已确认送达」「未发出」是系统自己记的结果，不需要再点确认。</p>
           <div class="ios-row">
             <div class="ios-main">
               <span class="ios-t">小显卡运行 DeepSeek 量化实测</span>
@@ -1642,7 +1644,6 @@
             </div>
             <div class="ios-right">
               <span class="dy-chip ok"><span class="d" aria-hidden="true"></span>已确认送达</span>
-              <button class="dy-btn tiny" type="button">去除</button>
             </div>
           </div>
           <div class="ios-row">
@@ -1652,7 +1653,6 @@
             </div>
             <div class="ios-right">
               <span class="dy-chip err"><span class="d" aria-hidden="true"></span>未发出</span>
-              <button class="dy-btn tiny" type="button">去除</button>
             </div>
           </div>
           <div class="ios-row">

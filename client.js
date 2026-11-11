@@ -139,12 +139,12 @@ details.ios-interest[open] > summary .ios-chev{transform:rotate(90deg)}
 .dy-textarea{font:inherit;font-size:13px;line-height:1.5;width:100%;max-width:100%;box-sizing:border-box;resize:vertical;
   color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dy-stroke-strong);border-radius:9px;padding:8px 10px;display:block}
 textarea.dy-big{min-height:110px}
-.dy-switch{width:44px;height:26px;border-radius:13px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);border:1px solid var(--dy-stroke-strong);
+.dy-switch{width:46px;height:24px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);border:1px solid var(--dy-stroke-strong);
   position:relative;flex:none;cursor:pointer}
-.dy-switch::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;
+.dy-switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
   background:var(--dsw-alias-label-primary);box-shadow:0 1px 2px color-mix(in srgb,var(--dsw-alias-label-primary) 28%,transparent);transition:transform .15s}
 .dy-switch.on{background:var(--dsw-alias-state-success-primary);border-color:transparent}
-.dy-switch.on::after{background:var(--dsw-alias-label-primary-foreground);transform:translateX(18px)}
+.dy-switch.on::after{background:var(--dsw-alias-label-primary-foreground);transform:translateX(22px)}
 .dy-wrap input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;flex:none;cursor:pointer;
   border:1.5px solid var(--dy-stroke-strong);border-radius:5px;background:var(--dsw-alias-bg-base);display:inline-grid;place-content:center;
   transition:background .12s ease,border-color .12s ease}
@@ -561,7 +561,9 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary)
           const label = closed ? '允许观看已关闭' : code === 'daily-time' ? '今天的观看时长已用完' : code === 'daily-requests' ? '今天的模型请求已用完' : '不在允许观看时段';
           const notSentCount = (state?.comments?.notSent || []).length;
           const detail = closed
-            ? '开启后按设定时段自动运行'
+            ? state?.watch?.lastError
+              ? `开关是关的（${state.watch.lastError}）。打开后按当天的随机日程自己看，不会一开就开抖音。`
+              : '开关是关的。打开后按当天的随机日程自己看，不会一开就开抖音。'
             : code === 'outside-window'
               ? `下一个允许时段 ${nextWindowStart || '稍后'} 开始${notSentCount ? `；另有 ${notSentCount} 条公开评论未发出` : ''}`
               : state.video.reason;
@@ -574,7 +576,12 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary)
         return { label: '一切正常', tone: 'good', detail: [replyPresence?.label, watchState?.active ? watchState.label : ''].filter(Boolean).join(' · ') || '各能力按当前设置运行。' };
       })();
       return h('div', { className: 'dy-wrap', style: { maxWidth: 900, paddingBottom: 32 } },
-        h('div', { className: 'dy-head' }, h('h2', null, '大肥鱼抖音助手'), h('span', { className: 'sp' }), button('刷新插件状态', 'refresh', manualRefresh, false, false), button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
+        h('div', { className: 'dy-head' }, h('h2', null, '大肥鱼抖音助手'), h('span', { className: 'sp' }),
+          h('span', { className: 'dy-cap' }, ready ? '已连上本机插件' : '正在连本机插件'),
+          button('刷新插件状态', 'refresh', manualRefresh, false, false),
+          button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); })),
+        // 「刷新插件状态」到底做什么：只是重新读一次本机插件的真实状态，不改任何设置。
+        h('p', { className: 'dy-note', style: { margin: '0 0 8px' } }, '「刷新插件状态」= 重新读取一次本机插件的当前状态（开关、额度、待答、未发出记录），不改动任何设置；页面本来每 2.5 秒也会自动读一次。'),
         !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
         ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
         h('div', { role: 'status', 'aria-live': 'polite', className: 'dy-statusline', style: { position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
@@ -649,6 +656,11 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary)
               button('开始自主观看', 'schedule', () => { void perform('schedule', () => api.request('/watch/schedule', { enabled: true })); }, typeof state?.schedule?.policy?.enabled !== 'boolean' || typeof state?.watch?.running !== 'boolean' || !state?.model?.configured || active(state?.watch) || state?.schedule?.busy),
               button('暂停观看', 'schedule', () => { void perform('schedule', () => api.request('/watch/schedule', { enabled: false })); }, typeof state?.schedule?.policy?.enabled !== 'boolean' || typeof state?.watch?.running !== 'boolean' || !watchEnabled && !active(state?.watch) && !state?.schedule?.busy),
               h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, '离开时段或用完每日预算会停止；时长与请求不因开关重置')),
+            h('p', { className: 'dy-note' }, '开关打开后按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；每日上限是天花板，不是要刷满的额度。'),
+            // 开关关着时把「为什么关着」说清楚：上一次是本人停的就说本人停的，不是「被系统关掉」。
+            !watchEnabled && h('p', { role: 'status', className: 'dy-note' }, state?.watch?.lastError
+              ? `现在没在自动看：${state.watch.lastError}想继续就把上面的开关打开，或点「开始自主观看」。`
+              : '现在没在自动看：开关是关的。打开它就会按当天的随机日程自己看。'),
             note(state?.video?.reason), note(state?.schedule?.lastError), state?.watch?.lastError && h('p', { role: 'status', className: 'dy-note' }, `上次自主观看停止原因：${state.watch.lastError}`)
           ),
           dyCard(
@@ -826,6 +838,8 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary)
               h('span', { className: 'dy-label' }, '每次观看'), h('input', { className: 'dy-input', style: { width: 70, flex: 'none' }, type: 'number', min: 1, 'aria-label': '评论每次观看尝试上限', value: comments.draft.perSessionLimit, disabled: !ready, onChange: event => comments.edit({ perSessionLimit: event.target.value }) }), h('span', { className: 'dy-cap' }, '次')),
             status(comments), h('p', { className: 'dy-note' }, `今日已尝试 ${state?.comments?.daily?.attempts || 0} 次。开启后按实际观察决定是否评论；不使用人格原文、私信或 QQ 内容。`),
             (state?.comments?.notSent || []).length ? h('div', { className: 'dy-tl' },
+              // 这不是待办列表：这些评论已经确认没发出去，留在这里是给你看当时为什么没发。
+              h('p', { className: 'dy-note', style: { margin: '0 0 6px' } }, `下面 ${state.comments.notSent.length} 条是已经确认没发出去的公开评论，附上当时的原因，不需要你再点确认。`),
               ...state.comments.notSent.slice(-10).reverse().map(item => h('div', { key: item.operationId, className: 'dy-tl-item' },
                 h('span', { className: 'dy-tl-bar mention', 'aria-hidden': 'true' }),
                 h('span', { className: 'dy-tl-main' },
@@ -857,14 +871,20 @@ details.dy-inner summary{font-size:12.5px;color:var(--dsw-alias-label-secondary)
           h('div', { className: 'ios-section' },
             h('div', { className: 'ios-sec-head' }, h('span', null, '分享过的作品列表'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, `今日分享 ${state?.share?.daily?.attempts || 0} 次`)),
             h('div', { className: 'ios-card' },
+              // 只有「送达结果还不确定」的记录才需要人工核对；其余状态由系统自己记账，
+              // 给每条都挂「已核对…」按钮只会点出后端的「没有这条待核对记录」。
+              h('p', { className: 'dy-note', style: { margin: '0 0 6px' } }, '「送达未确认」「已预留，待核对」「处理中，待核对」这几种才需要你人工核对一次；「已确认送达」「未发出」是系统自己记的结果，不需要再点确认。'),
               ...(state?.share?.recent || []).slice().reverse().slice(0, 10).map(item => h('div', { key: item.operationId || item.videoId || item.startedAt, className: 'ios-row' },
                 h('div', { className: 'ios-main' },
                   h('span', { className: 'ios-t' }, item.title || '没有记录标题的作品'),
                   h('span', { className: 'ios-s' }, `${item.recipientName ? `分享给 ${item.recipientName}` : '分享对象未记录'}${item.completedAt || item.startedAt ? ` · ${new Date(item.completedAt || item.startedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}${shareFailureMessage(item) ? ` · ${shareFailureMessage(item)}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
                 h('div', { className: 'ios-right' },
                   h('span', { className: `dy-chip ${item.status === 'confirmed' ? 'ok' : ['not-sent', 'resolved-not-sent'].includes(item.status) ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}`),
-                  h('button', { type: 'button', className: 'dy-btn tiny', onClick: () => { void perform(`shareResolve:${item.operationId}`, () => api.request('/share/resolve', { operationId: item.operationId, outcome: 'confirmed' })); } }, '已核对发送成功'),
-                  h('button', { type: 'button', className: 'dy-btn tiny danger', onClick: () => { void perform(`shareResolve:${item.operationId}`, () => api.request('/share/resolve', { operationId: item.operationId, outcome: 'not-sent' })); } }, '已核对未发送'))),
+                  // 只有「送达结果还不确定」的记录才需要人工核对；已确认未发出的记录不需要再核对，
+                  // 给它挂「已核对发送成功／已核对未发送」按钮只会点出后端的「没有这条待核对记录」。
+                  ['uncertain', 'reserved', 'clicking'].includes(item.status) ? h('div', { className: 'dy-row', style: { justifyContent: 'flex-end' } },
+                    h('button', { type: 'button', className: 'dy-btn tiny', onClick: () => { void perform(`shareResolve:${item.operationId}`, () => api.request('/share/resolve', { operationId: item.operationId, outcome: 'confirmed' })); } }, '已核对发送成功'),
+                    h('button', { type: 'button', className: 'dy-btn tiny danger', onClick: () => { void perform(`shareResolve:${item.operationId}`, () => api.request('/share/resolve', { operationId: item.operationId, outcome: 'not-sent' })); } }, '已核对未发送')) : null)),
               !(state?.share?.recent || []).length && h('div', { className: 'ios-row' },
                 h('div', { className: 'ios-main' }, h('span', { className: 'ios-t' }, '还没有分享记录'), h('span', { className: 'ios-s' }, '自主观看中看到值得分享的作品时，会发给许可名单里的好友。'))))))
         ),
