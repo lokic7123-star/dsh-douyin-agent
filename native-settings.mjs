@@ -34,9 +34,25 @@ export function createNativeSettingsRoute({ getController, getComments, getRepor
       if (req.method === 'GET' && url.pathname === `${PREFIX}/state`) {
         const [spark,comments,reports,watch,chat,share,friends] = await Promise.all([getSpark?.(),getComments(),getReport(),getWatch(),getChat?.(),getShare?.(),getFriends?.()]);
         const chatState=chat?.state()||{}, watchState=watch.state(), shareState=share?.state()||{}, commentsState=comments.state(), video=controller.limits().state();
+        // 分享与评论的回执只记作品编号，界面看不出「分享了什么」；这里按编号回查观察记录补上标题与作者。
+        const personaMemory=controller.getPersonaMemory();
+        const titleOf=(list)=>{ const ids=[...new Set((list||[]).map(item=>item?.videoId).filter(Boolean))]; const map=ids.length?(personaMemory.videoTitles?.(ids)||{}):{}; return (item)=>map[item?.videoId]||null; };
+        const shareTitles=titleOf([...(shareState.recent||[]),...(shareState.notSent||[]),...(shareState.needsReview||[])]);
+        const commentTitles=titleOf([...(commentsState.notSent||[]),...(commentsState.needsReview||[]),...(commentsState.recent||[])]);
+        const nameOf=(list)=>{ const map=new Map((list||[]).map(item=>[item?.id,item?.name])); return (item)=>map.get(item?.recipientId)||''; };
+        const shareNames=nameOf([...(shareState.recipients||[]),...(shareState.shareableRecipients||[])]);
+        const withTitle=(item,lookup)=>{ const found=lookup(item); return found?{...item,title:found.title,author:found.author}:item; };
+        const shareView={...shareState,
+          recent:(shareState.recent||[]).map(item=>{ const base=withTitle(item,shareTitles); const who=shareNames(item); return who?{...base,recipientName:who}:base; }),
+          notSent:(shareState.notSent||[]).map(item=>{ const base=withTitle(item,shareTitles); const who=shareNames(item); return who?{...base,recipientName:who}:base; }),
+          needsReview:(shareState.needsReview||[]).map(item=>{ const base=withTitle(item,shareTitles); const who=shareNames(item); return who?{...base,recipientName:who}:base; })};
+        const commentsView={...commentsState,
+          notSent:(commentsState.notSent||[]).map(item=>withTitle(item,commentTitles)),
+          needsReview:(commentsState.needsReview||[]).map(item=>withTitle(item,commentTitles)),
+          recent:(commentsState.recent||[]).map(item=>withTitle(item,commentTitles))};
         const pendingWatch=watchState.pendingRequests||0,pendingChat=(chatState.contacts||[]).filter(item=>item.pending?.phase==='model').length;
         const usage={...usageLedger.state(),checkedAt:new Date().toISOString(),inProgress:{watch:pendingWatch,chat:pendingChat,total:pendingWatch+pendingChat},videoDaily:video.daily||null};
-        return send(res,200,{token,schedule:watchSchedule?.state(),interactions:interactionStatus({friend:friends?.state(),chat:chatState,share:shareState,comments:commentsState,watch:watchState,modelReady:modelSettings.state().configured}),sections:SETTINGS_SECTIONS,usage,watchOptions:optionsService.state(),video,spark:spark?.state()||{enabled:false},comments:commentsState,reports:await reports.state(),persona:controller.getPersonaMemory().snapshot(),mode:(await getMode()).state(),model:typeof modelSettings.catalog==='function'?await modelSettings.catalog():modelSettings.state(),watch:watchState,...(share?{share:shareState}:{}),...(chat?{chat:chatState}:{}),...(getMedia?{media:await(await getMedia()).status()}:{}),setup:{browser:'Microsoft Edge',audioOptional:true,independentAppRequired:false,model:'使用 DSH 已配置提供商；可选音频 Key 单独保存。'}});
+        return send(res,200,{token,schedule:watchSchedule?.state(),interactions:interactionStatus({friend:friends?.state(),chat:chatState,share:shareState,comments:commentsState,watch:watchState,modelReady:modelSettings.state().configured}),sections:SETTINGS_SECTIONS,usage,watchOptions:optionsService.state(),video,spark:spark?.state()||{enabled:false},comments:commentsView,reports:await reports.state(),persona:personaMemory.snapshot(),mode:(await getMode()).state(),model:typeof modelSettings.catalog==='function'?await modelSettings.catalog():modelSettings.state(),watch:watchState,...(share?{share:shareView}:{}),...(chat?{chat:chatState}:{}),...(getMedia?{media:await(await getMedia()).status()}:{}),setup:{browser:'Microsoft Edge',audioOptional:true,independentAppRequired:false,model:'使用 DSH 已配置提供商；可选音频 Key 单独保存。'}});
       }
       if (req.method === 'GET' && url.pathname === `${PREFIX}/reports/read`) return send(res, 200, await (await getReport()).read({ date: url.searchParams.get('date') }));
       if (req.method === 'GET' && url.pathname === `${PREFIX}/chat/unanswered`) {
