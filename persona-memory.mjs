@@ -394,6 +394,18 @@ export class PersonaMemory {
     const days_ = [...byDay.entries()].sort((a, b) => b[1][0].at.localeCompare(a[1][0].at)).map(([day, items]) => ({ day, count: items.length, items: items.sort((a, b) => b.at.localeCompare(a.at)) }));
     return { protocol: 'douyin-watched-v1', days, total: days_.reduce((sum, entry) => sum + entry.count, 0), generatedAt: new Date(this.clock()).toISOString(), groups: days_, privacy: 'internal-reference', visibility: 'account-visible-unverified' };
   }
+  // 按作品编号取标题与作者：分享/评论回执只记编号，界面要看懂「分享了什么」就得回查观察记录。
+  videoTitles(videoIds = []) {
+    const ids = new Set((Array.isArray(videoIds) ? videoIds : []).filter(id => typeof id === 'string' && id));
+    if (!ids.size) return {};
+    const files = this.readFiles(), state = files.state ?? initial(0);
+    const out = {};
+    for (const item of state.observations) {
+      if (!ids.has(item.videoId)) continue;
+      out[item.videoId] = { title: item.title || '无文案作品', author: item.author || '' };
+    }
+    return out;
+  }
   saveManualText({ text: manual, expectedRevision } = {}, { explicit = false } = {}) {
     if (explicit !== true) throw error('PERSONA_EXPLICIT_REQUIRED', '只有用户在本机明确保存才能修改手编人格卡。');
     text(manual, '人格卡正文', 40_000);
