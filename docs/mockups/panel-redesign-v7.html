@@ -147,7 +147,7 @@
   border: 1px solid var(--dy-stroke-strong);
   background: var(--dy-surface);
   color: var(--dsw-alias-label-primary);
-  box-shadow: 0 1px 1px color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+  box-shadow: 0 1px 1px color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);
   cursor: pointer;
   white-space: nowrap;
   display: inline-flex;
@@ -155,7 +155,7 @@
   justify-content: center;
   gap: 4px;
   flex: none;
-  transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
+  transition: background .12s ease,border-color .12s ease,box-shadow .12s ease;
 }.dy-btn:hover:not(:disabled){
   background: color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);
   border-color: color-mix(in srgb,var(--dsw-alias-label-primary) 38%,transparent);
@@ -167,9 +167,10 @@
   border-color: transparent;
   color: var(--dsw-alias-label-primary-foreground);
   font-weight: 600;
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb,var(--dsw-alias-label-primary) 22%,transparent);
 }.dy-btn.primary:hover:not(:disabled){
-  opacity: 0.92;
+  opacity: .92;
+  background: var(--dsw-alias-brand-primary);
 }.dy-btn.danger{
   border-color: var(--dsw-alias-state-error-primary);
   color: var(--dsw-alias-state-error-primary);
@@ -181,7 +182,7 @@
   padding: 3px 10px;
   border-radius: 999px;
 }.dy-btn:disabled{
-  opacity: 0.45;
+  opacity: .45;
   cursor: default;
   box-shadow: none;
 }.dy-chip{
@@ -530,7 +531,7 @@
   height: 20px;
   border-radius: 50%;
   background: var(--dsw-alias-label-primary);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 28%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb,var(--dsw-alias-label-primary) 28%,transparent);
   transition: transform .15s ease;
 }.dy-switch.on{
   background: var(--dsw-alias-state-success-primary);
@@ -1404,7 +1405,7 @@
       <div class="ios-card" style="padding:8px 16px;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div class="dy-seg" role="tablist" aria-label="记忆分区">
           <button role="tab" type="button" aria-selected="true">兴趣（19）</button>
-          <button role="tab" type="button" aria-selected="false">角色卡（12）</button>
+          <button role="tab" type="button" aria-selected="false">角色卡</button>
           <button role="tab" type="button" aria-selected="false">最近观察（20）</button>
           <button role="tab" type="button" aria-selected="false">原始记录</button>
         </div>
@@ -1486,6 +1487,18 @@
       <!-- 8.2 角色卡 -->
       <div class="ios-section">
         <div class="ios-sec-head"><span>角色卡 · 内部参考</span></div>
+        <div class="ios-card">
+          <div class="ios-row" style="align-items:flex-start">
+            <div class="ios-main">
+              <span class="ios-t">大肥鱼的人格正文</span>
+              <span class="ios-s" style="white-space:pre-wrap">住在 DeepSeek 数据海洋里的鲸鱼娘，傲娇但很甜、聪明又懒。主食是米饭，尾巴会随着心情轻轻摆动……</span>
+              <span class="ios-s">版本 6d4dd3d15d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ios-section">
+        <div class="ios-sec-head"><span>兴趣汇总 · 前 12 条</span></div>
         <div class="ios-card">
           <div class="ios-row">
             <div class="ios-main">
