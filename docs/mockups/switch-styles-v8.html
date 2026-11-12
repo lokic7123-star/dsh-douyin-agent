@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>抖音助手面板 · 开关样式候选</title>
+<style>
+  /* 宿主令牌（浅色）。插件样式必须只引用这些令牌，派生色在 body 作用域声明。 */
+  body{
+    --dsw-static-neutral-bluish-00:#ffffff;
+    --dsw-static-neutral-bluish-1000:#0f1115;
+    --dsw-static-neutral-bluish-400:#adb2b8;
+    --dsw-static-green-500:#22c55e;
+
+    --dsw-alias-bg-base:var(--dsw-static-neutral-bluish-00);
+    --dsw-alias-label-primary:var(--dsw-static-neutral-bluish-1000);
+    --dsw-alias-label-secondary:rgba(15,17,21,.62);
+    --dsw-alias-label-tertiary:rgba(15,17,21,.44);
+    --dsw-alias-border-l1:rgba(15,17,21,.04);
+    --dsw-alias-border-l2:rgba(15,17,21,.10);
+    --dsw-alias-brand-primary:var(--dsw-static-neutral-bluish-1000);
+    --dsw-alias-state-success-primary:var(--dsw-static-green-500);
+
+    --dy-surface:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,var(--dsw-alias-bg-base));
+    --dy-stroke:color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent);
+    --dy-stroke-strong:color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--dsw-alias-bg-base);
+    color:var(--dsw-alias-label-primary);
+    font:14px/1.5 "Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+    padding:32px 40px 64px;
+  }
+  h1{font-size:20px;margin:0 0 6px;font-weight:600}
+  .lead{font-size:13px;color:var(--dsw-alias-label-secondary);margin:0 0 28px;max-width:760px}
+  .card{
+    background:var(--dy-surface);
+    border:.5px solid var(--dy-stroke);
+    border-radius:12px;
+    padding:16px 18px;
+    margin-bottom:14px;
+    max-width:860px;
+  }
+  .card-head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .idx{
+    font-size:12px;font-weight:700;color:var(--dsw-alias-label-primary-foreground, #fff);
+    background:var(--dsw-alias-brand-primary);
+    border-radius:999px;min-width:22px;height:22px;
+    display:inline-flex;align-items:center;justify-content:center;padding:0 8px;
+  }
+  .card-head h2{font-size:15px;margin:0;font-weight:600}
+  .card-head .tag{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+  .states{display:flex;align-items:center;gap:28px;padding:10px 0 4px}
+  .state{display:flex;align-items:center;gap:10px}
+  .state .txt{font-size:12.5px;color:var(--dsw-alias-label-secondary)}
+  .spec{font-size:12px;color:var(--dsw-alias-label-tertiary);margin-top:10px;font-family:Consolas,monospace}
+
+  /* 所有候选共用同一套结构：.sw 是轨道，::after 是旋钮 */
+  .sw{position:relative;flex:none;cursor:pointer;display:inline-block}
+  .sw::after{
+    content:'';position:absolute;top:2px;left:2px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .18s ease;
+  }
+  .sw.on::after{transform:translateX(var(--shift))}
+
+  /* 0 · 现在这版 */
+  .v0{width:49px;height:29px;border-radius:999px;background:rgba(15,17,21,.12);border:1px solid rgba(15,17,21,.30)}
+  .v0::after{width:25px;height:25px}
+  .v0.on{background:var(--dsw-alias-state-success-primary);border-color:transparent}
+  .v0.on::after{--shift:20px}
+
+  /* 1 · iOS 细轨道 */
+  .v1{width:44px;height:26px;border-radius:999px;background:rgba(15,17,21,.18)}
+  .v1::after{width:22px;height:22px}
+  .v1.on{background:var(--dsw-alias-state-success-primary)}
+  .v1.on::after{--shift:18px}
+
+  /* 2 · 高对比大尺寸 */
+  .v2{width:51px;height:31px;border-radius:999px;background:rgba(15,17,21,.22)}
+  .v2::after{width:27px;height:27px}
+  .v2.on{background:var(--dsw-alias-state-success-primary)}
+  .v2.on::after{--shift:22px}
+
+  /* 3 · 柔和描边 */
+  .v3{width:46px;height:26px;border-radius:999px;background:rgba(15,17,21,.10);border:1px solid rgba(15,17,21,.14)}
+  .v3::after{width:22px;height:22px}
+  .v3.on{background:var(--dsw-alias-state-success-primary);border-color:transparent}
+  .v3.on::after{--shift:20px}
+
+  /* 4 · 紧凑小圆角 */
+  .v4{width:38px;height:22px;border-radius:999px;background:rgba(15,17,21,.20)}
+  .v4::after{width:18px;height:18px}
+  .v4.on{background:var(--dsw-alias-state-success-primary)}
+  .v4.on::after{--shift:16px}
+
+  /* 5 · 细长小圆钮 */
+  .v5{width:46px;height:24px;border-radius:999px;background:rgba(15,17,21,.16)}
+  .v5::after{width:20px;height:20px}
+  .v5.on{background:var(--dsw-alias-state-success-primary)}
+  .v5.on::after{--shift:20px}
+
+  /* 6 · 白底反色（关=白底深边，开=深底白钮） */
+  .v6{width:46px;height:26px;border-radius:999px;background:var(--dsw-alias-bg-base);border:1px solid var(--dy-stroke-strong)}
+  .v6::after{width:22px;height:22px;background:rgba(15,17,21,.55);box-shadow:none}
+  .v6.on{background:var(--dsw-alias-brand-primary);border-color:transparent}
+  .v6.on::after{background:#fff;--shift:20px}
+
+  /* 7 · 极细描边灰底白钮，接近 macOS */
+  .v7{width:44px;height:25px;border-radius:999px;background:rgba(15,17,21,.14);border:1px solid rgba(15,17,21,.08)}
+  .v7::after{width:21px;height:21px}
+  .v7.on{background:var(--dsw-alias-state-success-primary);border-color:transparent}
+  .v7.on::after{--shift:19px}
+</style>
+</head>
+<body>
+  <h1>抖音助手面板 · 开关样式候选</h1>
+  <p class="lead">每一张卡片左边是「关闭」，右边是「开启」，旋钮都是白色圆点。第 0 行是目前面板上正在用的那版（就是你说丑的那张）。下面 1～7 是不同方向的改法，选一个编号给我，或者直接说「第 N 个再改哪一点」。</p>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">0</span><h2>现在这版</h2><span class="tag">面板当前实装</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v0"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v0 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 49×29 · 旋钮 25px（几乎塞满）· 关闭态 12% 灰底 + 30% 描边 · 白旋钮</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">1</span><h2>iOS 细轨道</h2><span class="tag">无描边、灰底、比例克制</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v1"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v1 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 44×26 · 旋钮 22px · 关闭态 18% 灰底、无描边</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">2</span><h2>高对比大尺寸</h2><span class="tag">最显眼，开没开一眼可辨</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v2"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v2 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 51×31 · 旋钮 27px · 关闭态 22% 灰底、无描边</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">3</span><h2>柔和描边</h2><span class="tag">保留一点边界但不厚重</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v3"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v3 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 46×26 · 旋钮 22px · 关闭态 10% 底 + 14% 淡描边</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">4</span><h2>紧凑小圆角</h2><span class="tag">体积最小，不抢地方</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v4"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v4 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 38×22 · 旋钮 18px · 关闭态 20% 灰底、无描边</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">5</span><h2>细长小圆钮</h2><span class="tag">轨道偏扁，旋钮不撑满</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v5"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v5 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 46×24 · 旋钮 20px · 关闭态 16% 灰底、无描边</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">6</span><h2>白底反色</h2><span class="tag">关＝白底深边钮，开＝深底白钮</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v6"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v6 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 46×26 · 关闭态白底 + 强描边 + 深色旋钮 · 开启态深底白钮</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="idx">7</span><h2>接近 macOS</h2><span class="tag">极细描边、圆钮、行程短</span></div>
+    <div class="states">
+      <div class="state"><span class="sw v7"></span><span class="txt">关闭</span></div>
+      <div class="state"><span class="sw v7 on"></span><span class="txt">开启</span></div>
+    </div>
+    <div class="spec">轨道 44×25 · 旋钮 21px · 关闭态 14% 底 + 8% 极细描边</div>
+  </div>
+</body>
+</html>

@@ -634,11 +634,10 @@ textarea.dy-big{
   min-height:110px
 }
 .dy-switch{
-  width:49px;
-  height:29px;
+  width:44px;
+  height:26px;
   border-radius:999px;
-  background:color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);
-  border:1px solid var(--dy-stroke-strong);
+  background:color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);
   position:relative;
   flex:none;
   cursor:pointer
@@ -648,20 +647,19 @@ textarea.dy-big{
   position:absolute;
   top:2px;
   left:2px;
-  width:25px;
-  height:25px;
+  width:22px;
+  height:22px;
   border-radius:50%;
   background:var(--dsw-alias-switch-thumb,var(--dsw-static-neutral-bluish-00,#fff));
   box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 32%,transparent);
   transition:transform .18s ease
 }
 .dy-switch.on{
-  background:var(--dsw-alias-state-success-primary);
-  border-color:transparent
+  background:var(--dsw-alias-state-success-primary)
 }
 .dy-switch.on::after{
   background:var(--dsw-alias-label-primary-foreground);
-  transform:translateX(20px)
+  transform:translateX(18px)
 }
 .dy-wrap input[type=checkbox]{
   appearance:none;
