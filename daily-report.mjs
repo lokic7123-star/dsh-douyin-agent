@@ -205,10 +205,14 @@ export class DailyReport {
     if (!this.stateDir) return null;
     let replies = 0;
     try {
-      const file = path.join(this.stateDir, 'chat-events.jsonl');
-      if (fs.existsSync(file)) for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-        if (!line.includes('"type":"reply.sent"')) continue;
-        try { const event = JSON.parse(line); if (event?.type === 'reply.sent' && event.at && day(event.at) === date) replies += 1; } catch {}
+      // 事件日志会滚动归档（当前文件 + .1/.2/.3），日报要读全部归档才能统计出当天真实回复数。
+      const files = [path.join(this.stateDir, 'chat-events.jsonl'), ...[1, 2, 3].map(index => path.join(this.stateDir, `chat-events.jsonl.${index}`))];
+      for (const file of files) {
+        if (!fs.existsSync(file)) continue;
+        for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+          if (!line.includes('"type":"reply.sent"')) continue;
+          try { const event = JSON.parse(line); if (event?.type === 'reply.sent' && event.at && day(event.at) === date) replies += 1; } catch {}
+        }
       }
     } catch {}
     let shares = 0, confirmed = 0, uncertain = 0;

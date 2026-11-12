@@ -14,6 +14,10 @@ const recipientPattern = /^conv:[a-f0-9]{64}$/;
 const evidencePattern = /^video:[a-f0-9]{64}$/;
 const statuses = new Set(['reserved', 'clicking', 'confirmed', 'not-sent', 'uncertain', 'resolved-confirmed', 'resolved-not-sent']);
 const processedStatuses = new Set(['confirmed', 'not-sent', 'resolved-confirmed', 'resolved-not-sent']);
+// 分享收据原本只增不减：保留最近 90 天与全部未确认记录，超出的旧记录连同当日计数一起清掉，
+// 避免账本无限增长；未确认记录永远保留，否则会丢掉需要人工核对的那一条。
+const LEDGER_KEEP_DAYS = 90;
+const LEDGER_MAX_OPERATIONS = 500;
 const failureOf = value => {
   const source = value?.failure || value || {};
   return { code: /^[A-Z][A-Z0-9_]{1,79}$/.test(source.code || '') ? source.code : 'SHARE_FAILED', stage: /^[a-z][a-z0-9-]{0,39}$/.test(source.stage || '') ? source.stage : 'sharing', message: String(source.message || '分享未完成，请核对当前页面。').split('\n')[0].replace(/\bBearer\s+[^\s,;"']+/gi, 'Bearer [凭据已隐藏]').replace(/\b(?:token|api[-_]?key|cookie|authorization)\s*[:=]\s*[^\s，。；]+/gi, '[凭据已隐藏]').replace(/\bsk-[A-Za-z0-9_-]+/g, '[凭据已隐藏]').replace(/https?:\/\/[^\s，。；]+/gi, '[地址]').replace(/\b[A-Za-z]:\\[^\s，。；]+/g, '[本地路径]').replace(/\b(?:conv:|binding:)?[a-f0-9]{64}\b|MS4[A-Za-z0-9_-]+|\b\d{10,}\b/g, '[平台标识]').slice(0, 300) };
@@ -142,7 +146,32 @@ export class AutonomousShare {
     return time;
   }
   update(operationId, updates) {
-    return this.control(() => { const ledger = this.ledger(), item = ledger.operations.find(item => item.operationId === operationId); if (!item) throw fail('自主分享预留记录丢失，未继续发送。'); Object.assign(item, updates); write(this.files.ledger, ledger); return item; });
+    return this.control(() => { const ledger = this.ledger(), item = ledger.operations.find(item => item.operationId === operationId); if (!item) throw fail('自主分享预留记录丢失，未继续发送。'); Object.assign(item, updates); this.pruneLedger(ledger); write(this.files.ledger, ledger); return item; });
+  }
+  // 只保留最近一段时间与未确认的记录；被剪掉的记录不再计入当日次数，避免计数被清空后重复计数。
+  pruneLedger(ledger) {
+    if (!Array.isArray(ledger?.operations)) return ledger;
+    const cutoff = day(this.now() - LEDGER_KEEP_DAYS * 86400000);
+    const kept = [];
+    const dropped = new Set();
+    for (const item of ledger.operations) {
+      const pending = !processedStatuses.has(item.status);
+      if (pending || item.day >= cutoff) kept.push(item);
+      else dropped.add(item.day);
+    }
+    if (kept.length > LEDGER_MAX_OPERATIONS) {
+      const removable = kept.filter(item => processedStatuses.has(item.status));
+      while (kept.length > LEDGER_MAX_OPERATIONS && removable.length) {
+        const oldest = removable.shift();
+        const index = kept.indexOf(oldest);
+        if (index >= 0) kept.splice(index, 1);
+        dropped.add(oldest.day);
+      }
+    }
+    if (!dropped.size && kept.length === ledger.operations.length) return ledger;
+    ledger.operations = kept;
+    for (const date of dropped) delete ledger.days[date];
+    return ledger;
   }
   async share(input = {}, { signal, watchRunId } = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['evidenceId', 'videoId', 'recipientId', 'reason'].includes(key)) || !recipientPattern.test(input.recipientId) || input.reason !== undefined && (typeof input.reason !== 'string' || input.reason.length > 600 || /\0/.test(input.reason))) throw fail('自主分享只接受观察编号、当前作品、白名单好友和本地选择理由。', 400);
@@ -166,7 +195,7 @@ export class AutonomousShare {
         }
         const date = day(this.now()); ledger.days[date] = (ledger.days[date] || 0) + 1;
         ledger.operations.push({ operationId, evidenceId: input.evidenceId, videoId: input.videoId, recipientId: input.recipientId, reason: input.reason || '', day: date, source: this.source, pid: process.pid, sessionId, status: 'reserved', startedAt: new Date(this.now()).toISOString() });
-        write(this.files.ledger, ledger); reserved = true;
+        this.pruneLedger(ledger); write(this.files.ledger, ledger); reserved = true;
       });
       if (skipped) return skipped;
       const authorize = ({ phase, videoId, recipientId } = {}) => {

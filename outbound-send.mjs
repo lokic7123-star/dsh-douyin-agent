@@ -35,6 +35,17 @@ export class OutboundCoordinator {
     if (!identifier(recipientId)) throw new TypeError('读取发出凭据需要明确联系人。');
     return this.ledger().receipts.filter(item => item.recipientId === recipientId).map(item => structuredClone(item));
   }
+  // 共同发出账本只增不减：保留最近 90 天的收据，超出的旧记录清掉，避免账本无限增长。
+  pruneReceipts(ledger) {
+    if (!Array.isArray(ledger?.receipts)) return ledger;
+    const cutoff = this.now() - 90 * 86400000;
+    ledger.receipts = ledger.receipts.filter(item => {
+      const at = Date.parse(item?.at || '');
+      return !Number.isFinite(at) || at >= cutoff;
+    });
+    if (ledger.receipts.length > 500) ledger.receipts.splice(0, ledger.receipts.length - 500);
+    return ledger;
+  }
   async acquire(signal) {
     fs.mkdirSync(this.stateDir, { recursive: true });
     const started = Date.now(), owner = { pid: process.pid, token: randomUUID(), source: this.source }; let retriedDisappearance = false, emptyObservedAt = null;
@@ -84,6 +95,7 @@ export class OutboundCoordinator {
         if (!ledger.receipts.some(item => item.recipientId === recipientId && item.messageId === delivery.messageId)) {
           const at = new Date(this.now()).toISOString();
           ledger.receipts.push({ confirmed: true, date: shanghaiDay(Date.parse(at)), at, kind: purpose, recipientId, messageId: delivery.messageId, source: this.source });
+          this.pruneReceipts(ledger);
           const temporary = `${this.receiptsFile}.${process.pid}.${randomUUID()}.tmp`;
           try { const descriptor = fs.openSync(temporary, 'wx', 0o600); try { fs.writeFileSync(descriptor, JSON.stringify(ledger, null, 2) + '\n'); fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); } fs.renameSync(temporary, this.receiptsFile); }
           catch { throw Object.assign(new Error('消息已得到界面确认，但共同收据保存失败，需要人工核对，未自动重发。'), { code: 'OUTBOUND_RECEIPT_FAILED', deliveryUncertain: true }); }

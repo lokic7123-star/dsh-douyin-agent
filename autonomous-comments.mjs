@@ -10,6 +10,10 @@ const identifier = value => typeof value === 'string' && value.trim() === value 
 const videoPattern = /^\d{1,64}$/, evidencePattern = /^video:[a-f0-9]{64}$/;
 const videoIdentity = value => typeof value === 'string' && videoPattern.test(value);
 const statuses = new Set(['reserved', 'clicking', 'confirmed', 'not-sent', 'uncertain', 'resolved-confirmed', 'resolved-not-sent']);
+// 评论收据原本只增不减：保留最近 90 天与全部未确认记录，超出的旧记录连同当日/单轮计数一起清掉。
+const processedStatuses = new Set(['confirmed', 'not-sent', 'resolved-confirmed', 'resolved-not-sent']);
+const LEDGER_KEEP_DAYS = 90;
+const LEDGER_MAX_OPERATIONS = 500;
 function read(file, fallback) {
   try { const stat = fs.lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4_194_304) throw Error(); return JSON.parse(fs.readFileSync(file, 'utf8')); }
   catch (error) { if (error.code === 'ENOENT') return fallback; throw fail('自主评论记录无法核对，未重置许可、预算或待核对收据。'); }
@@ -100,7 +104,32 @@ export class AutonomousComments {
     this.evidence(input); validateCommentText(input.text); this.privateContent(input.text);
     return time;
   }
-  update(operationId, patch) { return this.control(() => { const ledger = this.ledger(), item = ledger.operations.find(item => item.operationId === operationId); if (!item) throw fail('评论预留记录丢失，未继续发布。'); Object.assign(item, patch); write(this.files.ledger, ledger); }); }
+  update(operationId, patch) { return this.control(() => { const ledger = this.ledger(), item = ledger.operations.find(item => item.operationId === operationId); if (!item) throw fail('评论预留记录丢失，未继续发布。'); Object.assign(item, patch); this.pruneLedger(ledger); write(this.files.ledger, ledger); }); }
+  // 评论收据只增不减：保留最近 90 天与全部未确认记录，超出的旧记录连同当日/单轮计数一起清掉。
+  pruneLedger(ledger) {
+    if (!Array.isArray(ledger?.operations)) return ledger;
+    const cutoff = day(this.now() - LEDGER_KEEP_DAYS * 86400000);
+    const kept = [], droppedDays = new Set(), droppedSessions = new Set();
+    for (const item of ledger.operations) {
+      const pending = !processedStatuses.has(item.status);
+      if (pending || item.day >= cutoff) kept.push(item);
+      else { droppedDays.add(item.day); droppedSessions.add(item.sessionId); }
+    }
+    if (kept.length > LEDGER_MAX_OPERATIONS) {
+      const removable = kept.filter(item => processedStatuses.has(item.status));
+      while (kept.length > LEDGER_MAX_OPERATIONS && removable.length) {
+        const oldest = removable.shift();
+        const index = kept.indexOf(oldest);
+        if (index >= 0) kept.splice(index, 1);
+        droppedDays.add(oldest.day); droppedSessions.add(oldest.sessionId);
+      }
+    }
+    if (!droppedDays.size && !droppedSessions.size && kept.length === ledger.operations.length) return ledger;
+    ledger.operations = kept;
+    for (const date of droppedDays) delete ledger.days[date];
+    for (const session of droppedSessions) delete ledger.sessions[session];
+    return ledger;
+  }
   async comment(input = {}, { signal, watchRunId } = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['evidenceId', 'videoId', 'text'].includes(key))) throw fail('自主评论只接受观察编号、当前作品和纯文字。', 400);
     input = { ...input, text: validateCommentText(input.text) }; this.allowed(input, { signal, watchRunId });
@@ -116,7 +145,7 @@ export class AutonomousComments {
         const time = this.allowed(input, { signal: combined, watchRunId }); sessionId = time.session.id; const ledger = this.ledger();
         if (ledger.operations.some(item => item.videoId === input.videoId)) throw fail('同一作品已处理过评论，未跨日或重启后自动重复发布。');
         const date = day(this.now()); ledger.days[date] = (ledger.days[date] || 0) + 1; ledger.sessions[sessionId] = (ledger.sessions[sessionId] || 0) + 1;
-        ledger.operations.push({ operationId, evidenceId: input.evidenceId, videoId: input.videoId, text: input.text, day: date, sessionId, runId: watchRunId, source: this.source, pid: process.pid, status: 'reserved', startedAt: new Date(this.now()).toISOString() }); write(this.files.ledger, ledger); reserved = true;
+        ledger.operations.push({ operationId, evidenceId: input.evidenceId, videoId: input.videoId, text: input.text, day: date, sessionId, runId: watchRunId, source: this.source, pid: process.pid, status: 'reserved', startedAt: new Date(this.now()).toISOString() }); this.pruneLedger(ledger); write(this.files.ledger, ledger); reserved = true;
       });
       const authorize = ({ phase, videoId } = {}) => { if (finished || videoId !== input.videoId || !['prepare', 'monitor', 'before-click'].includes(phase)) throw fail('可信评论授权与当前作品不一致。'); this.allowed(input, { signal: combined, watchRunId, operationId, sessionId }); if (phase === 'before-click') { if (clicking) throw fail('这条评论已授权一次发布，未再次点击。'); this.update(operationId, { status: 'clicking' }); clicking = true; } return true; };
       authorize.beginDispatch = () => { if (finished || !clicking || releaseDispatch) throw fail('没有一次有效的评论最终输入许可。'); const release = this.acquireControl(); try { this.allowed(input, { signal: combined, watchRunId, operationId, sessionId }); } catch (error) { release(); throw error; } releaseDispatch = release; return () => { releaseDispatch?.(); releaseDispatch = null; }; };

@@ -198,7 +198,24 @@ export class VideoForwarder {
     try { const value = JSON.parse(fs.readFileSync(this.receiptsFile, 'utf8')); if (!Array.isArray(value.operations) || value.operations.some(item => item?.baseline && !checkReceiptBaseline(item, 'native-card').available)) throw new Error(); return value; }
     catch (error) { if (error.code === 'ENOENT') return { version: 1, operations: [] }; throw new Error('转发收据不可读，需要人工核对，未再次发送。'); }
   }
-  record(operation) { const value = this.receipts(); const index = value.operations.findIndex(item => item.operationId === operation.operationId), stored = preserveReceiptBaseline(index < 0 ? null : value.operations[index], operation, 'native-card'); if (index < 0) value.operations.push(stored); else value.operations[index] = stored; write(this.receiptsFile, value); }
+  record(operation) { const value = this.receipts(); const index = value.operations.findIndex(item => item.operationId === operation.operationId), stored = preserveReceiptBaseline(index < 0 ? null : value.operations[index], operation, 'native-card'); if (index < 0) value.operations.push(stored); else value.operations[index] = stored; write(this.receiptsFile, this.pruneReceipts(value)); }
+  // 转发收据只增不减：保留最近 90 天与全部未确认记录，超出的旧记录清掉，避免账本无限增长。
+  pruneReceipts(value) {
+    if (!Array.isArray(value?.operations)) return value;
+    const cutoff = Date.now() - 90 * 86400000;
+    const pending = new Set(['uncertain', 'reserved', 'clicking', 'preparing', 'not-sent']);
+    const kept = value.operations.filter(item => {
+      if (pending.has(item?.status)) return true;
+      const at = Date.parse(item?.completedAt || item?.startedAt || '');
+      return !Number.isFinite(at) || at >= cutoff;
+    });
+    if (kept.length > 500) {
+      const removable = kept.filter(item => !pending.has(item?.status));
+      while (kept.length > 500 && removable.length) kept.splice(kept.indexOf(removable.shift()), 1);
+    }
+    value.operations = kept;
+    return value;
+  }
   acquire() {
     let descriptor; try { descriptor = fs.openSync(this.guardFile, 'wx', 0o600); } catch (error) { if (error.code === 'EEXIST') throw new Error('另一项转发正在执行，或转发锁需要人工核对，未再次发送。'); throw error; }
     const token = randomUUID(); try { fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token })); } finally { fs.closeSync(descriptor); }
