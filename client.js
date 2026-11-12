@@ -44,7 +44,7 @@ body{--dy-surface:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,var(--dsw-
 .dy-strong{color:var(--dsw-alias-label-primary);font-weight:600}
 .dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
 .dy-sp{flex:1;min-width:4px}
-.dy-btn{font:inherit;font-size:13px;font-weight:500;line-height:1.25;padding:6px 14px;border-radius:999px;
+.dy-btn{font:inherit;font-size:13px;font-weight:500;line-height:1.25;padding:8px 16px;border-radius:50%;
   border:1px solid var(--dy-stroke-strong);background:var(--dy-surface);color:var(--dsw-alias-label-primary);
   box-shadow:0 1px 1px color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);
   cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none;
@@ -599,7 +599,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
         // 「刷新插件状态」到底做什么：只是重新读一次本机插件的真实状态，不改任何设置。
         h('p', { className: 'dy-note', style: { margin: '0 0 8px' } }, '「刷新插件状态」= 重新读取一次本机插件的当前状态（开关、额度、待答、未发出记录），不改动任何设置；页面本来每 2.5 秒也会自动读一次。'),
         !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
-        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
+        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', className: 'dy-btn tiny', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
         h('div', { role: 'status', 'aria-live': 'polite', className: 'dy-statusline', style: { position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
           h('span', { 'aria-label': '好友互动状态', title: presenceReason },
             h('span', { className: `dy-dot ${replyPresence?.online === true ? '' : 'idle'}`, 'aria-hidden': 'true' }),
