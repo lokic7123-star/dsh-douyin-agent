@@ -20,7 +20,8 @@ window.__ModuleLoader__.load({
     // 用量分组按 kind 区分场景，同一模型会拆成多行；补中文标签才看得出三行同名分别是什么。
     const USAGE_KIND_LABELS = { watch: '自主观看', chat: '好友回复', comment: '公开评论', spark: '火花', task: '任务' };
     // 面板样式：class 体系 + 单 <style> 注入（与 dsh-plugin-wallpaper-engine / dsh-qq-tts 同模式）。
-    // CSS 与 docs/mockups/panel-redesign-v6.html 预览稿逐字一致（v6.2 已获用户批准）；实装用 dsw-alias 令牌，深色主题自动适配。
+    // CSS 与 docs/mockups/panel-redesign-v7.html 预览稿逐字一致（v7 已获用户批准）；实装用 dsw-alias 令牌，深色主题自动适配。
+    // 更早的 v2/v3/v4/v6 稿已归档到 docs/mockups/archive/，只作历史留档，不再是基准。
     const PANEL_CSS = `
 .dy-wrap{display:flex;flex-direction:column;gap:12px;min-width:0}
 /* 派生描边色必须声明在 body 上：宿主的 --dsw-alias-* 令牌声明在 body 作用域，

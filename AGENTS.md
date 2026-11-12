@@ -4,7 +4,7 @@
 
 ## 1. 设计契约（UI 改动的最高约束）
 
-1. **预览 = 产品**。`docs/mockups/panel-redesign-v2.html` 是唯一基准稿。实装的 `PANEL_CSS` 与预览稿 CSS 逐字一致；改任何 UI 先改预览稿、经用户批准，再同步实装。禁止"先写代码看看效果"。
+1. **预览 = 产品**。`docs/mockups/panel-redesign-v7.html` 是唯一基准稿（更早的 v2/v3/v4/v6 稿已归档到 `docs/mockups/archive/`，只作历史留档）。实装的 `PANEL_CSS` 与预览稿 CSS 逐字一致；改任何 UI 先改预览稿、经用户批准，再同步实装。禁止"先写代码看看效果"。
 2. **颜色只用 dsw-alias 令牌**。`--dsw-alias-bg-*`、`--dsw-alias-label-*`、`--dsw-alias-state-*`、`--dsw-alias-border-*`、`--dsw-alias-brand-primary`。产品 CSS 禁止写死十六进制色值做主题适配（`.theme-dark` 只存在于预览稿用于演示）。强调色（选中态、主按钮）跟随壁纸，由 DSH 原生 `Button variant="primary"` 或 `--dsw-alias-brand-primary` 提供，禁止黑色/深灰实心。
 3. **紧凑单行**。表单行 = `dy-row`（`dy-label` 右贴定宽控件 + `dy-cap` 说明）。标签在上、控件 flex 拉满的占位布局是违例。textarea 只允许出现在正文编辑（人格卡）；一切短输入（时段、主题、昵称、密钥）都是单行 `dy-input`。
 4. **开关贴标题**。布尔开关放在 `dy-card-top` 标题右侧，不单独占行；"默认关闭"等状态说明用 `dy-cap` 跟在开关后。
