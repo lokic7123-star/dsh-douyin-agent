@@ -13,6 +13,8 @@ export function normalizeUsage(value = {}) {
 }
 const date = time => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(time));
 const empty = () => ({ requests: 0, reportedRequests: 0, unknownRequests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, cacheReportedRequests: 0 });
+// 按日用量文件保留 90 天，更早的自动删除。
+const USAGE_KEEP_DAYS = 90;
 function add(target, record) { target.requests++; if (record.usage.totalTokens === null) target.unknownRequests++; else target.reportedRequests++; for (const key of ['promptTokens','completionTokens','totalTokens','cachedTokens']) target[key] += record.usage[key] ?? 0; if (record.usage.cachedTokens !== null) target.cacheReportedRequests++; }
 
 // 两个入口追加同一份按日用量记录；只保存计数，不保存提示词、联系人或凭据。
@@ -23,7 +25,17 @@ export class UsageLedger {
     const record = { id, source, kind, model: /^[a-zA-Z0-9._:/-]{1,128}$/.test(model) ? model : '未报告模型', at: new Date(this.now()).toISOString(), usage: normalizeUsage(usage) };
     fs.mkdirSync(this.directory, { recursive: true });
     fs.appendFileSync(path.join(this.directory, `${date(this.now())}.jsonl`), JSON.stringify(record) + '\n', { mode: 0o600 });
+    this.pruneOldFiles();
     return record;
+  }
+  // 按日文件只增不删，天长日久磁盘上会一直堆着。保留最近 90 天的记录，更早的直接删掉。
+  pruneOldFiles() {
+    let files = [];
+    try { files = fs.readdirSync(this.directory).filter(file => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file)).sort(); } catch { return; }
+    const excess = files.length - USAGE_KEEP_DAYS;
+    for (let index = 0; index < excess; index += 1) {
+      try { fs.rmSync(path.join(this.directory, files[index]), { force: true }); } catch {}
+    }
   }
   state() {
     const todayKey = date(this.now()), total = empty(), today = empty(), groups = new Map(), days = new Map(), seen = new Set(); let damagedRecords = 0;

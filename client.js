@@ -410,7 +410,17 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
         })();
         refreshing.current = work; try { return await work; } finally { if (refreshing.current === work) refreshing.current = null; }
       }
-      useEffect(() => { alive.current = true; void syncState(); const timer = setInterval(() => { void syncState(); }, 2500); return () => { alive.current = false; clearInterval(timer); }; }, [api]);
+      useEffect(() => {
+        // 轮询节奏：5 秒一次（原来 2.5 秒一次，每小时 1440 次 /state 全量往返没有必要）。
+        // 面板在后台标签页不可见时不轮询，用户切回来时再拉一次，避免看不见的时候白跑。
+        alive.current = true;
+        void syncState();
+        const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+        const timer = setInterval(() => { if (!visible()) return; void syncState(); }, 5000);
+        const onVisible = () => { if (visible()) void syncState(); };
+        if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', onVisible);
+        return () => { alive.current = false; clearInterval(timer); if (typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('visibilitychange', onVisible); };
+      }, [api]);
       // syncState：拉取成功后落模块级缓存与 localStorage（展示用），失败不清空已渲染内容。
       // 放在首个 useEffect 之后——friend-ui-races 按源码抽取 refresh→首个 useEffect 段验证单飞语义，其间只能有 refresh 本体。
       const syncState = async (fresh = false) => { const value = await refresh(fresh); if (value) { stateStore = value; setTimeout(() => persistStateCache(value), 0); } return value; };

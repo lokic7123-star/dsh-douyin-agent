@@ -14,6 +14,11 @@ import { ChatOutputAssets } from './chat-output.mjs';
 import { GroupVideoInbox } from './group-video-inbox.mjs';
 
 const basePolicy = () => ({ version: 1, enabled: false, allowlist: [], dailyReplyLimit: null });
+// 事件日志的滚动上限：当前文件超过 2 MiB 就归档，保留 3 份归档（约 8 MiB 总量）。
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
+const LOG_ARCHIVES = 3;
+// 待答归档上限：超过就把最旧的丢掉，最近的记录保留。
+const MAX_UNANSWERED_ARCHIVE = 500;
 const dayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const load = (file, fallback) => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback;
 const alive = (pid) => { if (!Number.isSafeInteger(pid) || pid < 1) return false; try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; } };
@@ -108,10 +113,12 @@ function allowMaintenanceRecovery(pending){if(pending?.recoveryEvidence?.beforeD
 const certainUnsentPhases=['outbound-wait','observing','model','superseded','stopped-before-send','unqualified'];
 const certainUnsentPending=pending=>Boolean(pending&&certainUnsentPhases.includes(pending.phase)&&pending.recoveryEvidence?.beforeDispatch===true&&!pending.backlogAuthorization&&pending.restartAllowed!==false);
 const backlogWaitReason=code=>({'waiting-reliable-conversation':'等待可核对的会话快照','waiting-backlog-evidence-or-outgoing':'等待补答证据或排除已回复可能','waiting-archive-identity':'等待待答记录标识核对','waiting-bounded-generation-evidence':'等待可生成回复的上下文证据','waiting-target-context-capacity':'等待上下文容量核对','waiting-context-after-bounded-generation':'该上下文的生成次数已达上限，稍后自动重试','waiting-generated-text':'等待生成的回复文本','bounded-generation-failed':'上次自动生成失败，稍后自动重试','waiting-native-outgoing-readback':'正在读回已发出的消息以确认发送结果','waiting-zero-click-retry':'上次未能点击发送，稍后自动重试','waiting-contact-recheck':'等待重新核对该会话'}[code]||'自动整理进行中');
-function archivePending(mark,pending,reason,{handledByUserAt}={}) {
+export function archivePending(mark,pending,reason,{handledByUserAt}={}) {
   if(!pending)return;
   mark.unanswered||=[];const archiveKey=JSON.stringify([pending.phase,pending.incoming||[]]);const existing=mark.unanswered.find(item=>item.archiveKey===archiveKey&&!item.handledByUserAt);if(existing){if(handledByUserAt)existing.handledByUserAt=handledByUserAt;return;}
   mark.unanswered.push({...structuredClone(pending),archiveId:randomUUID(),archiveKey,skippedAt:new Date().toISOString(),reason,...(handledByUserAt?{handledByUserAt}:{})});
+  // 归档只增不删会让水位文件一直变大；超过上限就丢掉最旧的记录（最近的在后面）。
+  if (mark.unanswered.length > MAX_UNANSWERED_ARCHIVE) mark.unanswered.splice(0, mark.unanswered.length - MAX_UNANSWERED_ARCHIVE);
 }
 function recoveryEvidence(contact,incoming,messages,prior,stopRequest) {
   if(!incoming.length)return null;
@@ -179,6 +186,7 @@ export class ChatService {
     this.events = [];
     this.readEvidence = new Map();
     this.browserClosedNotices = new Map();
+    this.startFailureNoticeState = null;
     this.replyQualifications = new Map(); this.supersededQualifications = new Map();
     this.groupVideos = groupVideoInbox ?? (typeof observeSharedWork === 'function' && videoLimits && typeof agent.inspectSharedVideo === 'function' ? new GroupVideoInbox({ stateDir }) : null);
     if (!fs.existsSync(this.watermarkFile)) initialize(this.watermarkFile, this.watermarks);
@@ -254,8 +262,26 @@ export class ChatService {
   log(type, value = {}) {
     const event = redact({ at: new Date().toISOString(), type, ...value }, [this.config?.apiKey]);
     fs.mkdirSync(this.stateDir, { recursive: true });
+    // 先判断要不要滚动，再写入：滚动后新事件要落在当前文件，归档只装旧内容。
+    this.rotateLogIfNeeded();
     fs.appendFileSync(this.logFile, `${JSON.stringify(event)}\n`, { mode: 0o600 });
     this.events.push(event); if (this.events.length > 100) this.events.shift();
+  }
+  // 事件日志只追加，日积月累会一直变大（历史上单日能写七千多行）。
+  // 超过体积上限就滚动归档：当前文件改名成 .1，旧的 .1 变 .2，超过保留份数的直接删掉。
+  // 归档文件仍会被日报读取，所以历史记录不会因为滚动而消失。
+  rotateLogIfNeeded() {
+    let size = 0;
+    try { size = fs.statSync(this.logFile).size; } catch { return; }
+    if (size <= MAX_LOG_BYTES) return;
+    try {
+      for (let index = LOG_ARCHIVES; index >= 1; index -= 1) {
+        const older = `${this.logFile}.${index}`, newer = `${this.logFile}.${index - 1}`;
+        if (index === LOG_ARCHIVES) { fs.rmSync(older, { force: true }); continue; }
+        if (fs.existsSync(newer)) fs.renameSync(newer, older);
+      }
+      fs.renameSync(this.logFile, `${this.logFile}.1`);
+    } catch { /* 滚动失败时继续写当前文件，不影响功能 */ }
   }
   // 专用浏览器没在运行时，后台轮询每两秒就会撞一次同样的错误。事件按联系人降频记录，
   // 首条、恢复后再次出现、或距上次满五分钟才写，避免日志被同一句话刷屏。
@@ -264,6 +290,13 @@ export class ChatService {
     const shouldLog = !previous || previous.message !== message || nowMs - (previous.lastLoggedAt ?? 0) >= 300_000;
     this.browserClosedNotices.set(recipientId, { message, lastLoggedAt: shouldLog ? nowMs : (previous?.lastLoggedAt ?? nowMs) });
     if (shouldLog) this.log('message.browser_closed', { recipientId, message });
+  }
+  // 启动失败日志降频：首条、错误码变化、或距上次满五分钟才写一条。
+  startFailureNotice(type, code, message) {
+    const nowMs = Date.now(), previous = this.startFailureNoticeState;
+    const shouldLog = !previous || previous.type !== type || previous.code !== code || previous.message !== message || nowMs - previous.lastLoggedAt >= 300_000;
+    this.startFailureNoticeState = { type, code, message, lastLoggedAt: shouldLog ? nowMs : previous.lastLoggedAt };
+    return shouldLog;
   }
   persist() { if (this.ownershipLost) throw new Error('回复进程已失去锁，未覆盖其他入口的水位。'); if (this.runId) this.assertOwned(); save(this.watermarkFile, this.watermarks); }
   refreshAuthorizedContact(stored, verified) {
@@ -811,7 +844,9 @@ export class ChatService {
     } catch (error) {
       this.running = false; this.stopPolling(); this.policy.enabled = false;
       const deferred = ['CHAT_FOREGROUND', 'BROWSER_NOT_RUNNING', 'CHAT_PAGE_NOT_OPEN', 'CHAT_PAGE_LEFT_DOUYIN'].includes(error.code);
-      this.log(deferred ? 'service.deferred' : 'service.start_failed', { code: error.code || '', message: error.message });
+      // 启动失败会被外部入口每分钟重试一次；不降频的话日志会一直是同一句话。
+      // 首条、错误码变化、或距上次满五分钟才写一条。
+      if (this.startFailureNotice(deferred ? 'service.deferred' : 'service.start_failed', error.code || '', error.message)) this.log(deferred ? 'service.deferred' : 'service.start_failed', { code: error.code || '', message: error.message });
       throw error;
     }
     finally { externalSignal?.removeEventListener('abort', externalAbort); }

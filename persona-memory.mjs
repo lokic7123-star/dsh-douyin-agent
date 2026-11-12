@@ -8,6 +8,41 @@ export const GENERATED_START = '<!-- DOUYIN_PERSONA_GENERATED:START -->';
 export const GENERATED_END = '<!-- DOUYIN_PERSONA_GENERATED:END -->';
 const MAX_CARD_BYTES = 65_536;
 const MAX_STATE_BYTES = 8 * 1024 * 1024;
+// 删除前快照最多保留 5 份（每份含完整 stateBefore，体积不小），旧的自动清掉。
+const MAX_FORGET_SNAPSHOTS = 5;
+// 观察、观看采样、互动样本与单个兴趣的证据都是只增不减的，长期跑下去会把 state.json 撑到几十 MB。
+// 这里给每一类都设上限：只保留最近的部分，剪掉时连同引用它的证据与样本一起清掉，保持记录自洽。
+const MAX_OBSERVATIONS = 200;
+const MAX_VIEWINGS = 300;
+const MAX_ACTIONS = 200;
+const MAX_EVIDENCE_PER_INTEREST = 20;
+// 剪裁保持自洽：观察被剪掉时，引用它的观看采样、互动样本与兴趣证据一起清掉，
+// 免得留下指向不存在观察的悬空证据。
+function pruneState(state) {
+  if (!state || typeof state !== 'object') return state;
+  const observations = Array.isArray(state.observations) ? state.observations : [];
+  if (observations.length > MAX_OBSERVATIONS) observations.splice(0, observations.length - MAX_OBSERVATIONS);
+  const kept = new Set(observations.map(row => row?.id).filter(Boolean));
+  const behavior = state.behavior;
+  if (behavior && typeof behavior === 'object') {
+    if (Array.isArray(behavior.viewings)) {
+      if (behavior.viewings.length > MAX_VIEWINGS) behavior.viewings.splice(0, behavior.viewings.length - MAX_VIEWINGS);
+      behavior.viewings = behavior.viewings.filter(row => !row?.evidenceId || kept.has(row.evidenceId));
+    }
+    if (Array.isArray(behavior.actions)) {
+      if (behavior.actions.length > MAX_ACTIONS) behavior.actions.splice(0, behavior.actions.length - MAX_ACTIONS);
+      behavior.actions = behavior.actions.filter(row => !row?.evidenceId || kept.has(row.evidenceId));
+    }
+  }
+  if (Array.isArray(state.interests)) {
+    for (const item of state.interests) {
+      if (!item || !Array.isArray(item.evidence)) continue;
+      item.evidence = item.evidence.filter(ref => !ref?.evidenceId || kept.has(ref.evidenceId));
+      if (item.evidence.length > MAX_EVIDENCE_PER_INTEREST) item.evidence.splice(0, item.evidence.length - MAX_EVIDENCE_PER_INTEREST);
+    }
+  }
+  return state;
+}
 const SOURCES = new Set(['api', 'dsh']);
 const WAIT = new Int32Array(new SharedArrayBuffer(4));
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -261,6 +296,7 @@ export class PersonaMemory {
     finally { try { if (read(this.lockFile, 1024, true) === owner) fs.unlinkSync(this.lockFile); } catch { /* 不删除已被替换的锁。 */ } }
   }
   writeState(state) {
+    pruneState(state);
     const raw = JSON.stringify(state, null, 2) + '\n';
     if (Buffer.byteLength(raw) > MAX_STATE_BYTES) throw error('PERSONA_CAPACITY', '人格证据达到文件上限，本次没有丢弃旧证据或伪造保存。');
     atomic(this.stateFile, raw);
@@ -309,6 +345,47 @@ export class PersonaMemory {
       available: files.cardRaw !== null, manualText: files.parts.before + files.parts.after,
       personaText, interests: projectedInterests(state, summaries).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 40).map(item => ({ ...item, evidenceCount: item.evidence.length, evidence: item.evidence.slice(-20) })),
       userPreferences: structuredClone(state.userPreferences), recentObservations: state.observations.slice(-20).map(item => ({ ...structuredClone(item), ...structuredClone(summaries.get(item.videoId)) })),
+      generatedSynced: files.cardRaw !== null && personaText === files.cardRaw,
+      contextObservations: state.contextObservations !== false,
+      generation: state.generation, legacyImported: state.legacyImported,
+      privacy: 'internal-reference', visibility: 'account-visible-unverified',
+    };
+  }
+  // 面板专用快照：只回面板真正用到的字段。
+  // 与 snapshot() 的差别是兴趣证据只保留最后一条的标题与编号（面板只显示「最近：<标题>」），
+  // 最近观察只保留列表要用的几个字段，不再把每条证据的完整 reflection 往外送。
+  // 完整证据仍然完整保留在 state.json 里，面板要看明细走 /memory/search。
+  panelSnapshot() {
+    const files = this.readFiles(), state = files.state ?? initial(0);
+    const summaries = behaviorByVideo(state);
+    const personaText = files.cardRaw === null ? '' : assemble(files.parts, state);
+    // 兴趣证据本身只记编号与反思，标题在观察记录里；这里按证据编号回查一次，
+    // 面板「最近：<标题>」才能显示作品名而不是一串编号。
+    const observed = new Map();
+    for (const item of state.observations) observed.set(item.id, item);
+    const interests = projectedInterests(state, summaries)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 40)
+      .map(item => {
+        const latest = item.evidence[item.evidence.length - 1];
+        const source = latest ? observed.get(latest.evidenceId) : null;
+        return {
+          topic: item.topic, key: item.key, signal: item.signal, counts: item.counts, basis: item.basis,
+          privacy: item.privacy, visibility: item.visibility, updatedAt: item.updatedAt,
+          evidenceCount: item.evidence.length,
+          evidence: latest ? [{ title: source?.title || '', videoId: latest.videoId || '' }] : [],
+        };
+      });
+    return {
+      personaFolder: this.personaFolder, roleCardFile: this.roleCardFile,
+      revision: digest(`${files.stateRaw ?? ''}\0${files.cardRaw ?? ''}`),
+      available: files.cardRaw !== null, manualText: files.parts.before + files.parts.after,
+      personaText, interests,
+      userPreferences: structuredClone(state.userPreferences),
+      recentObservations: state.observations.slice(-20).map(item => ({
+        id: item.id, videoId: item.videoId, url: item.url, title: item.title, author: item.author,
+        observedAt: item.observedAt, source: item.source, kind: item.kind, tier: item.tier,
+      })),
       generatedSynced: files.cardRaw !== null && personaText === files.cardRaw,
       contextObservations: state.contextObservations !== false,
       generation: state.generation, legacyImported: state.legacyImported,
@@ -556,6 +633,17 @@ export class PersonaMemory {
       privacy: 'internal-reference', visibility: 'account-visible-unverified',
     };
   }
+  // 删除前快照会带上整个 stateBefore，一份就有几百 KB；删多了会把磁盘堆满。
+  // 这里只保留最近的若干份，旧的直接删掉（最新那一份永远保留，用户还能回查）。
+  pruneForgetSnapshots(keep = MAX_FORGET_SNAPSHOTS) {
+    const folder = path.join(this.personaFolder, 'forget-snapshots');
+    let names = [];
+    try { names = fs.readdirSync(folder).filter(name => name.endsWith('.json')).sort(); } catch { return; }
+    const excess = names.length - keep;
+    for (let index = 0; index < excess; index += 1) {
+      try { fs.rmSync(path.join(folder, names[index]), { force: true }); } catch {}
+    }
+  }
   forgetObservation({ evidenceId } = {}, { explicit = false } = {}) {
     if (explicit !== true) throw error('PERSONA_EXPLICIT_REQUIRED', '记忆删除只能由用户在本机面板明确执行。');
     if (typeof evidenceId !== 'string' || !/^video:[a-f0-9]{64}$/.test(evidenceId)) throw error('PERSONA_ARGUMENT', '记忆删除只接受有效的观察证据编号。');
@@ -569,6 +657,7 @@ export class PersonaMemory {
       fs.mkdirSync(snapshotFolder, { recursive: true });
       const snapshotFile = path.join(snapshotFolder, `${new Date(this.clock()).toISOString().replace(/[:.]/g, '-')}-${evidenceId.slice(6, 18)}.json`);
       fs.writeFileSync(snapshotFile, JSON.stringify({ forgotten: observation, stateBefore: data }, null, 2), { mode: 0o600 });
+      this.pruneForgetSnapshots();
       // 级联清理：观察、引用它的兴趣证据、引用它的观看/互动样本。
       data.observations = data.observations.filter(row => row.id !== evidenceId);
       for (const interest of data.interests) interest.evidence = interest.evidence.filter(ref => ref.evidenceId !== evidenceId);
@@ -600,6 +689,7 @@ export class PersonaMemory {
       fs.mkdirSync(snapshotFolder, { recursive: true });
       const snapshotFile = path.join(snapshotFolder, `${new Date(this.clock()).toISOString().replace(/[:.]/g, '-')}-interest-${interest.topic.slice(0, 12)}.json`);
       fs.writeFileSync(snapshotFile, JSON.stringify({ forgotten: structuredClone(interest), stateBefore: data }, null, 2), { mode: 0o600 });
+      this.pruneForgetSnapshots();
       if (signal === undefined) {
         data.interests = data.interests.filter(row => row.key !== key);
       } else {

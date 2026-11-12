@@ -7,6 +7,20 @@ import { chromium } from './playwright-runtime.mjs';
 
 const execute = promisify(execFile);
 const versionOf = value => /^\d+\.\d+\.\d+\.\d+$/.exec(String(value || '').trim())?.[0] || null;
+// 专用浏览器长期空转时回收宿主：默认 30 分钟没有任何打开的页面就收掉，避免 Node 宿主与 Edge 一直挂着占内存。
+export const IDLE_HOST_REAP_MS = 30 * 60_000;
+export function idleHostDecision({ pages = [], idleMs = IDLE_HOST_REAP_MS, idleSince = 0, now = Date.now(), isVisible = () => false } = {}) {
+  const open = pages.filter(page => { try { return page && typeof page.isClosed === 'function' ? !page.isClosed() : Boolean(page); } catch { return false; } });
+  for (const page of open) {
+    let address = '';
+    try { address = typeof page.url === 'function' ? String(page.url() || '') : ''; } catch { address = ''; }
+    if (address && address !== 'about:blank') return { reap: false, active: true, reason: '还有打开的页面，先不回收。' };
+    try { if (isVisible(page)) return { reap: false, active: true, reason: '页面正在被查看，先不回收。' }; } catch { /* 读不到可见性就按不可见处理。 */ }
+  }
+  if (!(idleMs > 0)) return { reap: false, active: false, reason: '未启用空闲回收。' };
+  if (!(now - idleSince >= idleMs)) return { reap: false, active: false, reason: '还没到空闲时限。' };
+  return { reap: true, active: false, reason: '长时间没有打开的页面，回收专用浏览器宿主。' };
+}
 export function sanitizeBrowserFailure(value) {
   return String(value || '').replace(/\bBearer\s+[^\s,;"']+/gi, 'Bearer [凭据已隐藏]')
     .replace(/\b(?:token|api[-_]?key|cookie|authorization)\s*[:=]\s*[^\s，。；]+/gi, '[凭据已隐藏]')
@@ -149,6 +163,18 @@ export async function runBrowserHost({ profile, controlDir, port, chromiumImpl =
       try { writeState(false, { exitedAt: Date.now() }); } catch {}
     };
     context.on('close', () => { markExited(); processImpl.exit(focusFailed ? 1 : 0); });
+    // 空闲回收：宿主自己盯页面状态，超过空闲时限且没有打开的页面就正常结束，避免 Node 与 Edge 一直占着内存。
+    // 页面被打开过就重新计时；用户正在看的页面不回收。
+    let idleSince = Date.now(); const reapTimer = setInterval(() => {
+      const pages = typeof context?.pages === 'function' ? context.pages() : [];
+      const decision = idleHostDecision({ pages, idleSince, now: Date.now(), isVisible: page => { try { return page?.isVisible?.() === true; } catch { return false; } } });
+      if (!decision.reap) { if (decision.active) idleSince = Date.now(); return; }
+      try { logger.log(decision.reason); } catch {}
+      markExited();
+      try { clearInterval(reapTimer); } catch {}
+      context.close().catch(() => {}).finally(() => processImpl.exit(0));
+    }, 60_000);
+    if (typeof reapTimer.unref === 'function') reapTimer.unref();
     for (const signal of ['SIGINT', 'SIGTERM']) processImpl.on(signal, () => { markExited(); context.close().finally(() => processImpl.exit(0)); });
     return { started: true, exitCode: 0 };
   } catch (error) {

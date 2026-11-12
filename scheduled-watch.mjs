@@ -23,6 +23,12 @@ export class ScheduledWatch {
   constructor({stateDir=resolveRuntimePaths().stateDir,getVideoLimits,getWatchState,startRound,source='api',now=Date.now,intervalMs=5000,random=Math.random,firstDelayMinutes=null,allowLazy=true}={}){Object.assign(this,{stateDir,getVideoLimits,getWatchState,startRound,source,now,intervalMs,random,firstDelayMinutes,allowLazy});this.policyFile=path.join(stateDir,'watch-schedule-policy.json');this.ledgerFile=path.join(stateDir,'watch-schedule-runs.json');this.guardFile=path.join(stateDir,'watch-schedule.guard');this.closed=false;}
   policy(){return policyOf(load(this.policyFile,{...defaultPolicy}));}
   ledger(){const value=load(this.ledgerFile,{version:1,runs:[]});if(value?.version!==1||!Array.isArray(value.runs)||value.runs.some(item=>!item?.key||!['starting','started','failed','occupied','completed','acknowledged'].includes(item.status)))throw new Error('自动观看回执损坏，未覆盖或重试。');return value;}
+  // 自动观看回执只增不减：保留最近 30 天与最近 200 条，超出的旧回执清掉。
+  // 未结束的（starting/started/failed/occupied）永远保留，否则会丢掉正在跑或等人处理的那一场。
+  pruneLedger(ledger){if(!Array.isArray(ledger?.runs))return ledger;const cutoff=this.now()-30*86400000,pending=new Set(['starting','started','failed','occupied']);
+    const kept=ledger.runs.filter(item=>{if(pending.has(item?.status))return true;const at=Date.parse(item?.startedAt||'');return !Number.isFinite(at)||at>=cutoff;});
+    if(kept.length>200){const removable=kept.filter(item=>!pending.has(item?.status));while(kept.length>200&&removable.length)kept.splice(kept.indexOf(removable.shift()),1);}
+    ledger.runs=kept;return ledger;}
   state(){const policy=this.policy(),ledger=this.ledger(),last=ledger.runs.at(-1)||null,lastError=Object.hasOwn(ledger,'lastError')?ledger.lastError:last?.status==='failed'?last.error||this.error||'自主观看异常停止，请检查后重新开启允许观看。':this.error||'';return{protocol:'scheduled-watch-v2',policy,last,busy:Boolean(this.pending),lastError,note:'允许观看后，按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；登录、验证或运行异常需要处理后重新开启允许观看。'};}
   control(action){fs.mkdirSync(this.stateDir,{recursive:true});let fd;const owner={pid:process.pid,token:randomUUID()};try{fd=fs.openSync(this.guardFile,'wx',0o600);}catch(error){if(error.code==='EEXIST')throw Object.assign(new Error('另一个入口正在检查自动观看。'),{code:'SCHEDULE_BUSY'});throw error;}try{fs.writeFileSync(fd,JSON.stringify(owner));return action();}finally{fs.closeSync(fd);const current=load(this.guardFile,null);if(current?.pid===owner.pid&&current.token===owner.token)fs.unlinkSync(this.guardFile);}}
   configure(value,{explicit=false}={}){if(!explicit)throw new Error('允许观看需要本人明确保存。');const policy=policyOf(value);this.control(()=>{
@@ -71,7 +77,7 @@ export class ScheduledWatch {
       }
       // 这一场已经开过（还在跑，或刚跑完正在记账）：不再开第二轮。
       if(last?.status==='started'||last?.status==='starting')return;
-      operation={...session,id:randomUUID(),source:this.source,pid:process.pid,startedAt:new Date(now).toISOString(),status:'starting'};ledger.runs.push(operation);write(this.ledgerFile,ledger);
+      operation={...session,id:randomUUID(),source:this.source,pid:process.pid,startedAt:new Date(now).toISOString(),status:'starting'};ledger.runs.push(operation);this.pruneLedger(ledger);write(this.ledgerFile,ledger);
     });if(!operation)return;this.abort=new AbortController();
     try{if(!this.policy().enabled)throw new Error('允许观看已关闭');const result=await this.startRound({signal:this.abort.signal,expiresAt:session.expiresAt});this.finish(operation.id,'started',result?.sessionId||null);this.error='';}
     catch(error){if(error.code==='WATCH_MANUAL_OCCUPIED'){this.finish(operation.id,'occupied',null);return;}this.finish(operation.id,'failed',null,explain(error));throw error;}finally{this.abort=null;}
@@ -104,6 +110,6 @@ export class ScheduledWatch {
     if(!settled)return false;
     savePlan({stateDir:this.stateDir,date,plan:closeSession({plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});return true;
   }
-  finish(id,status,sessionId,error=''){this.control(()=>{const ledger=this.ledger(),entry=ledger.runs.find(item=>item.id===id);if(!entry)throw new Error('自动观看回执丢失');Object.assign(entry,{status,sessionId,completedAt:new Date(this.now()).toISOString(),...(error?{error}:{})});ledger.lastError=status==='failed'?error:'';write(this.ledgerFile,ledger);});}
+  finish(id,status,sessionId,error=''){this.control(()=>{const ledger=this.ledger(),entry=ledger.runs.find(item=>item.id===id);if(!entry)throw new Error('自动观看回执丢失');Object.assign(entry,{status,sessionId,completedAt:new Date(this.now()).toISOString(),...(error?{error}:{})});ledger.lastError=status==='failed'?error:'';this.pruneLedger(ledger);write(this.ledgerFile,ledger);});}
   async close(){this.closed=true;clearInterval(this.timer);this.abort?.abort(new Error('自动观看入口已关闭。'));await this.pending;}
 }
