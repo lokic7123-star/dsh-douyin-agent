@@ -155,3 +155,59 @@ test('两个入口先后回收同一把坏锁时，不许把对方新建的有�
   assert.equal(fs.readFileSync(schedule.guardFile,'utf8'),mine,'对方的新锁完好');
   assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.corrupt-')),false,'没有产生归档');
 });
+test('开场写盘失败就不开这一场，不会白看一场',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  // 开场那一场要落盘（日程里没有它，账本里的分钟数跨天后就没有落脚点）。
+  // 写不下去时不开这一场：不看就没有分钟数要记。
+  const savePlanImpl=args=>{if(args.plan?.roundSession)return false;return savePlan(args);};
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'}),savePlanImpl});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  await schedule.tick();
+  assert.equal(f.starts(),0,'写盘失败就不该开始看');
+  assert.match(schedule.error||'',/日程没能写入/,'写盘失败要看得见');
+});
+test('回执里有、日程里没有的那一场，跨天后也能补记进当天的日程',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'})});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  // 这一场从未落盘（日程文件被换掉过），只有账本里留着回执。
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[{
+    key:'2026-10-23#0',round:0,id:'synthetic-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),
+    minutes:6,startedAt:new Date(Date.parse('2026-10-23T15:59:00Z')).toISOString(),status:'started',
+  }]},null,2));
+  f.setTime('2026-10-23T16:05:00Z');
+  await schedule.tick();
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  const day=plan.days['2026-10-23'].plan;
+  assert.equal(day.spentMinutes,6,'回执里的 6 分钟被补记回当天日程');
+  assert.ok(day.sessions.some(item=>item.key==='2026-10-23#0'),'这一场被记进当天的场次列表');
+  assert.equal(day.roundSession,null,'补记不会挂起正在跑的场次');
+});
+test('回收死进程留下的锁时对方换上了新锁，既不删掉也不覆盖',async t=>{
+  const f=fixture(t);
+  const schedule=new ScheduledWatch(f.options);
+  const mine=JSON.stringify({pid:process.pid,owner:'synthetic-other-owner'});
+  fs.writeFileSync(schedule.guardFile,JSON.stringify({pid:2147483647,owner:'synthetic-dead-owner'}));
+  const original=schedule.takeGuard.bind(schedule);
+  // 就在挪走的那一刻，对方把锁换成了自己的新锁。
+  schedule.takeGuard=()=>{fs.writeFileSync(schedule.guardFile,mine);return original();};
+  assert.equal(schedule.reclaimStaleGuard(),false,'换锁之后不该回收');
+  assert.equal(fs.readFileSync(schedule.guardFile,'utf8'),mine,'对方的新锁完好');
+  assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.corrupt-')),false,'没有产生归档');
+  assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.taken-')),false,'没有留下挪走的一半');
+});
+test('回收坏锁时对方换上了新锁，既不删掉也不覆盖',async t=>{
+  const f=fixture(t);
+  const schedule=new ScheduledWatch(f.options);
+  const mine=JSON.stringify({pid:process.pid,owner:'synthetic-other-owner'});
+  fs.writeFileSync(schedule.guardFile,'合成残留锁');
+  const stale=Date.now()/1000-10;fs.utimesSync(schedule.guardFile,stale,stale);
+  const original=schedule.takeGuard.bind(schedule);
+  schedule.takeGuard=()=>{fs.writeFileSync(schedule.guardFile,mine);return original();};
+  assert.equal(schedule.reclaimStaleGuard(),false,'换锁之后不该回收');
+  assert.equal(fs.readFileSync(schedule.guardFile,'utf8'),mine,'对方的新锁完好');
+  assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.corrupt-')),false,'没有产生归档');
+});

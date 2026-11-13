@@ -141,6 +141,8 @@ function entryFor(stored, date) {
       roundSession: plan.roundSession && typeof plan.roundSession === 'object' ? plan.roundSession : null,
       failedRounds: Number.isFinite(plan.failedRounds) ? plan.failedRounds : 0,
       sessions: Array.isArray(plan.sessions) ? plan.sessions : [],
+      // 补记出来的空日程要标出来：本人重新打开允许观看时，那一天的额度要重新算。
+      recovered: plan.recovered === true,
     },
     spentMinutes: Number.isFinite(entry.spentMinutes) ? entry.spentMinutes : 0,
   };
@@ -151,17 +153,90 @@ export function ensurePlan({ stateDir = resolveRuntimePaths().stateDir, date = p
   const file = planFile(stateDir);
   const stored = loadFile(file);
   const entry = entryFor(stored, date);
-  if (entry) return entry.plan;
+  // 补记出来的空日程（recovered）不算真的日程：本人重新打开允许观看时，
+  // 那一天的额度要重新算，不能被这份空日程卡住。已经记过的时长与场次要留着。
+  if (entry && entry.plan.recovered !== true) return entry.plan;
 
   // 额度按「今天还剩多少」算：手动看过的部分不能再算进自主观看。
   const cap = Number.isFinite(budgetMinutes)
     ? Math.max(0, Math.floor(budgetMinutes))
     : (Number.isFinite(policy.dailyMinutes) && policy.dailyMinutes > 0 ? Math.floor(policy.dailyMinutes) : 0);
   const plan = buildPlan({ date, intervals: dayIntervals(date, policy), budgetMinutes: cap, random, now, firstDelayMinutes, allowLazy });
+  if (entry) {
+    plan.spentMinutes = Number.isFinite(entry.plan.spentMinutes) ? entry.plan.spentMinutes : 0;
+    plan.sessions = Array.isArray(entry.plan.sessions) ? entry.plan.sessions : [];
+    plan.failedRounds = Number.isFinite(entry.plan.failedRounds) ? entry.plan.failedRounds : 0;
+    // 轮次要接着走：补记过的那一场已经占掉一个编号，重来一遍会撞号。
+    plan.round = Number.isFinite(entry.plan.round) ? entry.plan.round : 0;
+  }
   const days = { ...(stored?.days ?? {}) };
-  days[date] = { plan, spentMinutes: 0 };
+  days[date] = { plan, spentMinutes: plan.spentMinutes };
   persistDays(file, days, now);
   return plan;
+}
+
+// 补记用的空日程：某一场的开场没能落盘时，账本里仍然有它的回执，
+// 需要按它所属的那天补一份日程，把这一场记进去。
+// 这份日程不带额度（recovered）：等本人重新打开允许观看时，那一天的额度要重新算。
+export function recoveredPlan(date) {
+  return {
+    version: PLAN_VERSION,
+    date,
+    generatedAt: new Date().toISOString(),
+    targetMinutes: 0,
+    spentMinutes: 0,
+    lazy: false,
+    firstStartAt: null,
+    nextStartAt: null,
+    round: 0,
+    roundSession: null,
+    failedRounds: 0,
+    sessions: [],
+    recovered: true,
+  };
+}
+
+// 所有日程里已经记过账的场次：sessions 里的 key。
+// 账本里已结清、但日程里从没记过的那一场（开场写盘失败、日程文件被换掉），
+// 靠它判断是否已经补记过——补过的不能再补一次。
+export function creditedSessionKeys({ stateDir = resolveRuntimePaths().stateDir } = {}) {
+  const stored = loadFile(planFile(stateDir));
+  const keys = new Set();
+  if (!stored?.days || typeof stored.days !== 'object') return keys;
+  for (const date of Object.keys(stored.days)) {
+    const plan = entryFor(stored, date)?.plan;
+    for (const session of plan?.sessions || []) if (session?.key) keys.add(session.key);
+  }
+  return keys;
+}
+
+// 场次属于哪一天：场次编号就是「日期#轮次」。
+// 开场写盘失败时，日程里根本没有这一场，只能从编号里把它属于的那天找回来。
+export function sessionDate(session) {
+  const key = typeof session?.key === 'string' ? session.key : '';
+  const hash = key.indexOf('#');
+  if (hash <= 0) return null;
+  const date = key.slice(0, hash);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
+// 把一场记进日程：加时长、加场次、把轮次推到这一场之后。
+// 只加账，不动日程里当前挂着的场次——补记的是另一场（开场没落盘的那场），
+// 把正在跑的那一场清掉会误伤。
+export function creditSession({ plan, session, usedMinutes = null, failed = false, now = Date.now() } = {}) {
+  if (!plan || !session) return plan;
+  const used = failed
+    ? 0
+    : (Number.isFinite(usedMinutes) ? Math.max(0, Math.floor(usedMinutes)) : (Number.isFinite(session.minutes) ? session.minutes : 0));
+  const round = Number.isFinite(session.round) ? session.round : 0;
+  return {
+    ...plan,
+    spentMinutes: (Number.isFinite(plan.spentMinutes) ? plan.spentMinutes : 0) + used,
+    failedRounds: (Number.isFinite(plan.failedRounds) ? plan.failedRounds : 0) + (failed ? 1 : 0),
+    // 轮次不能倒退：这一场已经占掉一个编号，后面的场次要接着往后排。
+    round: Math.max(Number.isFinite(plan.round) ? plan.round : 0, round + (failed ? 0 : 1)),
+    sessions: [...(plan.sessions || []), { key: session.key, startAt: session.startAt, expiresAt: session.expiresAt, minutes: used, failed: failed === true }],
+  };
 }
 
 // 保存当天的最新日程（每场结束后记账）。

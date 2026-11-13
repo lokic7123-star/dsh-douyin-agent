@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveRuntimePaths } from './runtime-paths.mjs';
-import { ensurePlan, planSession, closeSession, savePlan, cooldownMinutes, resumePlan, loadPlan, planDate, roundCandidates } from './watch-plan.mjs';
+import { ensurePlan, planSession, closeSession, savePlan, cooldownMinutes, resumePlan, loadPlan, planDate, roundCandidates, recoveredPlan, creditedSessionKeys, creditSession, sessionDate } from './watch-plan.mjs';
 
 const DAY=86400000, defaultPolicy={enabled:false};
 const load=(file,fallback)=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch(error){if(error.code==='ENOENT')return fallback;throw new Error('自动启动记录无法读取，未重置原记录。');}};
@@ -32,12 +32,36 @@ export class ScheduledWatch {
   state(){const policy=this.policy(),ledger=this.ledger(),last=ledger.runs.at(-1)||null,lastError=Object.hasOwn(ledger,'lastError')?ledger.lastError:last?.status==='failed'?last.error||this.error||'自主观看异常停止，请检查后重新开启允许观看。':this.error||'';return{protocol:'scheduled-watch-v2',policy,last,busy:Boolean(this.pending),lastError,note:'允许观看后，按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；登录、验证或运行异常需要处理后重新开启允许观看。'};}
   // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
   // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
-  // 复核路径上的还是不是刚才那把锁：两个入口可能同时来回收同一把坏锁，
-  // 期间对方可能已经把这里换成了自己的新锁——那把锁不能动。
-  sameGuard(stat){
-    if(!stat)return false;
-    let current;try{current=fs.lstatSync(this.guardFile);}catch{return false;}
-    return current.ino===stat.ino&&current.size===stat.size&&Math.floor(current.mtimeMs)===Math.floor(stat.mtimeMs);
+  //
+  // 关键：判断和动手之间不能隔着一次「再看看路径上是什么」。
+  // 所以顺序是「先读内容判断 → 再把锁原样挪到自己手里 → 在自己手里复核内容」：
+  // 挪动是原子的，两个入口同时来回收时只有一个能挪走，另一个扑空；
+  // 挪走之后复核的是自己手里这一份，不是路径上后来被换掉的那份。
+  // 持有者还活着的锁从头到尾不挪：挪走它会让另一个入口趁虚进入临界区。
+  takeGuard(){
+    const taken=`${this.guardFile}.taken-${randomUUID()}`;
+    try{fs.renameSync(this.guardFile,taken);}catch{return null;}
+    return taken;
+  }
+  // 放回原位：只在原位还空着时放回去，绝不覆盖别人的新锁。
+  restoreGuard(taken){
+    try{fs.linkSync(taken,this.guardFile);try{fs.unlinkSync(taken);}catch{}return true;}
+    catch(error){
+      if(error.code!=='EEXIST'){
+        // 硬链接不被允许时退回到「独占创建」：COPYFILE_EXCL 撞上就是别人已经拿到锁了。
+        try{fs.copyFileSync(taken,this.guardFile,fs.constants.COPYFILE_EXCL);try{fs.unlinkSync(taken);}catch{}return true;}
+        catch(fallbackError){if(fallbackError.code==='EEXIST'){try{fs.unlinkSync(taken);}catch{}return false;}return false;}
+      }
+      // 原位已被别人占用：这份内容原样留档，不能覆盖对方的新锁，也不能直接丢掉。
+      try{fs.renameSync(taken,`${this.guardFile}.conflict-${Date.now()}-${randomUUID()}`);}catch{}
+      return false;
+    }
+  }
+  // 挪到自己手里之后复核：内容与动手前读到的不一致，说明期间被换成别的锁，原样放回去。
+  verifyTaken(taken,expected){
+    let current;try{current=fs.readFileSync(taken,'utf8');}catch{current=null;}
+    if(current===expected)return true;
+    this.restoreGuard(taken);return false;
   }
   reclaimStaleGuard(){
     let stat;try{stat=fs.lstatSync(this.guardFile);}catch(error){return error.code==='ENOENT';}
@@ -45,30 +69,43 @@ export class ScheduledWatch {
     if(stat.size===0){
       // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
       if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
-      if(!this.sameGuard(stat))return false;
-      try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+      const taken=this.takeGuard();if(!taken)return false;
+      let size;try{size=fs.lstatSync(taken).size;}catch{return false;}
+      if(size!==0){this.restoreGuard(taken);return false;}
+      try{fs.unlinkSync(taken);return true;}catch{return false;}
     }
-    let record;try{record=JSON.parse(fs.readFileSync(this.guardFile,'utf8'));}catch{return this.archiveCorruptGuard(stat);}
-    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return this.archiveCorruptGuard(stat);
+    let content;try{content=fs.readFileSync(this.guardFile,'utf8');}catch{content=null;}
+    let record=null;try{record=JSON.parse(content);}catch{record=null;}
+    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1){
+      // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+      if(Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
+      const taken=this.takeGuard();if(!taken)return false;
+      if(!this.verifyTaken(taken,content))return false;
+      return this.archiveTaken(taken);
+    }
     try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
-    if(!this.sameGuard(stat))return false;
-    try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+    // 死进程留下的锁：挪到自己手里再复核，确认期间没被换成别人的新锁。
+    const taken=this.takeGuard();if(!taken)return false;
+    if(!this.verifyTaken(taken,content))return false;
+    try{fs.unlinkSync(taken);return true;}catch{return false;}
+  }
+  // 挪到一边的这份是坏锁：改名归档，内容一个字都不改，留给本人核对。
+  archiveTaken(taken){
+    const archive=`${this.guardFile}.corrupt-${Date.now()}-${randomUUID()}`;
+    try{fs.renameSync(taken,archive);}catch{return false;}
+    return true;
   }
   // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
   archiveCorruptGuard(stat){
+    let statNow;try{statNow=fs.lstatSync(this.guardFile);}catch{return false;}
     // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
-    if(stat&&Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
-    // 动之前先确认路径上的还是那把坏锁：对方可能刚好把这里换成了自己的新锁。
-    if(!this.sameGuard(stat))return false;
+    if(Date.now()-Math.floor(statNow.mtimeMs)<2000)return false;
     let content;try{content=fs.readFileSync(this.guardFile,'utf8');}catch{return false;}
     let parsed=null;try{parsed=JSON.parse(content);}catch{parsed=null;}
     if(parsed&&Number.isSafeInteger(parsed.pid)&&parsed.pid>0)return false;
-    const archive=`${this.guardFile}.corrupt-${Date.now()}`;
-    try{fs.renameSync(this.guardFile,archive);}catch{return false;}
-    // 搬走后再核对一次：如果搬走的是别人的新锁，原样放回去，别让两个入口同时进临界区。
-    let moved;try{moved=fs.readFileSync(archive,'utf8');}catch{moved=null;}
-    if(moved!==content){try{fs.renameSync(archive,this.guardFile);}catch{}return false;}
-    return true;
+    const taken=this.takeGuard();if(!taken)return false;
+    if(!this.verifyTaken(taken,content))return false;
+    return this.archiveTaken(taken);
   }
   control(action){
     fs.mkdirSync(this.stateDir,{recursive:true});
@@ -130,7 +167,12 @@ export class ScheduledWatch {
     if(!time.allowed)return;
     if(watch?.running||watch?.busy||watch?.pendingRequests>0)return;
     const session=planSession({plan,now,random:this.random,windowEnd});if(!session)return;
-    if(plan.roundSession?.key!==session.key)this.savePlanImpl({stateDir:this.stateDir,date,plan:{...plan,roundSession:session},now});
+    if(plan.roundSession?.key!==session.key){
+      // 开场这一场必须先落盘：日程里没有它，账本记下来的分钟数跨天后就没有落脚点。
+      // 写不下去就不开这一场——不看就没有分钟数要记，比看完记不上账干净。
+      const opened=this.savePlanImpl({stateDir:this.stateDir,date,plan:{...plan,roundSession:session},now});
+      if(!opened){this.error='自动观看日程没能写入，这一轮没有开始看。';return;}
+    }
     const key=session.key;let operation;this.control(()=>{if(!this.policy().enabled)return;const ledger=this.ledger();
       const entries=ledger.runs.filter(item=>item.key===key),last=entries.at(-1);
       if(last?.status==='occupied'&&last.requiresUser===true){
@@ -210,11 +252,24 @@ export class ScheduledWatch {
       if(expired){session=expired.session;owner=expired;settled=true;failed=false;usedMinutes=0;}
     });
     if(!settled)return false;
-    if(!owner?.plan||!owner?.date)return true;
-    // 记账写回这一场所属的那一天（可能不是今天）。
-    const written=this.savePlanImpl({stateDir:this.stateDir,date:owner.date,plan:closeSession({plan:owner.plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});
-    // 日程写不下去时，这场仍然挂在计划里，等下一轮按账本里已记下的分钟数再记一次：
-    // 不会被当成「没看成」按 0 分钟覆盖掉。这一轮到此为止，不再开新的一场。
+    if(owner?.plan&&owner?.date){
+      // 记账写回这一场所属的那一天（可能不是今天）。
+      const written=this.savePlanImpl({stateDir:this.stateDir,date:owner.date,plan:closeSession({plan:owner.plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});
+      // 日程写不下去时，这场仍然挂在计划里，等下一轮按账本里已记下的分钟数再记一次：
+      // 不会被当成「没看成」按 0 分钟覆盖掉。这一轮到此为止，不再开新的一场。
+      if(!written)this.planWriteFailed=true;else this.planWriteFailed=false;
+      return true;
+    }
+    // 这一场从来没落盘过（开场写盘失败）：日程里没有它，只能按场次编号把它属于的那天找回来，
+    // 给那天补一份日程，把这一场记进去——不然账本里记下的分钟数永远没有落脚点。
+    const derived=sessionDate(session);
+    if(!derived)return true;
+    // 已经补记过的不能补两次。
+    if(creditedSessionKeys({stateDir:this.stateDir}).has(session.key))return true;
+    const existing=loadPlan({stateDir:this.stateDir,date:derived});
+    const base=existing&&existing.recovered!==true?existing:recoveredPlan(derived);
+    const credited=creditSession({plan:base,session,usedMinutes,failed,now});
+    const written=this.savePlanImpl({stateDir:this.stateDir,date:derived,plan:credited,now});
     if(!written)this.planWriteFailed=true;else this.planWriteFailed=false;
     return true;
   }

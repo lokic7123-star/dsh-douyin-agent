@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync, linkSync, copyFileSync, constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -85,45 +85,79 @@ async function watchControl(directory,action,signal) {
       if(current?.token===token){try{unlinkSync(file);}catch{}}}
   }
 }
-// 复核路径上的还是不是刚才那把锁：两个入口可能同时来回收同一把坏锁，
-// 期间对方可能已经把这里换成了自己的新锁——那把锁不能动。
-function sameGuard(file,stat){
-  if(!stat)return false;
-  let current;try{current=statSync(file);}catch{return false;}
-  return current.ino===stat.ino&&current.size===stat.size&&Math.floor(current.mtimeMs)===Math.floor(stat.mtimeMs);
+// 把锁原样挪到自己手里再判断：挪动是原子的，两个入口同时来回收时只有一个能挪走，
+// 挪走之后判断的永远是「自己手里这一份」，不用拿路径上的内容跟先前看到的比。
+function takeGuard(file){
+  const taken=`${file}.taken-${randomUUID()}`;
+  try{renameSync(file,taken);}catch{return null;}
+  return taken;
+}
+// 放回原位：只在原位还空着时放回去，绝不覆盖别人的新锁。
+function restoreGuard(file,taken){
+  try{linkSync(taken,file);try{unlinkSync(taken);}catch{}return true;}
+  catch(error){
+    if(error.code!=='EEXIST'){
+      try{copyFileSync(taken,file,constants.COPYFILE_EXCL);try{unlinkSync(taken);}catch{}return true;}
+      catch(fallbackError){if(fallbackError.code==='EEXIST'){try{unlinkSync(taken);}catch{}return false;}return false;}
+    }
+    // 原位已被别人占用：这份内容原样留档，不能覆盖对方的新锁，也不能直接丢掉。
+    try{renameSync(taken,`${file}.conflict-${Date.now()}-${randomUUID()}`);}catch{}
+    return false;
+  }
+}
+// 挪到自己手里之后复核：内容与动手前读到的不一致，说明期间被换成别的锁，原样放回去。
+function verifyTaken(file,taken,expected){
+  let current;try{current=readFileSync(taken,'utf8');}catch{current=null;}
+  if(current===expected)return true;
+  restoreGuard(file,taken);return false;
+}
+// 挪到一边的这份是坏锁：改名归档，内容一个字都不改，留给本人核对。
+function archiveTaken(file,taken){
+  const archive=`${file}.corrupt-${Date.now()}-${randomUUID()}`;
+  try{renameSync(taken,archive);}catch{return false;}
+  return true;
 }
 // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
 // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
+//
+// 判断和动手之间不能隔着一次「再看看路径上是什么」：顺序是「先读内容判断 →
+// 再把锁原样挪到自己手里 → 在自己手里复核内容」。持有者还活着的锁从头到尾不挪。
 function reclaimStaleGuard(file){
   let stat;try{stat=statSync(file);}catch(error){return error.code==='ENOENT';}
   if(!stat.isFile()||stat.isSymbolicLink())return false;
   if(stat.size===0){
     // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
     if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
-    if(!sameGuard(file,stat))return false;
-    try{unlinkSync(file);return true;}catch{return false;}
+    const taken=takeGuard(file);if(!taken)return false;
+    let size;try{size=statSync(taken).size;}catch{return false;}
+    if(size!==0){restoreGuard(file,taken);return false;}
+    try{unlinkSync(taken);return true;}catch{return false;}
   }
-  let record;try{record=JSON.parse(readFileSync(file,'utf8'));}catch{return archiveCorruptGuard(file,stat);}
-  if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return archiveCorruptGuard(file,stat);
+  let content;try{content=readFileSync(file,'utf8');}catch{content=null;}
+  let record=null;try{record=JSON.parse(content);}catch{record=null;}
+  if(!record||!Number.isSafeInteger(record.pid)||record.pid<1){
+    // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+    if(Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
+    const taken=takeGuard(file);if(!taken)return false;
+    if(!verifyTaken(file,taken,content))return false;
+    return archiveTaken(file,taken);
+  }
   try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
-  if(!sameGuard(file,stat))return false;
-  try{unlinkSync(file);return true;}catch{return false;}
+  const taken=takeGuard(file);if(!taken)return false;
+  if(!verifyTaken(file,taken,content))return false;
+  try{unlinkSync(taken);return true;}catch{return false;}
 }
 // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
 function archiveCorruptGuard(file,stat){
+  let statNow;try{statNow=statSync(file);}catch{return false;}
   // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
-  if(stat&&Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
-  // 动之前先确认路径上的还是那把坏锁：对方可能刚好把这里换成了自己的新锁。
-  if(!sameGuard(file,stat))return false;
+  if(Date.now()-Math.floor(statNow.mtimeMs)<2000)return false;
   let content;try{content=readFileSync(file,'utf8');}catch{return false;}
   let parsed=null;try{parsed=JSON.parse(content);}catch{parsed=null;}
   if(parsed&&Number.isSafeInteger(parsed.pid)&&parsed.pid>0)return false;
-  const archive=`${file}.corrupt-${Date.now()}`;
-  try{renameSync(file,archive);}catch{return false;}
-  // 搬走后再核对一次：如果搬走的是别人的新锁，原样放回去，别让两个入口同时进临界区。
-  let moved;try{moved=readFileSync(archive,'utf8');}catch{moved=null;}
-  if(moved!==content){try{renameSync(archive,file);}catch{}return false;}
-  return true;
+  const taken=takeGuard(file);if(!taken)return false;
+  if(!verifyTaken(file,taken,content))return false;
+  return archiveTaken(file,taken);
 }
 async function acquireNativeVideoLease(directory,signal) {
   const file=path.join(directory,'watch-manual.lock'),token=randomUUID();
