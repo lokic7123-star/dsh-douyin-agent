@@ -104,7 +104,8 @@ function takeReclaimLock(file){
       let stat;try{stat=statSync(reclaim);}catch{continue;}
       // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
       if(stat.size===0&&Date.now()-Math.floor(stat.mtimeMs)<500)return false;
-      let record=null;try{record=JSON.parse(readFileSync(reclaim,'utf8'));}catch{record=null;}
+      let deadContent=null;try{deadContent=readFileSync(reclaim,'utf8');}catch{deadContent=null;}
+      let record=null;try{record=JSON.parse(deadContent);}catch{record=null;}
       if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
         try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
       }
@@ -113,6 +114,13 @@ function takeReclaimLock(file){
       // 绝不能按路径去删别人的新锁，那是上一版互斥失效的根源。
       const taken=`${reclaim}.taken-${randomUUID()}`;
       try{renameSync(reclaim,taken);}catch{continue;}
+      // rename 绑定到「我读到的这把」：搬到的必须还是残骸那份内容。
+      // 对方抢先搬走了残骸、建了新锁的话，这里搬到的就是别人的新锁——原样放回。
+      let moved=null;try{moved=readFileSync(taken,'utf8');}catch{moved=null;}
+      if(moved!==deadContent){
+        try{renameSync(taken,reclaim);}catch{}
+        continue;
+      }
       try{unlinkSync(taken);}catch{}
       continue;
     }

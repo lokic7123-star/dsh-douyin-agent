@@ -394,3 +394,61 @@ test('补写日程和撤回结清标记都失败时，重建实例后仍能按�
   ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
   assert.equal(ledger.runs[0].creditPending,undefined,'补记成功后标记被清掉');
 });
+test('清标记写入失败后，后续 tick 不再卡在这笔回执上',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'})});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  // 已经补记成功（日程里 3 分钟），但清标记的写入失败了——标记残留在账本里。
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[{
+    key:'2026-10-23#0',round:0,id:'synthetic-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),
+    minutes:6,startedAt:new Date(Date.parse('2026-10-23T15:59:00Z')).toISOString(),status:'started',
+    settledAt:new Date(Date.parse('2026-10-23T16:02:00Z')).toISOString(),
+    usedMinutes:3,creditPending:true,
+  }]},null,2));
+  fs.mkdirSync(path.join(f.stateDir),{recursive:true});
+  fs.writeFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),JSON.stringify({version:2,generatedAt:Date.now(),days:{'2026-10-23':{spentMinutes:3,plan:{version:2,date:'2026-10-23',targetMinutes:60,spentMinutes:3,lazy:false,firstStartAt:null,nextStartAt:null,round:1,roundSession:null,failedRounds:0,sessions:[{key:'2026-10-23#0',startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),minutes:3,failed:false}]}}}},null,2));
+  // 连跑四次 tick：每轮都要能走下来，不能一直卡在这笔回执上提前返回。
+  let marksCleared=false;
+  const originalWrite=fs.writeFileSync;
+  for(let i=0;i<4;i++){
+    await schedule.tick();
+    const ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+    if(ledger.runs[0].creditPending!==true)marksCleared=true;
+  }
+  assert.equal(marksCleared,true,'标记在几次 tick 内被清掉，调度不再卡住');
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23'].plan.spentMinutes,3,'已入账的 3 分钟没有被重复记账');
+  const ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  assert.equal(ledger.runs[0].settledAt!==undefined,true,'结清标记保留，不会被重新结算');
+});
+test('补记重试成功后，结清标记也一并恢复',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  let failedOnce=false;
+  const savePlanImpl=args=>{
+    if(!failedOnce&&args.plan?.sessions?.length){failedOnce=true;return false;}
+    return savePlan(args);
+  };
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'}),savePlanImpl});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  // 回执已结清、分钟数已算好、待补记标记在——补记失败后留下的状态。
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[{
+    key:'2026-10-23#0',round:0,id:'synthetic-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),
+    minutes:6,startedAt:new Date(Date.parse('2026-10-23T15:59:00Z')).toISOString(),status:'started',
+    settledAt:new Date(Date.parse('2026-10-23T16:05:00Z')).toISOString(),
+    usedMinutes:6,creditPending:true,
+  }]},null,2));
+  await schedule.tick();
+  let ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  assert.equal(ledger.runs[0].settledAt,undefined,'首次补记失败撤回了结清标记');
+  assert.equal(ledger.runs[0].creditPending,true,'待补记标记还在');
+  // 重试成功：标记清掉的同时，结清标记也要恢复回去——否则下一轮 pending 分支会重新结算一次。
+  await schedule.tick();
+  ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  assert.equal(ledger.runs[0].creditPending,undefined,'重试成功后标记被清掉');
+  assert.ok(ledger.runs[0].settledAt,'结清标记已恢复回去');
+  assert.equal(ledger.runs[0].usedMinutes,6,'分钟数仍是首次结算值');
+});

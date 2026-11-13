@@ -52,7 +52,8 @@ export class ScheduledWatch {
         let stat;try{stat=fs.lstatSync(file);}catch{continue;}
         // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
         if(stat.size===0&&Date.now()-Math.floor(stat.mtimeMs)<500)return false;
-        let record=null;try{record=JSON.parse(fs.readFileSync(file,'utf8'));}catch{record=null;}
+        let deadContent=null;try{deadContent=fs.readFileSync(file,'utf8');}catch{deadContent=null;}
+        let record=null;try{record=JSON.parse(deadContent);}catch{record=null;}
         if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
           try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
         }
@@ -61,6 +62,13 @@ export class ScheduledWatch {
         // 绝不能按路径去删别人的新锁，那是上一版互斥失效的根源。
         const taken=`${file}.taken-${randomUUID()}`;
         try{fs.renameSync(file,taken);}catch{continue;}
+        // rename 绑定到「我读到的这把」：搬到的必须还是残骸那份内容。
+        // 对方抢先搬走了残骸、建了新锁的话，这里搬到的就是别人的新锁——原样放回。
+        let moved=null;try{moved=fs.readFileSync(taken,'utf8');}catch{moved=null;}
+        if(moved!==deadContent){
+          try{fs.renameSync(taken,file);}catch{}
+          continue;
+        }
         try{fs.unlinkSync(taken);}catch{}
         continue;
       }
@@ -325,7 +333,17 @@ export class ScheduledWatch {
     const derived=sessionDate(session);
     if(!derived)return true;
     // 已经补记过的不能补两次。
-    if(creditedSessionKeys({stateDir:this.stateDir}).has(session.key))return true;
+    if(creditedSessionKeys({stateDir:this.stateDir}).has(session.key)){
+      // 账确实已经在日程里了：待补记标记的使命到此完成，必须清掉。
+      // 不清的话每一轮 tick 都在这笔回执上提前返回，永远走不到开下一场。
+      this.control(()=>{
+        const ledger=this.ledger();
+        const entry=ledger.runs.find(item=>item.key===session.key);
+        if(!entry||entry.creditPending!==true)return;
+        delete entry.creditPending;write(this.ledgerFile,ledger);
+      });
+      return true;
+    }
     const existing=loadPlan({stateDir:this.stateDir,date:derived});
     // 同一天可能要补好几场：一律在当天已有的日程上继续累加，
     // 不能因为这份日程是补记出来的（recovered）就丢掉前面已经记下的时长和场次。
@@ -342,11 +360,16 @@ export class ScheduledWatch {
       this.reopenSettledRun(session.key);
     }else{
       // 只有真的写进去了才能清标记：写失败就清，下一轮就再也认不出这笔欠账了。
+      // 同时把结清标记恢复回去（补记失败那一轮撤掉过它）：
+      // 不恢复的话下一轮 pending 分支会把这一场重新结算一次、重新挂上标记。
       this.control(()=>{
         const ledger=this.ledger();
         const entry=ledger.runs.find(item=>item.key===session.key);
-        if(!entry||entry.creditPending!==true)return;
-        delete entry.creditPending;write(this.ledgerFile,ledger);
+        if(!entry)return;
+        let changed=false;
+        if(entry.creditPending===true){delete entry.creditPending;changed=true;}
+        if(!entry.settledAt){entry.settledAt=new Date(this.now()).toISOString();changed=true;}
+        if(changed)write(this.ledgerFile,ledger);
       });
       this.planWriteFailed=false;
     }
