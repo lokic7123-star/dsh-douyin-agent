@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync, readdirSync, linkSync, fsyncSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -96,10 +96,12 @@ async function watchControl(directory,action,signal) {
 function reclaimLockFile(file){return `${file}.reclaim`;}
 // 回收权本身也要互斥，而且要经得起「读到结论之后世界又变了」：
 // 任何「先校验后写入」都封不住——校验发生在过去，写发生在未来。
-// 唯一靠得住的原子动作是 create-if-not-exists（'wx' 打开：文件已存在就失败）。
+// 唯一靠得住的原子动作是把「内容已完整」和「文件存在」绑成一个动作：
+// 先把 owner 写进唯一临时文件并 fsync，再 linkSync(temp,target)——
+// 目录项要么建立（内容已在盘上，不存在空窗），要么 EEXIST（别人抢先）。
 // 回收权用「代号递增」的文件名：<file>.reclaim.<N>（旧版固定名 .reclaim 记作代号 0）。
 // 所有回收方从同一份目录清单推出同一个下一步（最大代号 G 的残骸已死 ⇒ 下一个是 G+1），
-// 用 'wx' 原子创建，只有一个能成功；输家重扫时看到活持有者就让路。
+// 用 linkSync 原子创建，只有一个能成功；输家重扫时看到活持有者就让路。
 function reclaimLocks(file){
   const dir=path.dirname(file),prefix=`${path.basename(file)}.reclaim`;
   let names=[];try{names=readdirSync(dir);}catch{names=[];}
@@ -117,8 +119,6 @@ function takeReclaimLock(file){
     for(const lock of reclaimLocks(file)){
       maxGeneration=Math.max(maxGeneration,lock.generation);
       let stat=null;try{stat=statSync(lock.path);}catch{continue;}
-      // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
-      if(stat.size===0&&Date.now()-Math.floor(stat.mtimeMs)<500){blocked=true;break;}
       let record=null;try{record=JSON.parse(readFileSync(lock.path,'utf8'));}catch{record=null;}
       if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
         try{process.kill(record.pid,0);blocked=true;break;}catch(error){if(error.code!=='ESRCH'){blocked=true;break;}}
@@ -127,15 +127,23 @@ function takeReclaimLock(file){
     }
     if(blocked)return null;
     // 清单里的旁路锁全是死残骸：下一步的路径唯一且确定——最大代号 +1。
-    const target=path.join(path.dirname(file),`${path.basename(file)}.reclaim.${maxGeneration+1}`);
+    const dir=path.dirname(file);
+    const target=path.join(dir,`${path.basename(file)}.reclaim.${maxGeneration+1}`);
     const owner={pid:process.pid,token:randomUUID(),file:target};
-    let descriptor;
-    try{descriptor=openSync(target,'wx',0o600);}
-    catch(error){
-      if(error.code!=='EEXIST')return null;
-      continue; // 别人抢先创建了：重扫一轮，会看到对方的活 pid 让路。
-    }
-    try{writeFileSync(descriptor,JSON.stringify(owner));}finally{closeSync(descriptor);}
+    // 内容先完整落盘到唯一临时文件，fsync 后 linkSync 原子建目录项：不存在「存在但为空」的窗口。
+    const staging=path.join(dir,`.${path.basename(file)}.reclaim.${maxGeneration+1}.${process.pid}.${randomUUID()}.staging`);
+    let linked=false;
+    try{
+      const descriptor=openSync(staging,'wx',0o600);
+      try{writeFileSync(descriptor,JSON.stringify(owner));fsyncSync(descriptor);}finally{closeSync(descriptor);}
+      try{linkSync(staging,target);linked=true;}
+      catch(error){
+        if(error.code!=='EEXIST')throw error;
+        // 别人抢先创建了：重扫一轮，会看到对方的活 pid 让路。
+      }
+    }catch{return null;}
+    finally{try{unlinkSync(staging);}catch{}}
+    if(!linked)continue;
     // 创建成功后再确认一遍没有别的活持有者（防御性校验）。
     const others=reclaimLocks(file).filter(lock=>lock.path!==target);
     for(const lock of others){

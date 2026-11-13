@@ -45,10 +45,12 @@ export class ScheduledWatch {
   // 回收权本身也要互斥，而且要经得起「读到结论之后世界又变了」：
   // 任何「先校验后写入」都封不住——校验发生在过去，写发生在未来，
   // 两个回收方可以先后写同一个文件并各自读回自己的 token，都以为自己持有回收权。
-  // 唯一靠得住的原子动作是 create-if-not-exists（'wx' 打开：文件已存在就失败）。
+  // 唯一靠得住的原子动作是把「内容已完整」和「文件存在」绑成一个动作：
+  // 先把 owner 写进唯一临时文件并 fsync，再 linkSync(temp,target)——
+  // 目录项要么建立（内容已在盘上，不存在空窗），要么 EEXIST（别人抢先）。
   // 于是回收权用「代号递增」的文件名：<guard>.reclaim.<N>（旧版固定名 .reclaim 记作代号 0）。
   // 所有回收方从同一份目录清单推出同一个下一步（最大代号 G 的残骸已死 ⇒ 下一个是 G+1），
-  // 用 'wx' 原子创建，只有一个能成功；输家重扫时看到活持有者就让路。
+  // 用 linkSync 原子创建，只有一个能成功；输家重扫时看到活持有者就让路。
   // 第一个持有者没释放之前，后来者要么读到活 pid 让路、要么创建失败——不可能出现两个持有者。
   reclaimLocks(){
     const dir=path.dirname(this.guardFile),prefix=`${path.basename(this.guardFile)}.reclaim`;
@@ -58,6 +60,8 @@ export class ScheduledWatch {
       if(name===prefix){locks.push({path:path.join(dir,name),generation:0});continue;}
       const match=new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\.(\\d+)$`).exec(name);
       if(match)locks.push({path:path.join(dir,name),generation:Number(match[1])});
+      // linkSync 的临时文件同住目录：不在代号清单里，但也别让清理逻辑误伤。
+      // 临时文件带 .staging 后缀，残骸清理时按后缀跳过。
     }
     return locks.sort((a,b)=>b.generation-a.generation);
   }
@@ -67,8 +71,6 @@ export class ScheduledWatch {
       for(const lock of this.reclaimLocks()){
         maxGeneration=Math.max(maxGeneration,lock.generation);
         let stat=null;try{stat=fs.lstatSync(lock.path);}catch{continue;}
-        // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
-        if(stat.size===0&&Date.now()-Math.floor(stat.mtimeMs)<500){blocked=true;break;}
         let record=null;try{record=JSON.parse(fs.readFileSync(lock.path,'utf8'));}catch{record=null;}
         if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
           try{process.kill(record.pid,0);blocked=true;break;}catch(error){if(error.code!=='ESRCH'){blocked=true;break;}}
@@ -77,15 +79,23 @@ export class ScheduledWatch {
       }
       if(blocked)return false;
       // 清单里的旁路锁全是死残骸：下一步的路径唯一且确定——最大代号 +1。
-      const target=path.join(path.dirname(this.guardFile),`${path.basename(this.guardFile)}.reclaim.${maxGeneration+1}`);
+      const dir=path.dirname(this.guardFile);
+      const target=path.join(dir,`${path.basename(this.guardFile)}.reclaim.${maxGeneration+1}`);
       const owner={pid:process.pid,token:randomUUID(),file:target};
-      let fd;
-      try{fd=fs.openSync(target,'wx',0o600);}
-      catch(error){
-        if(error.code!=='EEXIST')return false;
-        continue; // 别人抢先创建了：重扫一轮，会看到对方的活 pid 让路。
-      }
-      try{fs.writeFileSync(fd,JSON.stringify(owner));}finally{fs.closeSync(fd);}
+      // 内容先完整落盘到唯一临时文件（带 pid+uuid，别的进程不可能同名），fsync 后原子 link。
+      const staging=path.join(dir,`.${path.basename(this.guardFile)}.reclaim.${maxGeneration+1}.${process.pid}.${randomUUID()}.staging`);
+      let linked=false;
+      try{
+        const fd=fs.openSync(staging,'wx',0o600);
+        try{fs.writeFileSync(fd,JSON.stringify(owner));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+        try{fs.linkSync(staging,target);linked=true;}
+        catch(error){
+          if(error.code!=='EEXIST')throw error;
+          // 别人抢先创建了：重扫一轮，会看到对方的活 pid 让路。
+        }
+      }catch{return false;}
+      finally{try{fs.unlinkSync(staging);}catch{}}
+      if(!linked)continue;
       // 创建成功后再确认一遍没有别的活持有者（防御性校验）。
       const others=this.reclaimLocks().filter(lock=>lock.path!==target);
       for(const lock of others){

@@ -491,6 +491,47 @@ test('第一个持有者没释放之前，第二个入口拿不到回收权',asy
   assert.equal(b.takeReclaimLock(),true,'释放后第二个入口能拿到新代号的回收权');
 });
 
+test('创建成功到发布 owner 之间不存在空窗：锁文件一旦可见就已带完整 owner',async t=>{
+  const f=fixture(t,'2026-10-23T00:59:00Z');
+  const a=new ScheduledWatch({...f.options});
+  const b=new ScheduledWatch({...f.options});
+  // 拿锁后立刻验证：锁路径存在，且内容是完整的 owner（含活 pid）——
+  // linkSync 原子建目录项，「内容已完整」和「文件存在」是同一个动作，
+  // 不存在旧代码「'wx' 先建空文件、再写 owner」之间的空窗。
+  assert.equal(a.takeReclaimLock(),true,'第一个入口拿到回收权');
+  const owner=a.reclaimOwner;
+  assert.ok(owner,'持有者记录存在');
+  assert.equal(fs.existsSync(owner.file),true,'锁文件已经可见');
+  const current=JSON.parse(fs.readFileSync(owner.file,'utf8'));
+  assert.equal(current.token,owner.token,'owner 内容已完整落盘');
+  assert.equal(current.pid,process.pid,'锁里写的是活进程 pid');
+  assert.equal(fs.readdirSync(path.dirname(owner.file)).some(n=>n.endsWith('.staging')),false,'staging 临时文件已清理');
+  a.releaseReclaimLock();
+});
+
+test('刚创建、还没写入 owner 的空锁不会让两个入口同时持有回收权',async t=>{
+  const f=fixture(t,'2026-10-23T00:59:00Z');
+  const a=new ScheduledWatch({...f.options});
+  const b=new ScheduledWatch({...f.options});
+  // 模拟复审场景的中间态：一个入口在「文件已创建、owner 还没写入」时被暂停，
+  // 目录里只留下一把 0 字节的新代号锁。旧代码在 500ms 内会把它当成「正在创建」
+  // 让路（等过 500ms 又当成残骸抢走 ⇒ 暂停者恢复后双持有）；新代码下这个状态
+  // 只可能是外来残骸——linkSync 建目录项时内容已完整——所以按死残骸处理：
+  // 不让路、代号计入、顺手清掉，下一个入口立即拿到更高代号。
+  const guard=a.reclaimLockFile();
+  const paused=path.join(path.dirname(guard),`${path.basename(guard)}.1`);
+  fs.writeFileSync(paused,'');
+  const results=[];
+  for(const instance of [a,b]) results.push(instance.takeReclaimLock());
+  const wins=results.filter(r=>r===true).length;
+  assert.equal(wins,1,'空锁不让路：恰好一个入口拿到回收权');
+  const winner=[a,b][results.indexOf(true)];
+  // 暂停者的 0 字节锁必须被清掉——否则它恢复后往 fd 写回内容，就成了第二个持有者。
+  assert.equal(fs.existsSync(paused),false,'空锁残骸被赢家清理，暂停者无法借尸还魂');
+  assert.equal(winner.reclaimOwner.file.endsWith('.reclaim.2'),true,'新锁取更高代号');
+  winner.releaseReclaimLock();
+});
+
 test('同场重试时清标记要落到新回执上，不能命中旧回执',async t=>{
   const f=fixture(t,'2026-10-23T15:59:00Z');
   f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
