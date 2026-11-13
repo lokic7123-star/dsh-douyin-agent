@@ -57,20 +57,43 @@ export class ScheduledWatch {
         if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
           try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
         }
-        // 上一位回收方已经不在了：把残骸原子地搬到自己手里，再腾出原路径建新锁。
-        // rename 只有一个调用方能成功——没抢到的（残骸已被对方搬走）只能让路；
-        // 绝不能按路径去删别人的新锁，那是上一版互斥失效的根源。
-        const taken=`${file}.taken-${randomUUID()}`;
-        try{fs.renameSync(file,taken);}catch{continue;}
-        // rename 绑定到「我读到的这把」：搬到的必须还是残骸那份内容。
-        // 对方抢先搬走了残骸、建了新锁的话，这里搬到的就是别人的新锁——原样放回。
-        let moved=null;try{moved=fs.readFileSync(taken,'utf8');}catch{moved=null;}
-        if(moved!==deadContent){
-          try{fs.renameSync(taken,file);}catch{}
-          continue;
-        }
-        try{fs.unlinkSync(taken);}catch{}
-        continue;
+        // 上一位回收方已经不在了：原地接管这把残骸——不搬走、不腾空路径。
+        // 先给路径建一个硬链接把「我读到的这把」钉住：之后所有校验和写入都走链接（绑 inode），
+        // 别人替换路径也不影响链接指到的那份文件。
+        const pinned=`${file}.pinned-${randomUUID()}`;
+        try{fs.linkSync(file,pinned);}catch{continue;}
+        let owner=null;
+        try{
+          // 链接到的必须还是我读到的残骸：对方已接管过的话这里读到的就是别人的 owner——让路。
+          let pinnedContent=null;try{pinnedContent=fs.readFileSync(pinned,'utf8');}catch{pinnedContent=null;}
+          if(pinnedContent!==deadContent){
+            try{fs.unlinkSync(pinned);}catch{}
+            return false;
+          }
+          // 路径还得指着同一个文件：期间被换成了新文件就别动。
+          let pathStat=null,linkStat=null;
+          try{pathStat=fs.lstatSync(file);linkStat=fs.lstatSync(pinned);}catch{pathStat=null;}
+          if(!pathStat||pathStat.ino!==linkStat.ino){
+            try{fs.unlinkSync(pinned);}catch{}
+            return false;
+          }
+          const candidate={pid:process.pid,token:randomUUID()};
+          let handle;
+          try{handle=fs.openSync(pinned,'r+',0o600);}catch{handle=null;}
+          if(handle!==null){
+            try{
+              fs.ftruncateSync(handle,0);
+              fs.writeFileSync(handle,JSON.stringify(candidate));
+              fs.fsyncSync(handle);
+            }finally{fs.closeSync(handle);}
+            // 最后从路径读回校验：token 对得上说明路径仍指着我写的那份，
+            // 对不上说明接管竞态输了（我写进了被换下的旧文件），让路。
+            let current=null;try{current=JSON.parse(fs.readFileSync(file,'utf8'));}catch{current=null;}
+            if(current?.token===candidate.token)owner=candidate;
+          }
+        }finally{try{fs.unlinkSync(pinned);}catch{}}
+        if(!owner)return false;
+        this.reclaimOwner=owner;return true;
       }
       // 拿到 fd 只是「我先创建了文件」，还要确认自己是唯一持有者：
       // 立刻写上自己的 owner 并关掉 fd，读回内容比对 token，
@@ -240,6 +263,9 @@ export class ScheduledWatch {
   settleRound({plan,watch,now,date}){
     const candidates=roundCandidates({stateDir:this.stateDir}).sort((a,b)=>a.session.expiresAt-b.session.expiresAt);
     let settled=false,failed=false,usedMinutes=0,owner=null,session=null;
+    // 清标记要落到「本次选中的那条回执」上：同场重试复用场次 key（每次尝试各有自己的 id），
+    // 按 key 找会命中旧回执（比如已 acknowledged 的），新回执的标记永远清不掉。
+    let chosenRunId=null;
     this.control(()=>{
       const ledger=this.ledger();
       // 「账本已结清、日程还没入账」的回执：直接按账本里留住的首次结算值补记。
@@ -251,6 +277,7 @@ export class ScheduledWatch {
           .sort((a,b)=>Number(a.startAt||0)-Number(b.startAt||0))[0]||null;
       if(owed){
         session={key:owed.key,round:owed.round,startAt:owed.startAt,expiresAt:owed.expiresAt,minutes:owed.minutes};
+        chosenRunId=owed.id;
         owner=null;settled=true;
         failed=owed.status==='failed'||owed.status==='occupied';
         usedMinutes=failed?0:(Number.isFinite(owed.usedMinutes)?owed.usedMinutes:0);
@@ -261,6 +288,7 @@ export class ScheduledWatch {
         .sort((a,b)=>Number(a.startAt||0)-Number(b.startAt||0))[0]||null;
       if(pending){
         session={key:pending.key,round:pending.round,startAt:pending.startAt,expiresAt:pending.expiresAt,minutes:pending.minutes};
+        chosenRunId=pending.id;
         owner=candidates.find(item=>item.plan.roundSession?.key===pending.key)||null;
         const status=watch?.status;
         if(status==='failed'||status==='needs_user'){
@@ -299,6 +327,7 @@ export class ScheduledWatch {
       const unwritten=candidates.find(item=>writtenRuns.some(run=>run.key===item.plan.roundSession?.key));
       if(unwritten){
         const run=writtenRuns.find(item=>item.key===unwritten.plan.roundSession?.key);
+        chosenRunId=run?.id;
         session=unwritten.session;owner=unwritten;settled=true;
         failed=run?.status==='failed'||run?.status==='occupied';
         usedMinutes=failed?0:(Number.isFinite(run?.usedMinutes)?run.usedMinutes:0);
@@ -338,7 +367,7 @@ export class ScheduledWatch {
       // 不清的话每一轮 tick 都在这笔回执上提前返回，永远走不到开下一场。
       this.control(()=>{
         const ledger=this.ledger();
-        const entry=ledger.runs.find(item=>item.key===session.key);
+        const entry=ledger.runs.find(item=>item.id===chosenRunId);
         if(!entry||entry.creditPending!==true)return;
         delete entry.creditPending;write(this.ledgerFile,ledger);
       });
@@ -357,14 +386,14 @@ export class ScheduledWatch {
       this.planWriteFailed=true;
       // 补记没写回去：待补记标记必须留在账本里，下一轮要靠它认出这笔账还没落到日程；
       // 同时把结清标记撤掉，下一轮按账本里同样的分钟数再补一次，不会永远漏掉这一笔。
-      this.reopenSettledRun(session.key);
+      this.reopenSettledRun(chosenRunId);
     }else{
       // 只有真的写进去了才能清标记：写失败就清，下一轮就再也认不出这笔欠账了。
       // 同时把结清标记恢复回去（补记失败那一轮撤掉过它）：
       // 不恢复的话下一轮 pending 分支会把这一场重新结算一次、重新挂上标记。
       this.control(()=>{
         const ledger=this.ledger();
-        const entry=ledger.runs.find(item=>item.key===session.key);
+        const entry=ledger.runs.find(item=>item.id===chosenRunId);
         if(!entry)return;
         let changed=false;
         if(entry.creditPending===true){delete entry.creditPending;changed=true;}
@@ -376,10 +405,10 @@ export class ScheduledWatch {
     return true;
   }
   // 撤回结清标记：这笔账还没落到日程里，等下一轮重试。
-  reopenSettledRun(key){
+  reopenSettledRun(id){
     this.control(()=>{
       const ledger=this.ledger();
-      const entry=ledger.runs.find(item=>item.key===key);
+      const entry=ledger.runs.find(item=>item.id===id);
       if(!entry||!entry.settledAt)return;
       delete entry.settledAt;
       write(this.ledgerFile,ledger);

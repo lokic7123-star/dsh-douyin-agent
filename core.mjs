@@ -109,20 +109,43 @@ function takeReclaimLock(file){
       if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
         try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
       }
-      // 上一位回收方已经不在了：把残骸原子地搬到自己手里，再腾出原路径建新锁。
-      // rename 只有一个调用方能成功——没抢到的（残骸已被对方搬走）只能让路；
-      // 绝不能按路径去删别人的新锁，那是上一版互斥失效的根源。
-      const taken=`${reclaim}.taken-${randomUUID()}`;
-      try{renameSync(reclaim,taken);}catch{continue;}
-      // rename 绑定到「我读到的这把」：搬到的必须还是残骸那份内容。
-      // 对方抢先搬走了残骸、建了新锁的话，这里搬到的就是别人的新锁——原样放回。
-      let moved=null;try{moved=readFileSync(taken,'utf8');}catch{moved=null;}
-      if(moved!==deadContent){
-        try{renameSync(taken,reclaim);}catch{}
-        continue;
-      }
-      try{unlinkSync(taken);}catch{}
-      continue;
+      // 上一位回收方已经不在了：原地接管这把残骸——不搬走、不腾空路径。
+      // 先给路径建一个硬链接把「我读到的这把」钉住：之后所有校验和写入都走链接（绑 inode），
+      // 别人替换路径也不影响链接指到的那份文件。
+      const pinned=`${reclaim}.pinned-${randomUUID()}`;
+      try{linkSync(reclaim,pinned);}catch{continue;}
+      let owner=null;
+      try{
+        // 链接到的必须还是我读到的残骸：对方已接管过的话这里读到的就是别人的 owner——让路。
+        let pinnedContent=null;try{pinnedContent=readFileSync(pinned,'utf8');}catch{pinnedContent=null;}
+        if(pinnedContent!==deadContent){
+          try{unlinkSync(pinned);}catch{}
+          return false;
+        }
+        // 路径还得指着同一个文件：期间被换成了新文件就别动。
+        let pathStat=null,linkStat=null;
+        try{pathStat=statSync(reclaim);linkStat=statSync(pinned);}catch{pathStat=null;}
+        if(!pathStat||pathStat.ino!==linkStat.ino){
+          try{unlinkSync(pinned);}catch{}
+          return false;
+        }
+        const candidate={pid:process.pid,token:randomUUID()};
+        let handle;
+        try{handle=openSync(pinned,'r+',0o600);}catch{handle=null;}
+        if(handle!==null){
+          try{
+            ftruncateSync(handle,0);
+            writeFileSync(handle,JSON.stringify(candidate));
+            fsyncSync(handle);
+          }finally{closeSync(handle);}
+          // 最后从路径读回校验：token 对得上说明路径仍指着我写的那份，
+          // 对不上说明接管竞态输了（我写进了被换下的旧文件），让路。
+          let current=null;try{current=JSON.parse(readFileSync(reclaim,'utf8'));}catch{current=null;}
+          if(current?.token===candidate.token)owner=candidate;
+        }
+      }finally{try{unlinkSync(pinned);}catch{}}
+      if(!owner)return false;
+      return owner;
     }
     const owner={pid:process.pid,token:randomUUID()};
     try{writeFileSync(descriptor,JSON.stringify(owner));}finally{closeSync(descriptor);}

@@ -452,3 +452,55 @@ test('补记重试成功后，结清标记也一并恢复',async t=>{
   assert.ok(ledger.runs[0].settledAt,'结清标记已恢复回去');
   assert.equal(ledger.runs[0].usedMinutes,6,'分钟数仍是首次结算值');
 });
+
+test('三个入口抢同一把残留旁路锁，至多一个持有回收权',async t=>{
+  const f=fixture(t,'2026-10-23T00:59:00Z');
+  const a=new ScheduledWatch({...f.options});
+  const b=new ScheduledWatch({...f.options});
+  const c=new ScheduledWatch({...f.options});
+  // 残留旁路锁：持有者已退出。
+  const guard=a.reclaimLockFile();
+  fs.writeFileSync(guard,JSON.stringify({pid:2147483647,owner:'synthetic-stale-reclaim'}));
+  const staleTime=Date.now()/1000-10;
+  fs.utimesSync(guard,staleTime,staleTime);
+  const results=[];
+  for(const instance of [a,b,c]){
+    results.push(instance.takeReclaimLock());
+  }
+  const wins=results.filter(result=>result===true).length;
+  assert.ok(wins<=1,'至多一个入口拿到回收权');
+  // 赢家的 token 必须还写在文件里——不能被后动手的覆盖。
+  if(wins===1){
+    const winner=results.indexOf(true);
+    const owner=[a,b,c][winner].reclaimOwner;
+    const current=JSON.parse(fs.readFileSync(guard,'utf8'));
+    assert.equal(current.token,owner.token,'赢家的 token 还在锁文件里');
+  }
+});
+
+test('同场重试时清标记要落到新回执上，不能命中旧回执',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'})});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  // 同一场次两条回执：旧的一条已确认（无标记），新的一条结清待补记（有标记）。
+  const oldReceipt={key:'2026-10-23#0',round:0,id:'synthetic-old-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T09:00:00Z'),expiresAt:Date.parse('2026-10-23T09:10:00Z'),
+    minutes:8,startedAt:new Date(Date.parse('2026-10-23T09:00:00Z')).toISOString(),
+    status:'acknowledged',settledAt:new Date(Date.parse('2026-10-23T09:10:00Z')).toISOString(),usedMinutes:8};
+  const newReceipt={key:'2026-10-23#0',round:0,id:'synthetic-new-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),
+    minutes:6,startedAt:new Date(Date.parse('2026-10-23T15:59:00Z')).toISOString(),
+    status:'started',settledAt:new Date(Date.parse('2026-10-23T16:05:00Z')).toISOString(),
+    usedMinutes:3,creditPending:true};
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[oldReceipt,newReceipt]},null,2));
+  await schedule.tick();
+  const ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  const fresh=ledger.runs.find(item=>item.id==='synthetic-new-receipt');
+  const stale=ledger.runs.find(item=>item.id==='synthetic-old-receipt');
+  assert.equal(fresh.creditPending,undefined,'新回执的待补记标记被清掉（按 id 找，不按 key）');
+  assert.ok(fresh.settledAt,'新回执的结清标记恢复回去');
+  assert.equal(stale.creditPending,undefined,'旧回执本来就没有标记');
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23'].plan.spentMinutes,3,'只补记新回执的 3 分钟');
+});
