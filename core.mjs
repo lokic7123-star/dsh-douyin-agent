@@ -80,10 +80,13 @@ async function watchControl(directory,action,signal) {
     }
     try {writeFileSync(descriptor,JSON.stringify({pid:process.pid,token}));}
     finally {closeSync(descriptor);}
-    try{return action();}finally{if(optionalRecord(file)?.token===token)unlinkSync(file);}
+    // 释放锁只做「确认还是我的锁就删掉」：读不到或删不掉都不许盖掉操作本身的结果。
+    try{return action();}finally{let current=null;try{current=JSON.parse(readFileSync(file,'utf8'));}catch{}
+      if(current?.token===token){try{unlinkSync(file);}catch{}}}
   }
 }
-// 回收空壳锁与死进程留下的锁：只动确定没人持有的，不碰内容损坏的。
+// 回收空壳锁与死进程留下的锁：只动确定没人持有的。
+// 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
 function reclaimStaleGuard(file){
   let stat;try{stat=statSync(file);}catch(error){return error.code==='ENOENT';}
   if(!stat.isFile()||stat.isSymbolicLink())return false;
@@ -92,10 +95,16 @@ function reclaimStaleGuard(file){
     if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
     try{unlinkSync(file);return true;}catch{return false;}
   }
-  let record;try{record=JSON.parse(readFileSync(file,'utf8'));}catch{return false;}
-  if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return false;
+  let record;try{record=JSON.parse(readFileSync(file,'utf8'));}catch{return archiveCorruptGuard(file,stat);}
+  if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return archiveCorruptGuard(file,stat);
   try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
   try{unlinkSync(file);return true;}catch{return false;}
+}
+// 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
+function archiveCorruptGuard(file,stat){
+  // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+  if(stat&&Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
+  try{renameSync(file,`${file}.corrupt-${Date.now()}`);return true;}catch{return false;}
 }
 async function acquireNativeVideoLease(directory,signal) {
   const file=path.join(directory,'watch-manual.lock'),token=randomUUID();
@@ -106,7 +115,8 @@ async function acquireNativeVideoLease(directory,signal) {
     if(manual&&processAlive(manual.pid))throw Object.assign(new Error('另一个入口正在手动操作视频，请等待完成。'),{status:409});
     writeFileSync(file,JSON.stringify({pid:process.pid,token,kind:'native-tool'}),{mode:0o600});
   },signal);
-  return ()=>watchControl(directory,()=>{const manual=optionalRecord(file);if(manual?.pid===process.pid&&manual.token===token)unlinkSync(file);});
+  return ()=>watchControl(directory,()=>{let manual=null;try{manual=JSON.parse(readFileSync(file,'utf8'));}catch{}
+    if(manual?.pid===process.pid&&manual.token===token){try{unlinkSync(file);}catch{}}});
 }
 const { browserProfileDir: PROFILE, browserControlDir: CONTROL } = resolveRuntimePaths();
 const RECOMMEND = 'https://www.douyin.com/?recommend=1&from_nav=1';

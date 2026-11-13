@@ -45,7 +45,7 @@ body{--dy-surface:color-mix(in srgb,var(--dsw-alias-label-primary) 4%,var(--dsw-
 .dy-strong{color:var(--dsw-alias-label-primary);font-weight:600}
 .dy-sep{width:1px;height:14px;background:var(--dsw-alias-border-l2);flex:none}
 .dy-sp{flex:1;min-width:4px}
-.dy-btn{font:inherit;font-size:13px;font-weight:500;line-height:1.25;padding:8px 16px;border-radius:50%;
+.dy-btn{font:inherit;font-size:13px;font-weight:500;line-height:1.25;padding:6px 14px;border-radius:999px;
   border:1px solid var(--dy-stroke-strong);background:var(--dy-surface);color:var(--dsw-alias-label-primary);
   box-shadow:0 1px 1px color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);
   cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none;
@@ -146,16 +146,16 @@ textarea.dy-big{min-height:110px}
   background:var(--dsw-alias-switch-thumb,var(--dsw-static-neutral-bluish-00,#fff));box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 32%,transparent);transition:transform .18s ease}
 .dy-switch.on{background:var(--dsw-alias-state-success-primary)}
 .dy-switch.on::after{background:var(--dsw-alias-label-primary-foreground);transform:translateX(18px)}
-.ios-check{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;flex:none;cursor:pointer;
+.dy-wrap input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;flex:none;cursor:pointer;
   border:1.5px solid var(--dy-stroke-strong);border-radius:5px;background:var(--dsw-alias-bg-base);display:inline-grid;place-content:center;
   transition:background .12s ease,border-color .12s ease}
-.ios-check::before{content:'';width:10px;height:10px;clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);
+.dy-wrap input[type=checkbox]::before{content:'';width:10px;height:10px;clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);
   background:var(--dsw-alias-label-primary-foreground);transform:scale(0);transition:transform .12s ease-in-out}
-.ios-check:checked{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
-.ios-check:checked::before{transform:scale(1)}
-.ios-check:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}
-.ios-check:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
-.ios-check:disabled{opacity:.45;cursor:not-allowed}
+.dy-wrap input[type=checkbox]:checked{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
+.dy-wrap input[type=checkbox]:checked::before{transform:scale(1)}
+.dy-wrap input[type=checkbox]:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}
+.dy-wrap input[type=checkbox]:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.dy-wrap input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
 .dy-wrap input[type=number]{-moz-appearance:textfield;appearance:textfield}
 .dy-wrap input[type=number]::-webkit-inner-spin-button,.dy-wrap input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .dy-card{background:var(--dy-surface);border:.5px solid var(--dy-stroke);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column;gap:9px;min-width:0}
@@ -608,7 +608,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
         // 「刷新插件状态」到底做什么：只是重新读一次本机插件的真实状态，不改任何设置。
         h('p', { className: 'dy-note', style: { margin: '0 0 8px' } }, '「刷新插件状态」= 重新读取一次本机插件的当前状态（开关、额度、待答、未发出记录），不改动任何设置；页面本来每 2.5 秒也会自动读一次。'),
         !ready && h('p', { role: 'status' }, '正在核实插件状态。'), connectionError && h('p', { role: 'alert' }, connectionError),
-        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', className: 'dy-btn tiny', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
+        ...Object.entries(operationErrors).map(([key, failure]) => h('div', { key, role: 'alert', className: 'dy-row' }, h('span', null, `${failure.requestError ? '上次操作：' : ''}${failure.message}${failure.requestError && ready ? failure.unconfirmed ? ' 本机服务当前已连接；请核对上述操作是否生效。' : ' 本机服务当前已连接。' : ''}`), h('button', { type: 'button', 'aria-label': `清除${operationLabel(key)}提示`, onClick: () => setOperationErrors(old => { const next = { ...old }; delete next[key]; return next; }) }, '×'))), notice && h('p', { role: 'status' }, notice),
         h('div', { role: 'status', 'aria-live': 'polite', className: 'dy-statusline', style: { position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-base, #fff)' }, title: [presenceReason, watchState?.active ? watchState.reason : ''].filter(Boolean).join(' ') },
           h('span', { 'aria-label': '好友互动状态', title: presenceReason },
             h('span', { className: `dy-dot ${replyPresence?.online === true ? '' : 'idle'}`, 'aria-hidden': 'true' }),
@@ -732,7 +732,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
             note('读取范围是抖音网页版当前会话，不代表全部关注好友或所有群。要授权群聊，请先让群会话出现在抖音消息列表，再刷新。'),
             contacts && note(`本次读取：个人 ${contacts.filter(item => item.isGroup === false).length} 个 · 群聊 ${contacts.filter(item => item.isGroup === true).length} 个。${discovery?.scannedToEnd === false ? ` 当前列表尚未完整读取。${discovery.reason || ''}` : ''}`),
             contacts?.some(item => item.relationshipStatus === 'unavailable' || item.isGroup === true || typeof item.isGroup !== 'boolean') && h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '授权已核对的现有会话'), dySwitch(chat.draft.allowConversationOnly, { 'aria-label': '授权已核对的现有会话', onClick: () => { const value = !chat.draft.allowConversationOnly; existingAuthorization.current = value; chat.edit({ allowConversationOnly: value, ...(!value ? { recipientIds: chat.draft.recipientIds.filter(id => shownContacts.some(item => item.id === id && item.followed === true && item.isGroup === false)) } : {}) }, value ? { blurOnly: true } : { immediate: true }); } }), h('span', { className: 'dy-cap' }, '开启后群聊和旧类型会话也可勾选')),
-            ...[false, true, null].flatMap(kind => { const items = shownContacts.filter(item => item.isGroup === kind || kind === null && typeof item.isGroup !== 'boolean'); return items.length ? [note(kind === false ? '个人会话' : kind === true ? '群聊（仅被 @ 或叫到响应昵称时回复）' : '旧记录类型待核对（暂不可选）'), ...items.map(item => h('label', { key: item.id, style: row }, h('input', { className: 'ios-check', type: 'checkbox', 'aria-label': `许可联系人 ${item.name || item.displayName || '联系人'}`, checked: chat.draft.recipientIds.includes(item.id), disabled: !ready || !chat.draft.recipientIds.includes(item.id) && (item.notListed || !(item.followed === true && item.isGroup === false || chat.draft.allowConversationOnly === true && typeof item.isGroup === 'boolean')), onChange: event => chat.edit({ recipientIds: event.target.checked ? [...chat.draft.recipientIds, item.id] : chat.draft.recipientIds.filter(id => id !== item.id) }, { immediate: true }) }), item.name || item.displayName || '许可会话'))] : []; }),
+            ...[false, true, null].flatMap(kind => { const items = shownContacts.filter(item => item.isGroup === kind || kind === null && typeof item.isGroup !== 'boolean'); return items.length ? [note(kind === false ? '个人会话' : kind === true ? '群聊（仅被 @ 或叫到响应昵称时回复）' : '旧记录类型待核对（暂不可选）'), ...items.map(item => h('label', { key: item.id, style: row }, h('input', { type: 'checkbox', 'aria-label': `许可联系人 ${item.name || item.displayName || '联系人'}`, checked: chat.draft.recipientIds.includes(item.id), disabled: !ready || !chat.draft.recipientIds.includes(item.id) && (item.notListed || !(item.followed === true && item.isGroup === false || chat.draft.allowConversationOnly === true && typeof item.isGroup === 'boolean')), onChange: event => chat.edit({ recipientIds: event.target.checked ? [...chat.draft.recipientIds, item.id] : chat.draft.recipientIds.filter(id => id !== item.id) }, { immediate: true }) }), item.name || item.displayName || '许可会话'))] : []; }),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '群聊响应昵称'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 200 }, 'aria-label': '群聊响应昵称（逗号或换行分隔）', value: chat.draft.groupMentionNamesText, disabled: !ready, onChange: event => chat.edit({ groupMentionNamesText: event.target.value }, { blurOnly: true }), onBlur: () => { void chat.flush(); } })),
             note(`今日回复模型请求 ${state?.chat?.daily?.requests || 0} 次 · 今日分享 ${state?.share?.daily?.attempts || 0} 次。未确认发送会暂停，不自动重发。`),
             ...(state?.chat?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => h('div', { key: item.id }, note(item.reason || '该会话暂缓处理，状态会继续更新。'), item.identityReviewRequired === true && note('请重新读取联系人并确认许可名单；身份未通过前不会发送。'))),

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveRuntimePaths } from './runtime-paths.mjs';
-import { ensurePlan, planSession, closeSession, savePlan, cooldownMinutes, resumePlan, loadPlan, planDate } from './watch-plan.mjs';
+import { ensurePlan, planSession, closeSession, savePlan, cooldownMinutes, resumePlan, loadPlan, planDate, roundCandidates } from './watch-plan.mjs';
 
 const DAY=86400000, defaultPolicy={enabled:false};
 const load=(file,fallback)=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch(error){if(error.code==='ENOENT')return fallback;throw new Error('自动启动记录无法读取，未重置原记录。');}};
@@ -30,9 +30,8 @@ export class ScheduledWatch {
     if(kept.length>200){const removable=kept.filter(item=>!pending.has(item?.status));while(kept.length>200&&removable.length)kept.splice(kept.indexOf(removable.shift()),1);}
     ledger.runs=kept;return ledger;}
   state(){const policy=this.policy(),ledger=this.ledger(),last=ledger.runs.at(-1)||null,lastError=Object.hasOwn(ledger,'lastError')?ledger.lastError:last?.status==='failed'?last.error||this.error||'自主观看异常停止，请检查后重新开启允许观看。':this.error||'';return{protocol:'scheduled-watch-v2',policy,last,busy:Boolean(this.pending),lastError,note:'允许观看后，按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；登录、验证或运行异常需要处理后重新开启允许观看。'};}
-  // 锁在「文件已经建好、内容还没写进去」这一步崩掉时，会留下一个 0 字节的空壳，
-  // 让所有入口从此一直 409，自己再也开不了。空壳、以及已经死掉的进程留下的锁可以回收；
-  // 内容坏掉、看不出是谁的锁不动它，等本人核对。回收的是锁，不是别人的数据。
+  // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
+  // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
   reclaimStaleGuard(){
     let stat;try{stat=fs.lstatSync(this.guardFile);}catch(error){return error.code==='ENOENT';}
     if(!stat.isFile()||stat.isSymbolicLink())return false;
@@ -41,10 +40,16 @@ export class ScheduledWatch {
       if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
       try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
     }
-    let record;try{record=JSON.parse(fs.readFileSync(this.guardFile,'utf8'));}catch{return false;}
-    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return false;
+    let record;try{record=JSON.parse(fs.readFileSync(this.guardFile,'utf8'));}catch{return this.archiveCorruptGuard(stat);}
+    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return this.archiveCorruptGuard(stat);
     try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
     try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+  }
+  // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
+  archiveCorruptGuard(stat){
+    // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+    if(stat&&Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
+    try{fs.renameSync(this.guardFile,`${this.guardFile}.corrupt-${Date.now()}`);return true;}catch{return false;}
   }
   control(action){
     fs.mkdirSync(this.stateDir,{recursive:true});
@@ -126,30 +131,45 @@ export class ScheduledWatch {
   // 结清上一场：自主观看停了才记账。看完了就记今天看了多久并歇一阵；
   // 出错或要人工处理就把这一场标成 failed / occupied，轮次不推进，
   // 同一场的编号不变——回执与重试仍落在同一场里。
-  settleRound({plan,watch,now,date}){const session=plan.roundSession;if(!session)return false;let settled=false,failed=false,usedMinutes=0;
-    this.control(()=>{const ledger=this.ledger();const entries=ledger.runs.filter(item=>item.key===session.key),last=entries.at(-1);
-      if(last?.status==='started'&&!last.settledAt){
+  //
+  // 找的是「账本里还没结清的场次」，不是「当天的计划里挂着的那一场」：
+  // 跨过零点后当天的计划里没有昨天那一场，只看当天就永远结不掉昨天的账。
+  settleRound({plan,watch,now,date}){
+    const candidates=roundCandidates({stateDir:this.stateDir}).sort((a,b)=>a.session.expiresAt-b.session.expiresAt);
+    let settled=false,failed=false,usedMinutes=0,owner=null,session=null;
+    this.control(()=>{
+      const ledger=this.ledger();
+      // 还没结清的回执：这一场已经跑完，但账还没记上。最早的那场先结。
+      const pending=ledger.runs.filter(item=>item.status==='started'&&!item.settledAt)
+        .sort((a,b)=>Number(a.startAt||0)-Number(b.startAt||0))[0]||null;
+      if(pending){
+        session={key:pending.key,round:pending.round,startAt:pending.startAt,expiresAt:pending.expiresAt,minutes:pending.minutes};
+        owner=candidates.find(item=>item.plan.roundSession?.key===pending.key)||null;
         const status=watch?.status;
         if(status==='failed'||status==='needs_user'){
           const needsUser=status==='needs_user';
-          last.status=needsUser?'occupied':'failed';
-          if(needsUser)last.requiresUser=true;
-          last.completedAt=new Date(now).toISOString();
-          last.error=explain(watch.lastError||(needsUser?'自主观看等待人工处理，请处理后重新开启允许观看。':'自主观看异常停止，请处理后重新开启允许观看。'));
-          ledger.lastError=last.error;write(this.ledgerFile,ledger);this.error=last.error;
+          pending.status=needsUser?'occupied':'failed';
+          if(needsUser)pending.requiresUser=true;
+          pending.completedAt=new Date(now).toISOString();
+          pending.error=explain(watch.lastError||(needsUser?'自主观看等待人工处理，请处理后重新开启允许观看。':'自主观看异常停止，请处理后重新开启允许观看。'));
+          ledger.lastError=pending.error;write(this.ledgerFile,ledger);this.error=pending.error;
           settled=true;failed=true;return;
         }
         if(!watch?.running){
-          const used=Math.max(0,Math.min(session.minutes,Math.round((now-session.startAt)/60000)));
-          last.settledAt=new Date(now).toISOString();last.usedMinutes=used;write(this.ledgerFile,ledger);
+          const used=Math.max(0,Math.min(Number.isFinite(session.minutes)?session.minutes:0,Math.round((now-session.startAt)/60000)));
+          pending.settledAt=new Date(now).toISOString();pending.usedMinutes=used;write(this.ledgerFile,ledger);
           settled=true;failed=false;usedMinutes=used;return;
         }
+        return;
       }
-      // 这一场的时间到了但没有对应回执（换了实例或进程重启过）：按没看成记账，不占今天的时长。
-      if(Number.isFinite(session.expiresAt)&&now>=session.expiresAt){settled=true;failed=false;usedMinutes=0;}
+      // 没有待结的回执，但场次时间已经过去（换了实例或进程重启过，没开起来）：按没看成记账，不占今天的时长。
+      const expired=candidates.find(item=>Number.isFinite(item.session.expiresAt)&&now>=item.session.expiresAt);
+      if(expired){session=expired.session;owner=expired;settled=true;failed=false;usedMinutes=0;}
     });
     if(!settled)return false;
-    savePlan({stateDir:this.stateDir,date,plan:closeSession({plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});return true;
+    // 记账写回这一场所属的那一天（可能不是今天）。
+    if(owner?.plan&&owner?.date)savePlan({stateDir:this.stateDir,date:owner.date,plan:closeSession({plan:owner.plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});
+    return true;
   }
   finish(id,status,sessionId,error=''){this.control(()=>{const ledger=this.ledger(),entry=ledger.runs.find(item=>item.id===id);if(!entry)throw new Error('自动观看回执丢失');Object.assign(entry,{status,sessionId,completedAt:new Date(this.now()).toISOString(),...(error?{error}:{})});ledger.lastError=status==='failed'?error:'';this.pruneLedger(ledger);write(this.ledgerFile,ledger);});}
   async close(){this.closed=true;clearInterval(this.timer);this.abort?.abort(new Error('自动观看入口已关闭。'));await this.pending;}

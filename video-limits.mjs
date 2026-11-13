@@ -57,7 +57,8 @@ export class VideoLimits {
     this.policyFile=path.join(stateDir,'video-policy.json');this.sessionsFile=path.join(stateDir,'video-sessions.json');this.guardFile=path.join(stateDir,'video-control.guard');this.usageFile=path.join(stateDir,'video-usage.json');this.budgetFile=path.join(stateDir,'watch-budget.json');this.scheduleFile=path.join(stateDir,'watch-schedule-policy.json');
     const legacySchedule=optional(this.scheduleFile,null);initialize(this.policyFile,{...DEFAULT_VIDEO_POLICY,...(legacySchedule?.maxRequests!==undefined?{dailyRequests:legacySchedule.maxRequests}:{})});initialize(this.sessionsFile,{version:1,current:null});initialize(this.usageFile,{version:1,days:{},active:null});this.enforcing=false;
   }
-  // 回收空壳锁与死进程留下的锁：只动确定没人持有的，不碰内容损坏的。
+  // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
+  // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
   reclaimStaleGuard() {
     let stat;try{stat=fs.lstatSync(this.guardFile);}catch(error){return error.code==='ENOENT';}
     if(!stat.isFile()||stat.isSymbolicLink())return false;
@@ -66,10 +67,16 @@ export class VideoLimits {
       if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
       try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
     }
-    let record;try{record=read(this.guardFile);}catch{return false;}
-    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return false;
+    let record;try{record=read(this.guardFile);}catch{return this.archiveCorruptGuard(stat);}
+    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return this.archiveCorruptGuard(stat);
     if(alive(record.pid))return false;
     try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+  }
+  // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
+  archiveCorruptGuard(stat) {
+    // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+    if(stat&&Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
+    try{fs.renameSync(this.guardFile,`${this.guardFile}.corrupt-${Date.now()}`);return true;}catch{return false;}
   }
   control(action) {
     const token=randomUUID();

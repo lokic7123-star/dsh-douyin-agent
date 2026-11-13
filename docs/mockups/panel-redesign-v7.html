@@ -97,8 +97,8 @@
   font-size:13px;
   font-weight:500;
   line-height:1.25;
-  padding:8px 16px;
-  border-radius:50%;
+  padding:6px 14px;
+  border-radius:999px;
   border:1px solid var(--dy-stroke-strong);
   background:var(--dy-surface);
   color:var(--dsw-alias-label-primary);
@@ -1011,28 +1011,47 @@ select{
   max-width: 100%;
   
 }
-.ios-check{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;flex:none;cursor:pointer;
-  border:1.5px solid var(--dy-stroke-strong);border-radius:5px;background:var(--dsw-alias-bg-base);display:inline-grid;place-content:center;
-  transition:background .12s ease,border-color .12s ease}
-.ios-check::before{content:'';width:10px;height:10px;clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);
-  background:var(--dsw-alias-label-primary-foreground);transform:scale(0);transition:transform .12s ease-in-out}
-.ios-check:checked{
-  background: var(--dsw-alias-brand-primary);
-  border-color: var(--dsw-alias-brand-primary);
+.dy-wrap input[type=checkbox]{
+  appearance:none;
+  -webkit-appearance:none;
+  width:18px;
+  height:18px;
+  margin:0;
+  flex:none;
+  cursor:pointer;
+  border:1.5px solid var(--dy-stroke-strong);
+  border-radius:5px;
+  background:var(--dsw-alias-bg-base);
+  display:inline-grid;
+  place-content:center;
+  transition:background .12s ease,border-color .12s ease
 }
-.ios-check:checked::before{
-  transform: scale(1);
+.dy-wrap input[type=checkbox]::before{
+  content:'';
+  width:10px;
+  height:10px;
+  clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);
+  background:var(--dsw-alias-label-primary-foreground);
+  transform:scale(0);
+  transition:transform .12s ease-in-out
 }
-.ios-check:hover:not(:disabled){
-  border-color: var(--dsw-alias-brand-primary);
+.dy-wrap input[type=checkbox]:checked{
+  background:var(--dsw-alias-brand-primary);
+  border-color:var(--dsw-alias-brand-primary)
 }
-.ios-check:focus-visible{
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
+.dy-wrap input[type=checkbox]:checked::before{
+  transform:scale(1)
 }
-.ios-check:disabled{
-  opacity: .45;
-  cursor: not-allowed;
+.dy-wrap input[type=checkbox]:hover:not(:disabled){
+  border-color:var(--dsw-alias-brand-primary)
+}
+.dy-wrap input[type=checkbox]:focus-visible{
+  outline:2px solid var(--dsw-alias-brand-primary);
+  outline-offset:2px
+}
+.dy-wrap input[type=checkbox]:disabled{
+  opacity:.45;
+  cursor:not-allowed
 }
 .tag-flow{
   display: flex;
@@ -1407,7 +1426,7 @@ details.ios-interest:first-child{
           <div class="ios-row">
             <div class="ios-main">
               <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;min-width:0">
-                <input class="ios-check" type="checkbox" checked aria-label="许可联系人 大肥鱼">
+                <input type="checkbox" checked aria-label="许可联系人 大肥鱼">
                 <span class="ios-t">大肥鱼 · 个人会话 · 互相关注</span>
               </label>
               <span class="ios-s">待答 0 条 · 最后检查 20:10:05 · 自动回复正常接收</span>
@@ -1420,7 +1439,7 @@ details.ios-interest:first-child{
           <div class="ios-row">
             <div class="ios-main">
               <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;min-width:0">
-                <input class="ios-check" type="checkbox" checked aria-label="许可联系人 秋实">
+                <input type="checkbox" checked aria-label="许可联系人 秋实">
                 <span class="ios-t">秋实 · 个人会话 · 互相关注</span>
               </label>
               <span class="ios-s">待答 1 条 · 等待自动恢复 · 下次尝试 20:15</span>
@@ -1435,7 +1454,7 @@ details.ios-interest:first-child{
           <div class="ios-row">
             <div class="ios-main">
               <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;min-width:0">
-                <input class="ios-check" type="checkbox" checked aria-label="许可群聊 插件研发群">
+                <input type="checkbox" checked aria-label="许可群聊 插件研发群">
                 <span class="ios-t">插件研发群 · 群聊 · 仅被提及或叫到响应昵称时回复</span>
               </label>
               <span class="ios-s">群聊响应昵称：大肥鱼、小鱼助手</span>

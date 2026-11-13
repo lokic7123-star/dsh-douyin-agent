@@ -69,7 +69,8 @@ export class AutonomousWatch {
     this.files.manual = path.join(stateDir, 'watch-manual.lock');
     this.running = false; this.completion = null; this.abort = null; this.runId = null; this.sessionId = null;
   }
-  // 回收空壳锁与死进程留下的锁：只动确定没人持有的，不碰内容损坏的。
+  // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
+  // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
   reclaimStaleGuard() {
     let stat; try { stat = fs.lstatSync(this.files.guard); } catch (error) { return error.code === 'ENOENT'; }
     if (!stat.isFile() || stat.isSymbolicLink()) return false;
@@ -78,10 +79,16 @@ export class AutonomousWatch {
       if (Date.now() - Math.floor(stat.mtimeMs) < 500) return false;
       try { fs.unlinkSync(this.files.guard); return true; } catch { return false; }
     }
-    let record; try { record = JSON.parse(fs.readFileSync(this.files.guard, 'utf8')); } catch { return false; }
-    if (!record || !Number.isSafeInteger(record.pid) || record.pid < 1) return false;
+    let record; try { record = JSON.parse(fs.readFileSync(this.files.guard, 'utf8')); } catch { return this.archiveCorruptGuard(stat); }
+    if (!record || !Number.isSafeInteger(record.pid) || record.pid < 1) return this.archiveCorruptGuard(stat);
     try { process.kill(record.pid, 0); return false; } catch (error) { if (error.code === 'EPERM') return false; if (error.code !== 'ESRCH') return false; }
     try { fs.unlinkSync(this.files.guard); return true; } catch { return false; }
+  }
+  // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
+  archiveCorruptGuard(stat) {
+    // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+    if (stat && Date.now() - Math.floor(stat.mtimeMs) < 2000) return false;
+    try { fs.renameSync(this.files.guard, `${this.files.guard}.corrupt-${Date.now()}`); return true; } catch { return false; }
   }
   control(action) {
     const token = randomUUID();

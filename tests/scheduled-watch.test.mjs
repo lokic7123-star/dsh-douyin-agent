@@ -29,7 +29,16 @@ test('未允许或时段外不启动，健康空闲时自动继续且两个入�
 });
 test('全天按上海日期每天一轮，跨夜时段保持同一编号，周末全天单独按天处理',()=>{const all={windows:['00:00-24:00']};assert.notEqual(scheduledSlot(all,Date.parse('2026-10-23T15:59:00Z')).key,scheduledSlot(all,Date.parse('2026-10-23T16:00:00Z')).key);const night={windows:['23:00-01:00']};assert.equal(scheduledSlot(night,Date.parse('2026-10-23T15:30:00Z')).key,scheduledSlot(night,Date.parse('2026-10-23T16:30:00Z')).key);const weekend={windows:['18:00-24:00'],weekendWindows:['00:00-24:00']};assert.notEqual(scheduledSlot(weekend,Date.parse('2026-10-24T02:00:00Z')).key,scheduledSlot(weekend,Date.parse('2026-10-25T02:00:00Z')).key);});
 test('启动失败保留回执，同一时段不循环重试；已有观看也不另开轮次',async t=>{const f=fixture(t);let starts=0;const schedule=new ScheduledWatch({...f.options,startRound:async()=>{starts++;throw new Error('合成模型尚未配置');}});schedule.configure({enabled:true,maxRequests:30},{explicit:true});await schedule.tick();await schedule.tick();assert.equal(starts,1);assert.equal(schedule.state().last.status,'failed');f.setTime('2026-10-24T01:00:00Z');const second=new ScheduledWatch({...f.options,getWatchState:async()=>({running:true})});await second.tick();assert.equal(second.state().last.status,'failed');assert.equal(f.starts(),0);});
-test('关闭许可可撤回尚未真正启动的异步操作，损坏回执不清空、不抢占残留锁',async t=>{const f=fixture(t);let release,entered;const gate=new Promise(resolve=>{release=resolve;}),entry=new Promise(resolve=>{entered=resolve;});let started=false;const schedule=new ScheduledWatch({...f.options,startRound:async({signal})=>{entered();await gate;signal.throwIfAborted();started=true;}});schedule.configure({enabled:true,maxRequests:30},{explicit:true});const pending=schedule.tick();await entry;schedule.configure({enabled:false,maxRequests:30},{explicit:true});release();await pending;assert.equal(started,false);assert.equal(schedule.state().last.status,'failed');fs.writeFileSync(schedule.ledgerFile,'{');await schedule.tick();assert.equal(fs.readFileSync(schedule.ledgerFile,'utf8'),'{');fs.writeFileSync(schedule.guardFile,'合成残留锁');assert.throws(()=>schedule.configure({enabled:false,maxRequests:30},{explicit:true}),error=>error.code==='SCHEDULE_BUSY');assert.equal(fs.readFileSync(schedule.guardFile,'utf8'),'合成残留锁');});
+test('关闭许可可撤回尚未真正启动的异步操作，损坏回执不清空、不抢占残留锁',async t=>{const f=fixture(t);let release,entered;const gate=new Promise(resolve=>{release=resolve;}),entry=new Promise(resolve=>{entered=resolve;});let started=false;const schedule=new ScheduledWatch({...f.options,startRound:async({signal})=>{entered();await gate;signal.throwIfAborted();started=true;}});schedule.configure({enabled:true,maxRequests:30},{explicit:true});const pending=schedule.tick();await entry;schedule.configure({enabled:false,maxRequests:30},{explicit:true});release();await pending;assert.equal(started,false);assert.equal(schedule.state().last.status,'failed');fs.writeFileSync(schedule.ledgerFile,'{');await schedule.tick();assert.equal(fs.readFileSync(schedule.ledgerFile,'utf8'),'{');fs.writeFileSync(schedule.guardFile,'合成残留锁');
+// 坏掉的残留锁不该永远堵住入口：把它改名归档（内容原样保留），把位置腾出来。
+// 账本本身仍是坏的，所以这一步仍会因账本损坏报错——但错因不再是「被残留锁挡住」。
+const stale=Date.now()/1000-10;fs.utimesSync(schedule.guardFile,stale,stale);
+assert.throws(()=>schedule.configure({enabled:false,maxRequests:30},{explicit:true}),/无法读取|回执损坏/);
+assert.equal(fs.existsSync(schedule.guardFile),false,'坏锁已被归档腾出位置');
+const archived=fs.readdirSync(f.stateDir).filter(name=>name.startsWith('watch-schedule.guard.corrupt-'));
+assert.equal(archived.length,1,'坏锁留了一份归档');
+assert.equal(fs.readFileSync(path.join(f.stateDir,archived[0]),'utf8'),'合成残留锁','归档内容一字不改');
+assert.equal(fs.readFileSync(schedule.ledgerFile,'utf8'),'{','坏账本依旧不被覆盖');});
 test('调度接入自主观看循环，达到每日请求上限后同日不再自动启动',async t=>{const f=fixture(t);f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:10,dailyRequests:1},{explicit:true});const id='7579432563794584933',state={video:{id,title:'合成作品',time:0,duration:60,paused:false,readyState:4}};let decisions=0,paused=0;const controller={async execute(name){if(name==='douyin_observe')return{state,frames:[{videoId:id,mimeType:'image/jpeg',data:'eA=='}],personaEvidenceId:'synthetic-evidence'};return state;},async pauseForLimits(){paused++;}};
   const watch=new AutonomousWatch({controller,videoLimits:f.video,stateDir:f.stateDir,now:f.options.now,personaMemory:{context:()=>'',recordViewing:()=>null},config:{apiKey:'synthetic-key'},agent:{async decideWatch(){decisions++;return{decision:{action:'stop',reason:'合成观察已完成',reflection:'仅使用合成画面',topics:[]},usage:{totalTokens:1}};}}});
   const scheduler=new ScheduledWatch({...f.options,getWatchState:async()=>watch.state(),startRound:async()=>watch.start({startSession:true},{explicit:true})});scheduler.configure({enabled:true},{explicit:true});await scheduler.tick();await watch.completion;assert.equal(decisions,1);assert.equal(watch.state().running,false);assert.equal(f.video.state().session.startedBy,'api');assert.equal(scheduler.state().last.status,'started');await scheduler.tick();assert.equal(decisions,1);assert.ok(paused>0);await watch.close();
@@ -58,6 +67,27 @@ test('本人显式重新开启允许观看后，同一时段可以再次启动',
  watch={running:false,status:'needs_user',lastError:'合成登录需要人工处理'};f.setTime('2026-10-23T01:25:00Z');await schedule.tick();assert.equal(f.starts(),1);assert.equal(schedule.state().last.status,'occupied');
  watch={running:false,status:'stopped'};schedule.configure({enabled:true},{explicit:true});assert.equal(schedule.state().last.status,'acknowledged');
  await schedule.tick();assert.equal(f.starts(),2);assert.equal(schedule.state().last.status,'started');
+});
+test('跨过零点后上一场仍能结清：按它所属的那天写回日程，不留悬空账',async t=>{
+  // 15:59Z = 上海 23:59，16:05Z = 上海次日 00:05。
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'})});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  await schedule.tick();
+  assert.equal(f.starts(),1,'先开一场');
+  const before=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  const opened=before.runs.at(-1);
+  assert.equal(opened.status,'started');
+  assert.equal(opened.settledAt,undefined,'这一场还没结账');
+  f.setTime('2026-10-23T16:05:00Z');
+  await schedule.tick();
+  const after=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  const settled=after.runs.find(item=>item.key===opened.key);
+  assert.ok(settled.settledAt,'跨过零点后上一场已结清');
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.ok(plan.days['2026-10-23'],'10-23 的日程仍在');
+  assert.equal(plan.days['2026-10-23'].plan.roundSession,null,'结清后不再挂着场次');
 });
 test('普通failed退避重试不回归：15分钟内不重试，越过退避后同一天至多三次',async t=>{
  const f=fixture(t);let watch={running:false,status:'stopped'};const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>watch});schedule.configure({enabled:true},{explicit:true});await schedule.tick();assert.equal(f.starts(),1);

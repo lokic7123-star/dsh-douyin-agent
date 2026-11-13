@@ -177,7 +177,12 @@ export function savePlan({ stateDir = resolveRuntimePaths().stateDir, date = pla
 
 function persistDays(file, days, now) {
   const trimmed = {};
-  for (const key of Object.keys(days).sort().slice(-3)) trimmed[key] = days[key];
+  // 挂着的场次（还没结清的那一场）所在的日期必须留着：只按日期排序截断会把
+  // 昨天没结清的场次连同它的日程一起丢掉，之后就再也结不掉那笔账了。
+  const keep = new Set(Object.keys(days).sort().slice(-3));
+  for (const [date, entry] of Object.entries(days)) {
+    if (keep.has(date) || entry?.plan?.roundSession) trimmed[date] = entry;
+  }
   try {
     writeFile(file, { version: PLAN_VERSION, updatedAt: new Date(now).toISOString(), days: trimmed });
   } catch {
@@ -246,6 +251,23 @@ export function closeSession({ plan, session, cooldown = 0, failed = false, used
 export function loadPlan({ stateDir = resolveRuntimePaths().stateDir, date = planDate() } = {}) {
   const stored = loadFile(planFile(stateDir));
   return entryFor(stored, date)?.plan ?? null;
+}
+
+// 所有还挂着「当前场次」的日程（含前几天）。
+// 跨过零点后，当天的日程里没有昨天那一场，只看当天就永远结不掉昨天的账——
+// 所以结账时要把前几天挂着的场次一起找出来，按它们各自的那天写回去。
+export function roundCandidates({ stateDir = resolveRuntimePaths().stateDir } = {}) {
+  const stored = loadFile(planFile(stateDir));
+  if (!stored?.days || typeof stored.days !== 'object') return [];
+  const candidates = [];
+  for (const date of Object.keys(stored.days).sort()) {
+    const entry = entryFor(stored, date);
+    const session = entry?.plan?.roundSession;
+    if (!entry || !session || typeof session !== 'object') continue;
+    if (!Number.isFinite(session.startAt) || !Number.isFinite(session.expiresAt)) continue;
+    candidates.push({ date, plan: entry.plan, session });
+  }
+  return candidates;
 }
 
 // 两场之间的冷却：接着刷是「意犹未尽」，但人也要歇一会儿。
