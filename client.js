@@ -146,16 +146,16 @@ textarea.dy-big{min-height:110px}
   background:var(--dsw-alias-switch-thumb,var(--dsw-static-neutral-bluish-00,#fff));box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 32%,transparent);transition:transform .18s ease}
 .dy-switch.on{background:var(--dsw-alias-state-success-primary)}
 .dy-switch.on::after{background:var(--dsw-alias-label-primary-foreground);transform:translateX(18px)}
-.dy-wrap input[type=checkbox]{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;flex:none;cursor:pointer;
+.ios-check{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;flex:none;cursor:pointer;
   border:1.5px solid var(--dy-stroke-strong);border-radius:5px;background:var(--dsw-alias-bg-base);display:inline-grid;place-content:center;
   transition:background .12s ease,border-color .12s ease}
-.dy-wrap input[type=checkbox]::before{content:'';width:10px;height:10px;clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);
+.ios-check::before{content:'';width:10px;height:10px;clip-path:polygon(14% 44%,0 62%,40% 100%,100% 18%,84% 6%,38% 72%);
   background:var(--dsw-alias-label-primary-foreground);transform:scale(0);transition:transform .12s ease-in-out}
-.dy-wrap input[type=checkbox]:checked{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
-.dy-wrap input[type=checkbox]:checked::before{transform:scale(1)}
-.dy-wrap input[type=checkbox]:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}
-.dy-wrap input[type=checkbox]:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
-.dy-wrap input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
+.ios-check:checked{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
+.ios-check:checked::before{transform:scale(1)}
+.ios-check:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}
+.ios-check:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.ios-check:disabled{opacity:.45;cursor:not-allowed}
 .dy-wrap input[type=number]{-moz-appearance:textfield;appearance:textfield}
 .dy-wrap input[type=number]::-webkit-inner-spin-button,.dy-wrap input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .dy-card{background:var(--dy-surface);border:.5px solid var(--dy-stroke);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column;gap:9px;min-width:0}
@@ -194,6 +194,14 @@ select.dy-input option{background:var(--dsw-alias-bg-base);color:var(--dsw-alias
 .dy-tl-meta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);flex:none;margin-left:auto}
 details.dy-inner{border-radius:10px;padding:9px 12px;margin-top:6px}
 details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);cursor:pointer;font-weight:500}
+@media (max-width: 820px){
+  .dy-input.w-lg {
+    width: 180px;
+  }
+  .dy-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 `;
     function injectStyles() {
       if (typeof document === 'undefined') return;
@@ -509,7 +517,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
       const unansweredCard = item => {
         const key = cardKey(item.recordId), state = item.backlogState || 'retrying', done = busy.has(key);
         const summary = item.preview ? `「${item.preview.slice(0, 40)}」` : item.previewNote || '（没有可显示的文字正文）';
-        const when = item.at ? new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+        const when = item.at ? new Date(item.at).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '';
         const chipText = done ? '正在处理' : STATE_LABELS[state] || '等待自动恢复';
         const escalate = item.escalated === true;
         const reason = item.progressNote || item.reason || '';
@@ -523,7 +531,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
           h('p', { className: 'dy-note' }, summary),
           h('p', { className: 'dy-note' }, escalate && state === 'retrying' ? h('b', { className: 'dy-strong' }, `${reason}（已连续多次等待，建议人工核对）`) : reason),
           // 方案承诺的「已等待时长 + 下次尝试」：nextRetryAt 由 chat-service 在 retrying 态透出，at 为到达时间。
-          state === 'retrying' && (item.nextRetryAt || item.at) && h('p', { className: 'dy-note' }, [item.at ? `已等待 ${Math.max(0, Math.round((Date.now() - new Date(item.at).getTime()) / 60_000))} 分钟` : '', item.nextRetryAt ? `下次尝试 ${new Date(item.nextRetryAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''].filter(Boolean).join(' · ')),
+          state === 'retrying' && (item.nextRetryAt || item.at) && h('p', { className: 'dy-note' }, [item.at ? `已等待 ${Math.max(0, Math.round((Date.now() - new Date(item.at).getTime()) / 60_000))} 分钟` : '', item.nextRetryAt ? `下次尝试 ${new Date(item.nextRetryAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''].filter(Boolean).join(' · ')),
           h('div', { className: 'dy-row' },
             actions.includes('open-chat') && button('打开抖音', 'browser', () => { void perform('browser', () => api.request('/browser/open', {})); }, false, false),
             actions.includes('open-chat') && h('span', { className: 'dy-cap' }, '（打开抖音后请手动查找原会话核对）'),
@@ -534,12 +542,12 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
             done && h('span', { className: 'dy-cap' }, '正在结束待答…'),
             state === 'uncertain' && h('span', { className: 'dy-cap' }, '只读回核对；在原会话核实前不重发。')),
           (item.attempts > 0 || item.retryCount > 0 || item.blockerCode || item.lastCheckedAt) && h('details', null, h('summary', null, '详情'), h('div', null,
-            item.lastCheckedAt && dyRow(`最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}`, reason ? '' : '状态在后台持续更新'),
+            item.lastCheckedAt && dyRow(`最后检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}`, reason ? '' : '状态在后台持续更新'),
             item.reason && item.reason !== reason && h('p', { className: 'dy-note' }, item.reason),
             h('p', { className: 'dy-note' }, '本地保留的文字预览仅用于核对；不会自动补发。'))));
       };
       const groups = unanswered?.groups;
-      const checkedAt = unanswered?.checkedAt ? new Date(unanswered.checkedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+      const checkedAt = unanswered?.checkedAt ? new Date(unanswered.checkedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '';
       const staleNotice = `显示的是 ${checkedAt || '上次'} 的缓存数据，正在后台刷新；刷新失败会保留内容，不会清空。`;
       const history = unanswered?.resolvedHistory;
       const historyView = history && (history.todayAutoResolved > 0 || history.todayManualEnded > 0) ? h('details', null,
@@ -711,11 +719,11 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
         ),
         category === '好友互动' && h('div', { className: 'dy-wrap' },
           dyCard(
-            h('div', { className: 'dy-card-top' }, h('h3', null, '好友互动'), dySwitch(friendEnabled, { 'aria-label': '允许好友互动', onClick: () => { if (typeof state?.interactions?.policy?.enabled === 'boolean' && !busy.has('interactions')) void perform('interactions', () => api.request('/interactions/configure', { enabled: !friendEnabled })); } }), h('span', { className: 'dy-cap' }, '默认关闭')),
+            h('div', { className: 'dy-card-top' }, h('h3', null, '好友互动'), dySwitch(friendEnabled, { 'aria-label': '允许好友互动', onClick: () => { if (typeof state?.interactions?.policy?.enabled === 'boolean' && !busy.has('interactions')) void perform('interactions', () => api.request('/interactions/configure', { enabled: !friendEnabled })); } }), h('span', { className: 'dy-cap' }, '默认开启')),
             h('p', { className: 'dy-note' }, '只与下方许可的好友和群聊互动，不设人数和次数上限。模型和名单就绪后自动准备回复；观看中可自主分享。群聊仅在被 @ 或叫到响应昵称时回复。'),
             note(state?.interactions?.friend?.message),
             state?.interactions?.friend?.lastError && h('p', { role: 'alert' }, state.interactions.friend.lastError),
-            state?.interactions?.friend?.waitReason && note(`${state.interactions.friend.preparing ? '正在准备：' : '等待准备：'}${state.interactions.friend.waitReason}${state.interactions.friend.lastErrorCode ? `（${state.interactions.friend.lastErrorCode}）` : ''}${state.interactions.friend.nextRetryAt ? ` · 下次自动检查 ${new Date(state.interactions.friend.nextRetryAt).toLocaleString('zh-CN', { hour12: false })}` : ''}`),
+            state?.interactions?.friend?.waitReason && note(`${state.interactions.friend.preparing ? '正在准备：' : '等待准备：'}${state.interactions.friend.waitReason}${state.interactions.friend.lastErrorCode ? `（${state.interactions.friend.lastErrorCode}）` : ''}${state.interactions.friend.nextRetryAt ? ` · 下次自动检查 ${new Date(state.interactions.friend.nextRetryAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''}`),
             state?.interactions?.friend?.waitReason && h('div', { className: 'dy-row' }, h('button', { type: 'button', className: 'dy-btn', disabled: !ready || busy.has('chatPrepare') || state.interactions.friend.canPrepare === false, onClick: () => { void perform('chatPrepare', () => api.request('/chat/prepare', {})); } }, busy.has('chatPrepare') || state.interactions.friend.preparing ? '正在准备…' : '准备回复通道/重新连接并重试')),
             status(chat)
           ),
@@ -724,7 +732,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
             note('读取范围是抖音网页版当前会话，不代表全部关注好友或所有群。要授权群聊，请先让群会话出现在抖音消息列表，再刷新。'),
             contacts && note(`本次读取：个人 ${contacts.filter(item => item.isGroup === false).length} 个 · 群聊 ${contacts.filter(item => item.isGroup === true).length} 个。${discovery?.scannedToEnd === false ? ` 当前列表尚未完整读取。${discovery.reason || ''}` : ''}`),
             contacts?.some(item => item.relationshipStatus === 'unavailable' || item.isGroup === true || typeof item.isGroup !== 'boolean') && h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '授权已核对的现有会话'), dySwitch(chat.draft.allowConversationOnly, { 'aria-label': '授权已核对的现有会话', onClick: () => { const value = !chat.draft.allowConversationOnly; existingAuthorization.current = value; chat.edit({ allowConversationOnly: value, ...(!value ? { recipientIds: chat.draft.recipientIds.filter(id => shownContacts.some(item => item.id === id && item.followed === true && item.isGroup === false)) } : {}) }, value ? { blurOnly: true } : { immediate: true }); } }), h('span', { className: 'dy-cap' }, '开启后群聊和旧类型会话也可勾选')),
-            ...[false, true, null].flatMap(kind => { const items = shownContacts.filter(item => item.isGroup === kind || kind === null && typeof item.isGroup !== 'boolean'); return items.length ? [note(kind === false ? '个人会话' : kind === true ? '群聊（仅被 @ 或叫到响应昵称时回复）' : '旧记录类型待核对（暂不可选）'), ...items.map(item => h('label', { key: item.id, style: row }, h('input', { type: 'checkbox', 'aria-label': `许可联系人 ${item.name || item.displayName || '联系人'}`, checked: chat.draft.recipientIds.includes(item.id), disabled: !ready || !chat.draft.recipientIds.includes(item.id) && (item.notListed || !(item.followed === true && item.isGroup === false || chat.draft.allowConversationOnly === true && typeof item.isGroup === 'boolean')), onChange: event => chat.edit({ recipientIds: event.target.checked ? [...chat.draft.recipientIds, item.id] : chat.draft.recipientIds.filter(id => id !== item.id) }, { immediate: true }) }), item.name || item.displayName || '许可会话'))] : []; }),
+            ...[false, true, null].flatMap(kind => { const items = shownContacts.filter(item => item.isGroup === kind || kind === null && typeof item.isGroup !== 'boolean'); return items.length ? [note(kind === false ? '个人会话' : kind === true ? '群聊（仅被 @ 或叫到响应昵称时回复）' : '旧记录类型待核对（暂不可选）'), ...items.map(item => h('label', { key: item.id, style: row }, h('input', { className: 'ios-check', type: 'checkbox', 'aria-label': `许可联系人 ${item.name || item.displayName || '联系人'}`, checked: chat.draft.recipientIds.includes(item.id), disabled: !ready || !chat.draft.recipientIds.includes(item.id) && (item.notListed || !(item.followed === true && item.isGroup === false || chat.draft.allowConversationOnly === true && typeof item.isGroup === 'boolean')), onChange: event => chat.edit({ recipientIds: event.target.checked ? [...chat.draft.recipientIds, item.id] : chat.draft.recipientIds.filter(id => id !== item.id) }, { immediate: true }) }), item.name || item.displayName || '许可会话'))] : []; }),
             h('div', { className: 'dy-row' }, h('span', { className: 'dy-label' }, '群聊响应昵称'), h('input', { className: 'dy-input', style: { flex: 1, minWidth: 200 }, 'aria-label': '群聊响应昵称（逗号或换行分隔）', value: chat.draft.groupMentionNamesText, disabled: !ready, onChange: event => chat.edit({ groupMentionNamesText: event.target.value }, { blurOnly: true }), onBlur: () => { void chat.flush(); } })),
             note(`今日回复模型请求 ${state?.chat?.daily?.requests || 0} 次 · 今日分享 ${state?.share?.daily?.attempts || 0} 次。未确认发送会暂停，不自动重发。`),
             ...(state?.chat?.contacts || []).filter(item => item.identityReviewRequired === true || item.recovery?.requiresUserAction === true || /登录|验证码|未授权|许可.*(?:不足|失效|撤销)|身份.*(?:变化|不一致|未通过|不明|不足)/.test(item.reason || '') || ['paused', 'delivery-uncertain'].includes(item.status) && !(item.recovery?.autoPendingCount > 0 || item.recovery?.autoRetryCount > 0)).map(item => h('div', { key: item.id }, note(item.reason || '该会话暂缓处理，状态会继续更新。'), item.identityReviewRequired === true && note('请重新读取联系人并确认许可名单；身份未通过前不会发送。'))),
@@ -741,11 +749,11 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
                 h('h3', { style: { fontSize: 13, margin: 0 } }, item.name || state?.chat?.policy?.allowlist?.find(c => c.id === item.id)?.name || '许可会话'),
                 h('span', { className: `dy-chip ${item.status === 'ready' ? 'ok' : item.status === 'paused' ? 'warn' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), ({ ready: '正常接收', paused: '已暂停', 'delivery-uncertain': '发送结果待核对' }[item.status]) || item.status || '状态未知'),
                 h('span', { className: 'sp' }),
-                h('span', { className: 'dy-cap' }, `待答 ${item.unanswered?.length || 0} 条${item.lastCheckedAt ? ` · 检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}`)),
+                h('span', { className: 'dy-cap' }, `待答 ${item.unanswered?.length || 0} 条${item.lastCheckedAt ? ` · 检查 ${new Date(item.lastCheckedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''}`)),
               item.reason && h('p', { className: 'dy-note', style: { margin: 0 } }, item.reason),
               h('details', { style: { marginTop: 4 } }, h('summary', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer' } }, '运行日志（最近 20 条）'),
                 h('div', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-tertiary)', lineHeight: 1.9, marginTop: 4, overflowWrap: 'anywhere' } },
-                  ...(state?.chat?.events || []).filter(event => !event.recipientId || event.recipientId === item.id).slice(-20).reverse().map((event, index) => h('div', { key: index }, `${event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false }) : ''} ${event.message || event.type || '运行事件'}`)))))),
+                  ...(state?.chat?.events || []).filter(event => !event.recipientId || event.recipientId === item.id).slice(-20).reverse().map((event, index) => h('div', { key: index }, `${event.at ? new Date(event.at).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : ''} ${event.message || event.type || '运行事件'}`)))))),
             !(state?.chat?.contacts || []).length && h('p', { className: 'dy-note' }, '暂无处理记录；启动自动回复后会在这里显示每个会话的处理情况。'),
             h('div', { className: 'dy-card' },
               h('div', { className: 'dy-card-top' }, h('h3', null, '运行数据'), h('span', { className: 'sp' }),
@@ -761,14 +769,14 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
             h('div', { className: 'dy-card-top' }, h('h3', null, '观看足迹'), h('span', { className: 'sp' }),
               dySel({ 'aria-label': '足迹范围', value: watchedDays, onChange: event => setWatchedDays(event.target.value) }, [['14', '最近 14 天'], ['30', '最近 30 天']]),
               button('刷新足迹', 'watched', () => { void loadWatched(); })),
-            watched ? h('p', { className: 'dy-note' }, `共 ${watched.total} 条已看记录${watched.generatedAt ? ` · 更新于 ${new Date(watched.generatedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : ''}。封面来自本机帧缓存（观察首帧，3 天过期），旧记录可能显示占位；点击卡片在专用浏览器打开原作品。`) : h('p', { className: 'dy-note' }, '正在读取观看足迹…'),
+            watched ? h('p', { className: 'dy-note' }, `共 ${watched.total} 条已看记录${watched.generatedAt ? ` · 更新于 ${new Date(watched.generatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''}。封面来自本机帧缓存（观察首帧，3 天过期），旧记录可能显示占位；点击卡片在专用浏览器打开原作品。`) : h('p', { className: 'dy-note' }, '正在读取观看足迹…'),
             watchedError && h('p', { role: 'alert', className: 'dy-note', style: { color: 'var(--dsw-alias-state-error-primary,#dc2626)' } }, watchedError)),
           watched && !watched.groups.length && dyCard(h3Card('还没有观看记录'), h('p', { className: 'dy-note' }, '开启自主观看后，看过的作品会按日期出现在这里。')),
           watched && !!watched.groups.length && h('div', { className: 'dy-wall' }, ...watched.groups.map(group => h('div', { key: group.day },
             h('div', { className: 'dy-dayhead' }, h('b', null, group.day), h('span', { className: 'dy-cap' }, `${group.count} 条`), h('span', { className: 'ln' })),
             h('div', { className: 'dy-grid' }, ...group.items.map(item => h('a', { key: item.videoId + item.at, className: 'dy-vitem', href: item.url || '#', onClick: event => { event.preventDefault(); if (item.url) void perform('browser', () => api.request('/browser/navigate', { url: item.url })); } },
               h(ThumbImg, { api, videoId: item.videoId }),
-              h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title || '无文案作品'), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)))))))),
+              h('div', { className: 'dy-vbody' }, h('div', { className: 'dy-vt' }, item.title || '无文案作品'), h('div', { className: 'dy-vn' }, `${item.tier}${item.watchedSeconds ? ` · ${item.watchedSeconds} 秒` : ''} · ${new Date(item.at).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, hour: '2-digit', minute: '2-digit' })}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)))))))),
           watched && !!watched.groups.length && h('p', { className: 'dy-note' }, '分层来自实际观看行为：转发 > 停留观看 > 短暂停留 / 跳过；「跳过·超过 60 分钟」类长视频保留跳过标记。')),
         // 记忆管理（v6.2 视觉稿已确认）：iOS 分组列表 + 兴趣单行抽屉；删除级联并自动快照。
         category === '记忆管理' && h('div', { className: 'dy-wrap' },
@@ -823,7 +831,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
                 ...(() => { const rows = (state?.persona?.recentObservations || []).slice(-20).reverse(); return rows.map(item => h('div', { key: item.evidenceId || item.videoId, className: 'ios-row' },
                   h('div', { className: 'ios-main' },
                     h('span', { className: 'ios-t' }, item.title || '无文案作品'),
-                    h('span', { className: 'ios-s' }, `${item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}${item.author ? ` · @${item.author}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
+                    h('span', { className: 'ios-s' }, `${item.observedAt ? new Date(item.observedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}${item.author ? ` · @${item.author}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
                   h('div', { className: 'ios-right' }, h('span', { className: 'ios-chev', 'aria-hidden': 'true' }, '›')))); })(),
                 !(state?.persona?.recentObservations || []).length && h('div', { className: 'ios-row' }, h('div', { className: 'ios-main' }, h('span', { className: 'ios-t' }, '暂无观察记录'), h('span', { className: 'ios-s' }, '开启自主观看后，最近看过的作品会出现在这里。')))),
               memTab === 'raw' && h('div', null,
@@ -837,7 +845,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
                     h('span', { className: 'ios-t' }, '搜索记忆'),
                     h('span', { className: 'ios-s' }, '按文案、作者或作品编号检索本地记录')),
                   h('div', { className: 'ios-right' },
-                    h('input', { className: 'dy-input w-md', 'aria-label': '记忆搜索关键词', value: memoryQuery, placeholder: '文案 / 作者 / 作品编号', disabled: !ready, onChange: event => setMemoryQuery(event.target.value), onKeyDown: event => { if (event.key === 'Enter') void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); } }),
+                    h('input', { className: 'dy-input w-md', 'aria-label': '记忆搜索关键词', value: memoryQuery, placeholder: '文案 / 作者 / 作品编号', maxLength: 80, disabled: !ready, onChange: event => setMemoryQuery(event.target.value), onKeyDown: event => { if (event.key === 'Enter') void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); } }),
                     button('搜索', 'memorySearch', () => { void perform('memorySearch', () => api.request('/memory/search', { query: memoryQuery }).then(value => { setMemoryResults(value); return value; })); }))),
                 ...(memoryResults?.items || []).map(item => h('div', { key: item.evidenceId, className: 'ios-row' },
                   h('div', { className: 'ios-main' },
@@ -863,7 +871,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
                   h('span', { className: 'dy-tl-head' },
                     h('b', { className: 'dy-tl-topic', style: { fontWeight: 500 } }, item.title || (item.videoId ? `作品 ${item.videoId}` : '评论')),
                     h('span', { className: 'dy-chip err' }, h('span', { className: 'd', 'aria-hidden': 'true' }), '未发出'),
-                    h('span', { className: 'dy-tl-meta' }, item.completedAt ? new Date(item.completedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')),
+                    h('span', { className: 'dy-tl-meta' }, item.completedAt ? new Date(item.completedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')),
                   h('span', { className: 'dy-tl-count' }, `${item.author ? `@${item.author}` : ''}${item.author && item.videoId ? ' · ' : ''}${item.videoId ? `编号 ${item.videoId}` : ''}${item.author || item.videoId ? ' · ' : ''}${item.reason || '确认未发出，未改用其他发送方式。'}`))))) : null,
             (state?.comments?.needsReview || []).length ? h('div', { className: 'dy-inner' }, h('h3', { style: { margin: 0, fontSize: 13, fontWeight: 600 } }, '待核对评论'), ...reviewList('comments')) : [])
         ),
@@ -894,7 +902,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
               ...(state?.share?.recent || []).slice().reverse().slice(0, 10).map(item => h('div', { key: item.operationId || item.videoId || item.startedAt, className: 'ios-row' },
                 h('div', { className: 'ios-main' },
                   h('span', { className: 'ios-t' }, item.title || '没有记录标题的作品'),
-                  h('span', { className: 'ios-s' }, `${item.recipientName ? `分享给 ${item.recipientName}` : '分享对象未记录'}${item.completedAt || item.startedAt ? ` · ${new Date(item.completedAt || item.startedAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}${shareFailureMessage(item) ? ` · ${shareFailureMessage(item)}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
+                  h('span', { className: 'ios-s' }, `${item.recipientName ? `分享给 ${item.recipientName}` : '分享对象未记录'}${item.completedAt || item.startedAt ? ` · ${new Date(item.completedAt || item.startedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}${shareFailureMessage(item) ? ` · ${shareFailureMessage(item)}` : ''}${item.videoId ? ` · 编号 ${item.videoId}` : ''}`)),
                 h('div', { className: 'ios-right' },
                   h('span', { className: `dy-chip ${item.status === 'confirmed' ? 'ok' : ['not-sent', 'resolved-not-sent'].includes(item.status) ? 'err' : 'info'}` }, h('span', { className: 'd', 'aria-hidden': 'true' }), `${state?.share?.inProgress && state.share.activity?.operationId === item.operationId ? '正在分享' : ({ confirmed: '已确认送达', 'not-sent': '未发出', uncertain: '送达未确认', reserved: '已预留，待核对', clicking: '处理中，待核对', 'resolved-confirmed': '人工已确认送达', 'resolved-not-sent': '人工已确认未送达' }[item.status] || item.status)}`),
                   // 只有「送达结果还不确定」的记录才需要人工核对；已确认未发出的记录不需要再核对，
@@ -920,7 +928,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
               h('p', { className: 'dy-note' }, diagnostics?.note || '')),
           dyCard(
             h('div', { className: 'dy-card-top' }, h('h3', null, '最近前端错误'), h('span', { className: 'sp' }), button('清空', 'clearErrors', () => { try { globalThis.sessionStorage?.setItem('douyin-panel-errors', '[]'); } catch {} setPanelErrorsTick(x => x + 1); }), h('span', { className: 'dy-cap' }, '本地环形缓存 · 最近 20 条')),
-            ...((() => { try { return JSON.parse(globalThis.sessionStorage?.getItem('douyin-panel-errors') || '[]'); } catch { return []; } })()).slice(0, 8).map((err, index) => dyRow(err.at ? new Date(err.at).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', err.message)),
+            ...((() => { try { return JSON.parse(globalThis.sessionStorage?.getItem('douyin-panel-errors') || '[]'); } catch { return []; } })()).slice(0, 8).map((err, index) => dyRow(err.at ? new Date(err.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '', err.message)),
             !(() => { try { return JSON.parse(globalThis.sessionStorage?.getItem('douyin-panel-errors') || '[]').length; } catch { return 0; } })() && h('p', { className: 'dy-note' }, '暂无前端错误记录。')),
           dyCard(
             h('div', { className: 'dy-card-top' }, h('h3', null, '今日预算'), h('span', { className: 'sp' }), h('span', { className: 'dy-foot' }, state?.usage?.today?.date || '')),
@@ -939,7 +947,7 @@ details.dy-inner summary{font-size:13px;color:var(--dsw-alias-label-secondary);c
             h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '输出'), h('span', { className: 'v' }, String(usageScope === 'total' ? (state?.usage?.total?.completionTokens || 0) : (state?.usage?.today?.completionTokens || 0)))),
             h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '缓存命中'), h('span', { className: 'v' }, (usageScope === 'total' ? state?.usage?.total?.cacheReportedRequests : state?.usage?.today?.cacheReportedRequests) ? `${usageScope === 'total' ? (state?.usage?.total?.cachedTokens || 0) : (state?.usage?.today?.cachedTokens || 0)}（${usageScope === 'total' ? state.usage.total.cacheReportedRequests : state.usage.today.cacheReportedRequests} 次报告）` : '未逐次报告')),
             h('div', { className: 'dy-kv' }, h('span', { className: 'k' }, '用量未知'), h('span', { className: 'v' }, `${usageScope === 'total' ? (state?.usage?.total?.unknownRequests || 0) : (state?.usage?.today?.unknownRequests || 0)} 次 · 未报告的请求不按零消耗计`)),
-            state?.usage?.inFlight > 0 && h('p', { className: 'dy-note' }, `请求中 ${state.usage.inFlight} 次，Token 等模型返回后记录。`),
+            (state?.usage?.inProgress?.total || 0) > 0 && h('p', { className: 'dy-note' }, `请求中 ${state.usage.inProgress.total} 次，Token 等模型返回后记录。`),
             (state?.usage?.days || []).length ? h('div', { className: 'dy-inner', style: { marginTop: 8 } },
               h('div', { className: 'dy-card-top', style: { marginBottom: 4 } }, h('h3', { style: { fontSize: 12.5, margin: 0 } }, '按日明细'), h('span', { className: 'sp' }), h('span', { className: 'dy-cap' }, `最近 ${state.usage.days.length} 天`)),
               ...state.usage.days.slice().reverse().map(day => h('div', { key: day.date, className: 'ios-row' },

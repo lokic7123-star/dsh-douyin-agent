@@ -40,12 +40,14 @@ export class UsageLedger {
   state() {
     const todayKey = date(this.now()), total = empty(), today = empty(), groups = new Map(), days = new Map(), seen = new Set(); let damagedRecords = 0;
     const files = fs.existsSync(this.directory) ? fs.readdirSync(this.directory).filter(file => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file)).sort().slice(-30) : [];
-    const signature = todayKey + files.map(file => { const stat = fs.lstatSync(path.join(this.directory, file)); return `${file}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`; }).join('|');
+    // 别的入口可能正在删旧文件，或某个文件正被写到一半；单个文件读不到不该让整个面板状态一起失败。
+    const signature = todayKey + files.map(file => { try { const stat = fs.lstatSync(path.join(this.directory, file)); return `${file}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`; } catch { return `${file}:missing`; } }).join('|');
     const previous = summaries.get(this.directory); if (previous?.signature === signature) return {...structuredClone(previous.value),checkedAt:new Date(this.now()).toISOString()};
     for (const file of files) {
-      const full = path.join(this.directory, file), stat = fs.lstatSync(full);
+      const full = path.join(this.directory, file); let stat; try { stat = fs.lstatSync(full); } catch { damagedRecords++; continue; }
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024) { damagedRecords++; continue; }
-      for (const line of fs.readFileSync(full, 'utf8').split('\n').filter(Boolean)) {
+      let text; try { text = fs.readFileSync(full, 'utf8'); } catch { damagedRecords++; continue; }
+      for (const line of text.split('\n').filter(Boolean)) {
         let record; try { record = JSON.parse(line); if (!record?.id || !['api','dsh'].includes(record.source) || !['watch','task','comment','spark','chat'].includes(record.kind) || date(Date.parse(record.at)) !== file.slice(0, 10)) throw 0; record.usage = normalizeUsage(record.usage); } catch { damagedRecords++; continue; }
         if (seen.has(record.id)) continue; seen.add(record.id);
         add(total, record); const key = file.slice(0, 10); if (key === todayKey) add(today, record);

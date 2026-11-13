@@ -30,7 +30,44 @@ export class ScheduledWatch {
     if(kept.length>200){const removable=kept.filter(item=>!pending.has(item?.status));while(kept.length>200&&removable.length)kept.splice(kept.indexOf(removable.shift()),1);}
     ledger.runs=kept;return ledger;}
   state(){const policy=this.policy(),ledger=this.ledger(),last=ledger.runs.at(-1)||null,lastError=Object.hasOwn(ledger,'lastError')?ledger.lastError:last?.status==='failed'?last.error||this.error||'自主观看异常停止，请检查后重新开启允许观看。':this.error||'';return{protocol:'scheduled-watch-v2',policy,last,busy:Boolean(this.pending),lastError,note:'允许观看后，按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；登录、验证或运行异常需要处理后重新开启允许观看。'};}
-  control(action){fs.mkdirSync(this.stateDir,{recursive:true});let fd;const owner={pid:process.pid,token:randomUUID()};try{fd=fs.openSync(this.guardFile,'wx',0o600);}catch(error){if(error.code==='EEXIST')throw Object.assign(new Error('另一个入口正在检查自动观看。'),{code:'SCHEDULE_BUSY'});throw error;}try{fs.writeFileSync(fd,JSON.stringify(owner));return action();}finally{fs.closeSync(fd);const current=load(this.guardFile,null);if(current?.pid===owner.pid&&current.token===owner.token)fs.unlinkSync(this.guardFile);}}
+  // 锁在「文件已经建好、内容还没写进去」这一步崩掉时，会留下一个 0 字节的空壳，
+  // 让所有入口从此一直 409，自己再也开不了。空壳、以及已经死掉的进程留下的锁可以回收；
+  // 内容坏掉、看不出是谁的锁不动它，等本人核对。回收的是锁，不是别人的数据。
+  reclaimStaleGuard(){
+    let stat;try{stat=fs.lstatSync(this.guardFile);}catch(error){return error.code==='ENOENT';}
+    if(!stat.isFile()||stat.isSymbolicLink())return false;
+    if(stat.size===0){
+      // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
+      if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
+      try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+    }
+    let record;try{record=JSON.parse(fs.readFileSync(this.guardFile,'utf8'));}catch{return false;}
+    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return false;
+    try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
+    try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+  }
+  control(action){
+    fs.mkdirSync(this.stateDir,{recursive:true});
+    const owner={pid:process.pid,token:randomUUID()};
+    for(let attempt=0;attempt<3;attempt++){
+      let fd;
+      try{fd=fs.openSync(this.guardFile,'wx',0o600);}
+      catch(error){
+        if(error.code!=='EEXIST')throw error;
+        // 空壳或死进程留下的锁可以回收；内容坏掉的锁不动，等本人核对。
+        if(this.reclaimStaleGuard())continue;
+        throw Object.assign(new Error('另一个入口正在检查自动观看。'),{code:'SCHEDULE_BUSY'});
+      }
+      try{fs.writeFileSync(fd,JSON.stringify(owner));return action();}
+      finally{
+        fs.closeSync(fd);
+        let current=null;
+        try{current=load(this.guardFile,null);}catch{}
+        if(current?.pid===owner.pid&&current.token===owner.token){try{fs.unlinkSync(this.guardFile);}catch{}}
+      }
+    }
+    throw Object.assign(new Error('另一个入口正在检查自动观看。'),{code:'SCHEDULE_BUSY'});
+  }
   configure(value,{explicit=false}={}){if(!explicit)throw new Error('允许观看需要本人明确保存。');const policy=policyOf(value);this.control(()=>{
     const previous=load(this.policyFile,defaultPolicy),videoFile=path.join(this.stateDir,'video-policy.json'),video=load(videoFile,null),legacy=previous.maxRequests??value.maxRequests;
     if(video&&video.dailyRequests===undefined&&legacy!==undefined){if(legacy!==null&&(!Number.isSafeInteger(legacy)||legacy<1))throw new Error('旧每日请求设置损坏，未覆盖。');write(videoFile,{...video,dailyRequests:legacy});}
@@ -47,15 +84,19 @@ export class ScheduledWatch {
   start(){if(!this.timer){this.deferFirstStart();this.timer=setInterval(()=>{void this.tick();},this.intervalMs);this.timer.unref?.();void this.tick();}return this;}
   tick(){if(this.closed||this.pending)return this.pending||Promise.resolve(this.state());this.pending=this.perform().catch(error=>{if(error.code!=='SCHEDULE_BUSY'){this.error=explain(error);try{this.control(()=>{const ledger=this.ledger();ledger.lastError=this.error;write(this.ledgerFile,ledger);});}catch{}}}).finally(()=>{this.pending=null;});return this.pending;}
   async perform(){const limits=await this.getVideoLimits();if(!this.policy().enabled){this.abort?.abort(new Error('已关闭允许观看。'));limits.settleWatching?.();return;}
-    const time=limits.state();if(!time.allowed)return;
+    const time=limits.state();
     const manual=load(path.join(this.stateDir,'watch-manual.lock'),null);
     if(manual){if(!Number.isSafeInteger(manual.pid)||manual.pid<1||typeof manual.token!=='string')throw new Error('手动视频操作锁无法核对，未启动自主观看。');try{process.kill(manual.pid,0);return;}catch(error){if(error.code==='EPERM')return;if(error.code!=='ESRCH')throw error;}}
-    const watch=await this.getWatchState();if(watch?.running||watch?.busy||watch?.pendingRequests>0)return;
+    const watch=await this.getWatchState();
     const now=this.now(),date=planDate(now),windowEnd=Number.isFinite(time.window?.expiresAt)?time.window.expiresAt:null;
     const plan=ensurePlan({stateDir:this.stateDir,date,policy:time.policy,now,random:this.random,firstDelayMinutes:this.firstDelayMinutes,allowLazy:this.allowLazy});
     // 上一场的结局先结清：自主观看已经停了（看完了、异常了、还是等着本人处理），
     // 就把这一场记掉，再决定歇多久开下一场——随机日程不能盖掉真实结局。
+    // 结清是记账，不是播放，所以即便现在不在允许时段、额度也已用尽，也要先把上一场记掉：
+    // 否则一场中途结束的观看会永远停在「进行中」，跨天后也不会进账。
     if(this.settleRound({plan,watch,now,date}))return;
+    if(!time.allowed)return;
+    if(watch?.running||watch?.busy||watch?.pendingRequests>0)return;
     const session=planSession({plan,now,random:this.random,windowEnd});if(!session)return;
     if(plan.roundSession?.key!==session.key)savePlan({stateDir:this.stateDir,date,plan:{...plan,roundSession:session},now});
     const key=session.key;let operation;this.control(()=>{if(!this.policy().enabled)return;const ledger=this.ledger();

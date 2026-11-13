@@ -70,11 +70,32 @@ async function watchControl(directory,action,signal) {
   for(let attempt=0;;attempt++) {
     signal?.throwIfAborted(); let descriptor;
     try {descriptor=openSync(file,'wx',0o600);}
-    catch(error){if(error.code!=='EEXIST'||attempt>=100)throw Object.assign(new Error('共享视频控制正在更新，请稍后重试。'),{status:409});await wait(20,signal);continue;}
+    catch(error){
+      if(error.code!=='EEXIST')throw error;
+      // 锁在「文件建好、内容还没写进去」这一刻崩掉，会留下 0 字节空壳，
+      // 让所有入口从此一直 409。空壳和死进程留下的锁可以回收；内容坏掉的锁不动，等本人核对。
+      if(attempt<100&&reclaimStaleGuard(file))continue;
+      if(attempt>=100)throw Object.assign(new Error('共享视频控制正在更新，请稍后重试。'),{status:409});
+      await wait(20,signal);continue;
+    }
     try {writeFileSync(descriptor,JSON.stringify({pid:process.pid,token}));}
     finally {closeSync(descriptor);}
     try{return action();}finally{if(optionalRecord(file)?.token===token)unlinkSync(file);}
   }
+}
+// 回收空壳锁与死进程留下的锁：只动确定没人持有的，不碰内容损坏的。
+function reclaimStaleGuard(file){
+  let stat;try{stat=statSync(file);}catch(error){return error.code==='ENOENT';}
+  if(!stat.isFile()||stat.isSymbolicLink())return false;
+  if(stat.size===0){
+    // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
+    if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
+    try{unlinkSync(file);return true;}catch{return false;}
+  }
+  let record;try{record=JSON.parse(readFileSync(file,'utf8'));}catch{return false;}
+  if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return false;
+  try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
+  try{unlinkSync(file);return true;}catch{return false;}
 }
 async function acquireNativeVideoLease(directory,signal) {
   const file=path.join(directory,'watch-manual.lock'),token=randomUUID();

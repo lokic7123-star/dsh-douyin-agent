@@ -69,11 +69,37 @@ export class AutonomousWatch {
     this.files.manual = path.join(stateDir, 'watch-manual.lock');
     this.running = false; this.completion = null; this.abort = null; this.runId = null; this.sessionId = null;
   }
+  // 回收空壳锁与死进程留下的锁：只动确定没人持有的，不碰内容损坏的。
+  reclaimStaleGuard() {
+    let stat; try { stat = fs.lstatSync(this.files.guard); } catch (error) { return error.code === 'ENOENT'; }
+    if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    if (stat.size === 0) {
+      // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
+      if (Date.now() - Math.floor(stat.mtimeMs) < 500) return false;
+      try { fs.unlinkSync(this.files.guard); return true; } catch { return false; }
+    }
+    let record; try { record = JSON.parse(fs.readFileSync(this.files.guard, 'utf8')); } catch { return false; }
+    if (!record || !Number.isSafeInteger(record.pid) || record.pid < 1) return false;
+    try { process.kill(record.pid, 0); return false; } catch (error) { if (error.code === 'EPERM') return false; if (error.code !== 'ESRCH') return false; }
+    try { fs.unlinkSync(this.files.guard); return true; } catch { return false; }
+  }
   control(action) {
-    let descriptor; const token = randomUUID();
-    try { descriptor = fs.openSync(this.files.guard, 'wx', 0o600); } catch (error) { if (error.code === 'EEXIST') throw Object.assign(new Error('自主观看控制记录正被使用，请稍后重试。'), { status: 409, code: 'WATCH_CONTROL_BUSY' }); throw error; }
-    try { fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token })); } finally { fs.closeSync(descriptor); }
-    try { return action(); } finally { const current = read(this.files.guard, null); if (current?.token === token && current.pid === process.pid) fs.unlinkSync(this.files.guard); }
+    const token = randomUUID();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let descriptor;
+      try { descriptor = fs.openSync(this.files.guard, 'wx', 0o600); }
+      catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        // 锁在「文件建好、内容还没写进去」这一步崩掉，会留下 0 字节空壳，
+        // 让所有入口从此一直 409。空壳和死进程留下的锁可以回收；内容坏掉的锁不动，等本人核对。
+        if (this.reclaimStaleGuard()) continue;
+        throw Object.assign(new Error('自主观看控制记录正被使用，请稍后重试。'), { status: 409, code: 'WATCH_CONTROL_BUSY' });
+      }
+      try { fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token })); } finally { fs.closeSync(descriptor); }
+      try { return action(); }
+      finally { let current = null; try { current = read(this.files.guard, null); } catch {} if (current?.token === token && current.pid === process.pid) { try { fs.unlinkSync(this.files.guard); } catch {} } }
+    }
+    throw Object.assign(new Error('自主观看控制记录正被使用，请稍后重试。'), { status: 409, code: 'WATCH_CONTROL_BUSY' });
   }
   worker() {
     const worker = read(this.files.lock, null);
