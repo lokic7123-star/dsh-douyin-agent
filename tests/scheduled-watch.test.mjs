@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ScheduledWatch, scheduledSlot } from '../scheduled-watch.mjs';
+import { savePlan } from '../watch-plan.mjs';
 import { VideoLimits } from '../video-limits.mjs';
 import { AutonomousWatch } from '../autonomous-watch.mjs';
 import { interactionStatus } from '../interaction-status.mjs';
@@ -94,4 +95,63 @@ test('普通failed退避重试不回归：15分钟内不重试，越过退避后
  watch={running:false,status:'failed',lastError:'合成异常停止'};f.setTime('2026-10-23T01:10:00Z');await schedule.tick();assert.equal(f.starts(),1,'退避窗口内不重试');
  f.setTime('2026-10-23T01:25:00Z');await schedule.tick();assert.equal(f.starts(),2,'越过退避后重试');assert.equal(schedule.state().last.status,'started');
  watch={running:false,status:'failed'};f.setTime('2026-10-23T02:40:00Z');await schedule.tick();assert.equal(f.starts(),2);f.setTime('2026-10-23T03:55:00Z');await schedule.tick();assert.equal(f.starts(),3,'同一天至多三次');f.setTime('2026-10-23T05:10:00Z');await schedule.tick();assert.equal(f.starts(),3,'第三次失败后当日不再重试');
+});
+test('日程写盘失败一次后按原分钟数补记，不被当成零分钟覆盖',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  let failed=false;
+  // 第一次结账写盘失败：这一场仍然挂在计划里，等下一轮按账本里的分钟数补记。
+  const savePlanImpl=args=>{
+    if(!failed&&args.plan?.roundSession===null&&(args.plan?.sessions||[]).length>0){failed=true;return false;}
+    return savePlan(args);
+  };
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'}),savePlanImpl});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  await schedule.tick();
+  assert.equal(f.starts(),1,'先开一场');
+  const opened=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8')).runs.at(-1);
+  assert.equal(opened.status,'started');
+  f.setTime('2026-10-23T16:05:00Z');
+  await schedule.tick();
+  assert.equal(failed,true,'第一次结账确实写盘失败');
+  const ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  const settledRun=ledger.runs.find(item=>item.key===opened.key);
+  assert.ok(settledRun.settledAt,'回执已结清');
+  assert.equal(settledRun.usedMinutes,6,'回执记下了 6 分钟');
+  const pendingPlan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.ok(pendingPlan.days['2026-10-23'].plan.roundSession,'写盘失败时这一场仍挂在计划里');
+  await schedule.tick();
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23'].plan.roundSession,null,'补记后不再挂着场次');
+  assert.equal(plan.days['2026-10-23'].plan.spentMinutes,6,'按原来的 6 分钟记账，没有被当成 0 分钟');
+});
+test('关闭允许观看后仍然把上一场结清，跨零点不留悬空账',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'})});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  await schedule.tick();
+  assert.equal(f.starts(),1,'先开一场');
+  const opened=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8')).runs.at(-1);
+  f.setTime('2026-10-23T16:05:00Z');
+  schedule.configure({enabled:false,maxRequests:30},{explicit:true});
+  await schedule.tick();
+  const ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  const settledRun=ledger.runs.find(item=>item.key===opened.key);
+  assert.ok(settledRun?.settledAt,'关闭许可后这一场也结清了');
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23'].plan.roundSession,null,'结清后不再挂着场次');
+});
+test('两个入口先后回收同一把坏锁时，不许把对方新建的有效锁归档',async t=>{
+  const f=fixture(t);
+  const schedule=new ScheduledWatch(f.options);
+  fs.writeFileSync(schedule.guardFile,'合成残留锁');
+  const stale=Date.now()/1000-10;fs.utimesSync(schedule.guardFile,stale,stale);
+  const staleStat=fs.lstatSync(schedule.guardFile);
+  // 另一个入口抢先把这把锁换成了自己的新锁。
+  const mine=JSON.stringify({pid:process.pid,token:'synthetic-other-owner'});
+  fs.writeFileSync(schedule.guardFile,mine);
+  assert.equal(schedule.archiveCorruptGuard(staleStat),false,'用旧检查结果不该动别人的新锁');
+  assert.equal(fs.readFileSync(schedule.guardFile,'utf8'),mine,'对方的新锁完好');
+  assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.corrupt-')),false,'没有产生归档');
 });

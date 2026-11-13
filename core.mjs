@@ -85,6 +85,13 @@ async function watchControl(directory,action,signal) {
       if(current?.token===token){try{unlinkSync(file);}catch{}}}
   }
 }
+// 复核路径上的还是不是刚才那把锁：两个入口可能同时来回收同一把坏锁，
+// 期间对方可能已经把这里换成了自己的新锁——那把锁不能动。
+function sameGuard(file,stat){
+  if(!stat)return false;
+  let current;try{current=statSync(file);}catch{return false;}
+  return current.ino===stat.ino&&current.size===stat.size&&Math.floor(current.mtimeMs)===Math.floor(stat.mtimeMs);
+}
 // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
 // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
 function reclaimStaleGuard(file){
@@ -93,18 +100,30 @@ function reclaimStaleGuard(file){
   if(stat.size===0){
     // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
     if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
+    if(!sameGuard(file,stat))return false;
     try{unlinkSync(file);return true;}catch{return false;}
   }
   let record;try{record=JSON.parse(readFileSync(file,'utf8'));}catch{return archiveCorruptGuard(file,stat);}
   if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return archiveCorruptGuard(file,stat);
   try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
+  if(!sameGuard(file,stat))return false;
   try{unlinkSync(file);return true;}catch{return false;}
 }
 // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
 function archiveCorruptGuard(file,stat){
   // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
   if(stat&&Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
-  try{renameSync(file,`${file}.corrupt-${Date.now()}`);return true;}catch{return false;}
+  // 动之前先确认路径上的还是那把坏锁：对方可能刚好把这里换成了自己的新锁。
+  if(!sameGuard(file,stat))return false;
+  let content;try{content=readFileSync(file,'utf8');}catch{return false;}
+  let parsed=null;try{parsed=JSON.parse(content);}catch{parsed=null;}
+  if(parsed&&Number.isSafeInteger(parsed.pid)&&parsed.pid>0)return false;
+  const archive=`${file}.corrupt-${Date.now()}`;
+  try{renameSync(file,archive);}catch{return false;}
+  // 搬走后再核对一次：如果搬走的是别人的新锁，原样放回去，别让两个入口同时进临界区。
+  let moved;try{moved=readFileSync(archive,'utf8');}catch{moved=null;}
+  if(moved!==content){try{renameSync(archive,file);}catch{}return false;}
+  return true;
 }
 async function acquireNativeVideoLease(directory,signal) {
   const file=path.join(directory,'watch-manual.lock'),token=randomUUID();
@@ -115,8 +134,11 @@ async function acquireNativeVideoLease(directory,signal) {
     if(manual&&processAlive(manual.pid))throw Object.assign(new Error('另一个入口正在手动操作视频，请等待完成。'),{status:409});
     writeFileSync(file,JSON.stringify({pid:process.pid,token,kind:'native-tool'}),{mode:0o600});
   },signal);
-  return ()=>watchControl(directory,()=>{let manual=null;try{manual=JSON.parse(readFileSync(file,'utf8'));}catch{}
-    if(manual?.pid===process.pid&&manual.token===token){try{unlinkSync(file);}catch{}}});
+  // 释放手动锁不再抢共享 watch-control.guard：
+  // 抢锁失败会抛 409，把操作本身的真实错误盖掉，还会让手动锁残留。
+  // 这里只做「确认还是我的锁就删掉」：读不到或删不掉都不抛，不影响别的入口。
+  return ()=>{let manual=null;try{manual=JSON.parse(readFileSync(file,'utf8'));}catch{}
+    if(manual?.pid===process.pid&&manual.token===token){try{unlinkSync(file);}catch{}}};
 }
 const { browserProfileDir: PROFILE, browserControlDir: CONTROL } = resolveRuntimePaths();
 const RECOMMEND = 'https://www.douyin.com/?recommend=1&from_nav=1';
@@ -872,7 +894,10 @@ export class BrowserController {
         aborted(signal);
         return this.state();
       } finally { signal?.removeEventListener('abort',onAbort); release(); }
-      } finally { await releaseNativeLease?.(); }
+      } finally {
+        // 释放手动锁失败不许盖掉操作本身的真实错误：这里只保证锁能被清掉。
+        try { await releaseNativeLease?.(); } catch {}
+      }
     });
     this.queue=operation; return operation;
   }

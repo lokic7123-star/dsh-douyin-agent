@@ -71,24 +71,43 @@ export class AutonomousWatch {
   }
   // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
   // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
+  // 复核路径上的还是不是刚才那把锁：两个入口可能同时来回收同一把坏锁，
+  // 期间对方可能已经把这里换成了自己的新锁——那把锁不能动。
+  sameGuard(stat) {
+    if (!stat) return false;
+    let current; try { current = fs.lstatSync(this.files.guard); } catch { return false; }
+    return current.ino === stat.ino && current.size === stat.size && Math.floor(current.mtimeMs) === Math.floor(stat.mtimeMs);
+  }
   reclaimStaleGuard() {
     let stat; try { stat = fs.lstatSync(this.files.guard); } catch (error) { return error.code === 'ENOENT'; }
     if (!stat.isFile() || stat.isSymbolicLink()) return false;
     if (stat.size === 0) {
       // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
       if (Date.now() - Math.floor(stat.mtimeMs) < 500) return false;
+      if (!this.sameGuard(stat)) return false;
       try { fs.unlinkSync(this.files.guard); return true; } catch { return false; }
     }
     let record; try { record = JSON.parse(fs.readFileSync(this.files.guard, 'utf8')); } catch { return this.archiveCorruptGuard(stat); }
     if (!record || !Number.isSafeInteger(record.pid) || record.pid < 1) return this.archiveCorruptGuard(stat);
     try { process.kill(record.pid, 0); return false; } catch (error) { if (error.code === 'EPERM') return false; if (error.code !== 'ESRCH') return false; }
+    if (!this.sameGuard(stat)) return false;
     try { fs.unlinkSync(this.files.guard); return true; } catch { return false; }
   }
   // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
   archiveCorruptGuard(stat) {
     // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
     if (stat && Date.now() - Math.floor(stat.mtimeMs) < 2000) return false;
-    try { fs.renameSync(this.files.guard, `${this.files.guard}.corrupt-${Date.now()}`); return true; } catch { return false; }
+    // 动之前先确认路径上的还是那把坏锁：对方可能刚好把这里换成了自己的新锁。
+    if (!this.sameGuard(stat)) return false;
+    let content; try { content = fs.readFileSync(this.files.guard, 'utf8'); } catch { return false; }
+    let parsed = null; try { parsed = JSON.parse(content); } catch { parsed = null; }
+    if (parsed && Number.isSafeInteger(parsed.pid) && parsed.pid > 0) return false;
+    const archive = `${this.files.guard}.corrupt-${Date.now()}`;
+    try { fs.renameSync(this.files.guard, archive); } catch { return false; }
+    // 搬走后再核对一次：如果搬走的是别人的新锁，原样放回去，别让两个入口同时进临界区。
+    let moved; try { moved = fs.readFileSync(archive, 'utf8'); } catch { moved = null; }
+    if (moved !== content) { try { fs.renameSync(archive, this.files.guard); } catch {} return false; }
+    return true;
   }
   control(action) {
     const token = randomUUID();

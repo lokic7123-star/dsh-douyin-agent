@@ -165,14 +165,15 @@ export function ensurePlan({ stateDir = resolveRuntimePaths().stateDir, date = p
 }
 
 // 保存当天的最新日程（每场结束后记账）。
+// 返回 true 表示这次真的落盘了。写不下去时必须让调用方知道：
+// 结账写回失败若被悄悄吞掉，下一轮就会按 0 分钟把已经记过的时长覆盖掉。
 export function savePlan({ stateDir = resolveRuntimePaths().stateDir, date = planDate(), plan, now = Date.now() } = {}) {
-  if (!plan) return plan;
+  if (!plan) return false;
   const file = planFile(stateDir);
   const stored = loadFile(file);
   const days = { ...(stored?.days ?? {}) };
   days[date] = { plan, spentMinutes: Number.isFinite(plan.spentMinutes) ? plan.spentMinutes : 0 };
-  persistDays(file, days, now);
-  return plan;
+  return persistDays(file, days, now);
 }
 
 function persistDays(file, days, now) {
@@ -185,8 +186,11 @@ function persistDays(file, days, now) {
   }
   try {
     writeFile(file, { version: PLAN_VERSION, updatedAt: new Date(now).toISOString(), days: trimmed });
+    return true;
   } catch {
-    // 日程写不下去时仍然按内存里的计划执行，不因为记录失败而阻断观看。
+    // 日程写不下去时仍然按内存里的计划执行，不因为记录失败而阻断观看；
+    // 但要如实告诉调用方「这次没写进去」，好让结账留在待结状态等下一轮补记。
+    return false;
   }
 }
 

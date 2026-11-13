@@ -20,7 +20,7 @@ function policyOf(value){if(!value||Array.isArray(value)||Object.keys(value).som
 // 启动本身不构成「想刷」——第一次看要等一个随机点；每场看多久、两场之间歇多久都随机；
 // 一天可能看不满，也可能一场都不看。异常保留到人工处理。
 export class ScheduledWatch {
-  constructor({stateDir=resolveRuntimePaths().stateDir,getVideoLimits,getWatchState,startRound,source='api',now=Date.now,intervalMs=5000,random=Math.random,firstDelayMinutes=null,allowLazy=true}={}){Object.assign(this,{stateDir,getVideoLimits,getWatchState,startRound,source,now,intervalMs,random,firstDelayMinutes,allowLazy});this.policyFile=path.join(stateDir,'watch-schedule-policy.json');this.ledgerFile=path.join(stateDir,'watch-schedule-runs.json');this.guardFile=path.join(stateDir,'watch-schedule.guard');this.closed=false;}
+  constructor({stateDir=resolveRuntimePaths().stateDir,getVideoLimits,getWatchState,startRound,source='api',now=Date.now,intervalMs=5000,random=Math.random,firstDelayMinutes=null,allowLazy=true,savePlanImpl=null}={}){Object.assign(this,{stateDir,getVideoLimits,getWatchState,startRound,source,now,intervalMs,random,firstDelayMinutes,allowLazy});this.policyFile=path.join(stateDir,'watch-schedule-policy.json');this.ledgerFile=path.join(stateDir,'watch-schedule-runs.json');this.guardFile=path.join(stateDir,'watch-schedule.guard');this.closed=false;this.savePlanImpl=savePlanImpl||savePlan;}
   policy(){return policyOf(load(this.policyFile,{...defaultPolicy}));}
   ledger(){const value=load(this.ledgerFile,{version:1,runs:[]});if(value?.version!==1||!Array.isArray(value.runs)||value.runs.some(item=>!item?.key||!['starting','started','failed','occupied','completed','acknowledged'].includes(item.status)))throw new Error('自动观看回执损坏，未覆盖或重试。');return value;}
   // 自动观看回执只增不减：保留最近 30 天与最近 200 条，超出的旧回执清掉。
@@ -32,24 +32,43 @@ export class ScheduledWatch {
   state(){const policy=this.policy(),ledger=this.ledger(),last=ledger.runs.at(-1)||null,lastError=Object.hasOwn(ledger,'lastError')?ledger.lastError:last?.status==='failed'?last.error||this.error||'自主观看异常停止，请检查后重新开启允许观看。':this.error||'';return{protocol:'scheduled-watch-v2',policy,last,busy:Boolean(this.pending),lastError,note:'允许观看后，按当天的随机日程自己看：不会一开开关就开抖音，每场看多久、两场之间歇多久都随机；登录、验证或运行异常需要处理后重新开启允许观看。'};}
   // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
   // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
+  // 复核路径上的还是不是刚才那把锁：两个入口可能同时来回收同一把坏锁，
+  // 期间对方可能已经把这里换成了自己的新锁——那把锁不能动。
+  sameGuard(stat){
+    if(!stat)return false;
+    let current;try{current=fs.lstatSync(this.guardFile);}catch{return false;}
+    return current.ino===stat.ino&&current.size===stat.size&&Math.floor(current.mtimeMs)===Math.floor(stat.mtimeMs);
+  }
   reclaimStaleGuard(){
     let stat;try{stat=fs.lstatSync(this.guardFile);}catch(error){return error.code==='ENOENT';}
     if(!stat.isFile()||stat.isSymbolicLink())return false;
     if(stat.size===0){
       // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
       if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
+      if(!this.sameGuard(stat))return false;
       try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
     }
     let record;try{record=JSON.parse(fs.readFileSync(this.guardFile,'utf8'));}catch{return this.archiveCorruptGuard(stat);}
     if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return this.archiveCorruptGuard(stat);
     try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
+    if(!this.sameGuard(stat))return false;
     try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
   }
   // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
   archiveCorruptGuard(stat){
     // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
     if(stat&&Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
-    try{fs.renameSync(this.guardFile,`${this.guardFile}.corrupt-${Date.now()}`);return true;}catch{return false;}
+    // 动之前先确认路径上的还是那把坏锁：对方可能刚好把这里换成了自己的新锁。
+    if(!this.sameGuard(stat))return false;
+    let content;try{content=fs.readFileSync(this.guardFile,'utf8');}catch{return false;}
+    let parsed=null;try{parsed=JSON.parse(content);}catch{parsed=null;}
+    if(parsed&&Number.isSafeInteger(parsed.pid)&&parsed.pid>0)return false;
+    const archive=`${this.guardFile}.corrupt-${Date.now()}`;
+    try{fs.renameSync(this.guardFile,archive);}catch{return false;}
+    // 搬走后再核对一次：如果搬走的是别人的新锁，原样放回去，别让两个入口同时进临界区。
+    let moved;try{moved=fs.readFileSync(archive,'utf8');}catch{moved=null;}
+    if(moved!==content){try{fs.renameSync(archive,this.guardFile);}catch{}return false;}
+    return true;
   }
   control(action){
     fs.mkdirSync(this.stateDir,{recursive:true});
@@ -88,12 +107,20 @@ export class ScheduledWatch {
   randomFirstDelay(){const minutes=Number.isFinite(this.firstDelayMinutes)?Math.max(0,Math.floor(this.firstDelayMinutes)):10+Math.floor(this.random()*36);return minutes*60000;}
   start(){if(!this.timer){this.deferFirstStart();this.timer=setInterval(()=>{void this.tick();},this.intervalMs);this.timer.unref?.();void this.tick();}return this;}
   tick(){if(this.closed||this.pending)return this.pending||Promise.resolve(this.state());this.pending=this.perform().catch(error=>{if(error.code!=='SCHEDULE_BUSY'){this.error=explain(error);try{this.control(()=>{const ledger=this.ledger();ledger.lastError=this.error;write(this.ledgerFile,ledger);});}catch{}}}).finally(()=>{this.pending=null;});return this.pending;}
-  async perform(){const limits=await this.getVideoLimits();if(!this.policy().enabled){this.abort?.abort(new Error('已关闭允许观看。'));limits.settleWatching?.();return;}
+  async perform(){const limits=await this.getVideoLimits();
     const time=limits.state();
-    const manual=load(path.join(this.stateDir,'watch-manual.lock'),null);
-    if(manual){if(!Number.isSafeInteger(manual.pid)||manual.pid<1||typeof manual.token!=='string')throw new Error('手动视频操作锁无法核对，未启动自主观看。');try{process.kill(manual.pid,0);return;}catch(error){if(error.code==='EPERM')return;if(error.code!=='ESRCH')throw error;}}
     const watch=await this.getWatchState();
     const now=this.now(),date=planDate(now),windowEnd=Number.isFinite(time.window?.expiresAt)?time.window.expiresAt:null;
+    // 关闭允许观看时也要把上一场结清：结账是记账，不是播放。
+    // 少了这一步，跨过零点后回执会一直悬着，那一笔账永远记不上。
+    if(!this.policy().enabled){
+      this.settleRound({watch,now,date});
+      this.abort?.abort(new Error('已关闭允许观看。'));
+      limits.settleWatching?.();
+      return;
+    }
+    const manual=load(path.join(this.stateDir,'watch-manual.lock'),null);
+    if(manual){if(!Number.isSafeInteger(manual.pid)||manual.pid<1||typeof manual.token!=='string')throw new Error('手动视频操作锁无法核对，未启动自主观看。');try{process.kill(manual.pid,0);return;}catch(error){if(error.code==='EPERM')return;if(error.code!=='ESRCH')throw error;}}
     const plan=ensurePlan({stateDir:this.stateDir,date,policy:time.policy,now,random:this.random,firstDelayMinutes:this.firstDelayMinutes,allowLazy:this.allowLazy});
     // 上一场的结局先结清：自主观看已经停了（看完了、异常了、还是等着本人处理），
     // 就把这一场记掉，再决定歇多久开下一场——随机日程不能盖掉真实结局。
@@ -103,7 +130,7 @@ export class ScheduledWatch {
     if(!time.allowed)return;
     if(watch?.running||watch?.busy||watch?.pendingRequests>0)return;
     const session=planSession({plan,now,random:this.random,windowEnd});if(!session)return;
-    if(plan.roundSession?.key!==session.key)savePlan({stateDir:this.stateDir,date,plan:{...plan,roundSession:session},now});
+    if(plan.roundSession?.key!==session.key)this.savePlanImpl({stateDir:this.stateDir,date,plan:{...plan,roundSession:session},now});
     const key=session.key;let operation;this.control(()=>{if(!this.policy().enabled)return;const ledger=this.ledger();
       const entries=ledger.runs.filter(item=>item.key===key),last=entries.at(-1);
       if(last?.status==='occupied'&&last.requiresUser===true){
@@ -156,10 +183,26 @@ export class ScheduledWatch {
           settled=true;failed=true;return;
         }
         if(!watch?.running){
+          // 这一场已经结束：先按实际时长把账记上。
+          // 记下的分钟数要跟着这场走，日程写失败时下一轮还能按原数补记，
+          // 不会被当成「没看成」按 0 分钟覆盖掉。
           const used=Math.max(0,Math.min(Number.isFinite(session.minutes)?session.minutes:0,Math.round((now-session.startAt)/60000)));
           pending.settledAt=new Date(now).toISOString();pending.usedMinutes=used;write(this.ledgerFile,ledger);
           settled=true;failed=false;usedMinutes=used;return;
         }
+        return;
+      }
+      // 没有待结的回执，但有一场已经结过账、日程却还没写回去：
+      // 说明上一次写盘失败。按账本里已记下的分钟数补记一次，不按 0 分钟覆盖。
+      // 注意「占用」分两种：等本人处理的（requiresUser）这一场就此结束；
+      // 只是被聊天采样占住的（没有 requiresUser）这一场还要留着继续用，不能在这里结掉。
+      const writtenRuns=ledger.runs.filter(item=>(item.settledAt||item.status==='failed'||(item.status==='occupied'&&item.requiresUser===true))&&item.key);
+      const unwritten=candidates.find(item=>writtenRuns.some(run=>run.key===item.plan.roundSession?.key));
+      if(unwritten){
+        const run=writtenRuns.find(item=>item.key===unwritten.plan.roundSession?.key);
+        session=unwritten.session;owner=unwritten;settled=true;
+        failed=run?.status==='failed'||run?.status==='occupied';
+        usedMinutes=failed?0:(Number.isFinite(run?.usedMinutes)?run.usedMinutes:0);
         return;
       }
       // 没有待结的回执，但场次时间已经过去（换了实例或进程重启过，没开起来）：按没看成记账，不占今天的时长。
@@ -167,8 +210,12 @@ export class ScheduledWatch {
       if(expired){session=expired.session;owner=expired;settled=true;failed=false;usedMinutes=0;}
     });
     if(!settled)return false;
+    if(!owner?.plan||!owner?.date)return true;
     // 记账写回这一场所属的那一天（可能不是今天）。
-    if(owner?.plan&&owner?.date)savePlan({stateDir:this.stateDir,date:owner.date,plan:closeSession({plan:owner.plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});
+    const written=this.savePlanImpl({stateDir:this.stateDir,date:owner.date,plan:closeSession({plan:owner.plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});
+    // 日程写不下去时，这场仍然挂在计划里，等下一轮按账本里已记下的分钟数再记一次：
+    // 不会被当成「没看成」按 0 分钟覆盖掉。这一轮到此为止，不再开新的一场。
+    if(!written)this.planWriteFailed=true;else this.planWriteFailed=false;
     return true;
   }
   finish(id,status,sessionId,error=''){this.control(()=>{const ledger=this.ledger(),entry=ledger.runs.find(item=>item.id===id);if(!entry)throw new Error('自动观看回执丢失');Object.assign(entry,{status,sessionId,completedAt:new Date(this.now()).toISOString(),...(error?{error}:{})});ledger.lastError=status==='failed'?error:'';this.pruneLedger(ledger);write(this.ledgerFile,ledger);});}
