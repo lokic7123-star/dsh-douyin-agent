@@ -83,8 +83,12 @@ export class VideoLimits {
         if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
           try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
         }
-        // 上一位回收方已经不在了：清掉这把旁路锁再试一次。
-        try{fs.unlinkSync(file);}catch{}
+        // 上一位回收方已经不在了：把残骸原子地搬到自己手里，再腾出原路径建新锁。
+        // rename 只有一个调用方能成功——没抢到的（残骸已被对方搬走）只能让路；
+        // 绝不能按路径去删别人的新锁，那是上一版互斥失效的根源。
+        const taken=`${file}.taken-${randomUUID()}`;
+        try{fs.renameSync(file,taken);}catch{continue;}
+        try{fs.unlinkSync(taken);}catch{}
         continue;
       }
       const owner={pid:process.pid,token:randomUUID()};

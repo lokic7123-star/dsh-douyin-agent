@@ -298,3 +298,99 @@ test('同一天的两笔历史回执都要记进去，不能只留最后一笔',
   assert.ok(day.sessions.some(item=>item.key==='2026-10-22#0'),'第一笔在账里');
   assert.ok(day.sessions.some(item=>item.key==='2026-10-22#1'),'第二笔也在账里');
 });
+test('两个回收方抢同一把残留旁路锁，只有一个能拿到回收权',async t=>{
+  const f=fixture(t);
+  const first=new ScheduledWatch(f.options);
+  const second=new ScheduledWatch(f.options);
+  // 残留的旁路锁：上一个回收方已经死了（pid 2147483647 不会活着）。
+  fs.writeFileSync(first.reclaimLockFile(),JSON.stringify({pid:2147483647,owner:'synthetic-dead-reclaimer'}));
+  const stale=Date.now()/1000-10;fs.utimesSync(first.reclaimLockFile(),stale,stale);
+  // A（first）判断旧持有者已死、正要动手的那一刻，B（second）抢先清掉残留并拿到新锁。
+  const originalWrite=fs.writeFileSync;
+  let hooked=false;
+  fs.writeFileSync=(file,...rest)=>{
+    if(hooked&&String(file)===second.reclaimLockFile()){
+      fs.writeFileSync=originalWrite;
+      hooked=false;
+      // B 趁 A 的间隙把残留清掉、写进自己的新锁。
+      fs.unlinkSync(second.reclaimLockFile());
+      return originalWrite(file,...rest);
+    }
+    return originalWrite(file,...rest);
+  };
+  try{
+    const a=first.takeReclaimLock();
+    hooked=true;
+    const b=second.takeReclaimLock();
+    assert.equal(a&&b,false,'两个回收方不能同时拿到回收权');
+    assert.notEqual(a,b,'总有且只有一个成功');
+  }finally{fs.writeFileSync=originalWrite;}
+  // 拿到回收权的那位能正常释放；没拿到的不能删掉对方的锁。
+  if(first.reclaimOwner){first.releaseReclaimLock();assert.equal(fs.existsSync(second.reclaimLockFile()),false,'持有者释放后旁路锁被清掉');}
+  else{second.releaseReclaimLock();assert.equal(fs.existsSync(second.reclaimLockFile()),false,'持有者释放后旁路锁被清掉');}
+});
+test('补记重试沿用首次结算的分钟数，不会越重算越多',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  let failed=false;
+  const savePlanImpl=args=>{
+    if(!failed&&args.plan?.sessions?.length){failed=true;return false;}
+    return savePlan(args);
+  };
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'}),savePlanImpl});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  // 原回执在首次结算时已经算出 3 分钟（startAt 15:59Z、settle 时钟 16:02Z）。
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[{
+    key:'2026-10-23#0',round:0,id:'synthetic-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),
+    minutes:6,startedAt:new Date(Date.parse('2026-10-23T15:59:00Z')).toISOString(),status:'started',
+  }]},null,2));
+  f.setTime('2026-10-23T16:02:00Z');
+  await schedule.tick();
+  assert.equal(failed,true,'首次补记写失败');
+  let ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  assert.equal(ledger.runs[0].usedMinutes,3,'账本留住了首次结算的 3 分钟');
+  // 时钟推进 3 分钟后重试：必须仍按首次结算的 3 分钟补记，不能用新时钟重算成 6 分钟。
+  f.setTime('2026-10-23T16:05:00Z');
+  await schedule.tick();
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23'].plan.spentMinutes,3,'重试沿用首次结算值，不重算');
+  ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  assert.equal(ledger.runs[0].usedMinutes,3,'账本里的分钟数也没有被改大');
+});
+test('补写日程和撤回结清标记都失败时，重建实例后仍能按标记补记',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  let failed=false;
+  const savePlanImpl=args=>{
+    if(!failed&&args.plan?.sessions?.length){failed=true;return false;}
+    return savePlan(args);
+  };
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'}),savePlanImpl});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  // 直接构造上一轮失败后留下的状态：回执已结清（settledAt 在）、分钟数已算好（6 分钟）、
+  // 待补记标记也在——正是「补记写盘失败、连撤回结清标记也失败」之后账本里该有的样子。
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[{
+    key:'2026-10-23#0',round:0,id:'synthetic-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),
+    minutes:6,startedAt:new Date(Date.parse('2026-10-23T15:59:00Z')).toISOString(),status:'started',
+    settledAt:new Date(Date.parse('2026-10-23T16:05:00Z')).toISOString(),
+    usedMinutes:6,creditPending:true,
+  }]},null,2));
+  await schedule.tick();
+  assert.equal(failed,true,'补记确实尝试写盘但失败');
+  // 补记写盘失败后撤回结清标记（下一轮 pending 分支会沿用账本里的 6 分钟重试）；
+  // 「待补记」标记持久留在账本里——这是认出这笔欠账的依据，撤回成败都不丢账。
+  let ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  assert.equal(ledger.runs[0].settledAt,undefined,'补记失败后撤回结清，下一轮重试');
+  assert.equal(ledger.runs[0].creditPending,true,'待补记标记已持久写进账本');
+  let plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days?.['2026-10-23']?.plan?.spentMinutes||0,0,'日程里仍然没有这笔');
+  // 重建实例（换进程重启的场景）：不依赖任何内存状态，只看账本。
+  const revived=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'})});
+  await revived.tick();
+  plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23'].plan.spentMinutes,6,'重建实例后按标记补记成功');
+  ledger=JSON.parse(fs.readFileSync(schedule.ledgerFile,'utf8'));
+  assert.equal(ledger.runs[0].creditPending,undefined,'补记成功后标记被清掉');
+});

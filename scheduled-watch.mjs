@@ -56,12 +56,23 @@ export class ScheduledWatch {
         if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
           try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
         }
-        // 上一位回收方已经不在了：清掉这把旁路锁再试一次。
-        try{fs.unlinkSync(file);}catch{}
+        // 上一位回收方已经不在了：把残骸原子地搬到自己手里，再腾出原路径建新锁。
+        // rename 只有一个调用方能成功——没抢到的（残骸已被对方搬走）只能让路；
+        // 绝不能按路径去删别人的新锁，那是上一版互斥失效的根源。
+        const taken=`${file}.taken-${randomUUID()}`;
+        try{fs.renameSync(file,taken);}catch{continue;}
+        try{fs.unlinkSync(taken);}catch{}
         continue;
       }
+      // 拿到 fd 只是「我先创建了文件」，还要确认自己是唯一持有者：
+      // 立刻写上自己的 owner 并关掉 fd，读回内容比对 token，
+      // 对不上说明有另一个回收方同时拿到了这把锁，让路。
       const owner={pid:process.pid,token:randomUUID()};
-      try{fs.writeFileSync(fd,JSON.stringify(owner));}finally{fs.closeSync(fd);}
+      try{
+        fs.writeFileSync(fd,JSON.stringify(owner));
+      }finally{fs.closeSync(fd);}
+      let current=null;try{current=JSON.parse(fs.readFileSync(file,'utf8'));}catch{current=null;}
+      if(current?.token!==owner.token)return false;
       this.reclaimOwner=owner;return true;
     }
     return false;
@@ -223,6 +234,20 @@ export class ScheduledWatch {
     let settled=false,failed=false,usedMinutes=0,owner=null,session=null;
     this.control(()=>{
       const ledger=this.ledger();
+      // 「账本已结清、日程还没入账」的回执：直接按账本里留住的首次结算值补记。
+      // 不依赖日程里挂着的那一场（开场就没落盘的场根本不在日程里），
+      // 也不依赖这一轮有没有待结的新回执——上一轮补记写盘失败时留下的
+      // creditPending 标记，每一轮 tick 都要认出来接着补。
+      const owed=ledger.runs.find(item=>item.settledAt&&item.creditPending===true)
+        ||ledger.runs.filter(item=>item.creditPending===true)
+          .sort((a,b)=>Number(a.startAt||0)-Number(b.startAt||0))[0]||null;
+      if(owed){
+        session={key:owed.key,round:owed.round,startAt:owed.startAt,expiresAt:owed.expiresAt,minutes:owed.minutes};
+        owner=null;settled=true;
+        failed=owed.status==='failed'||owed.status==='occupied';
+        usedMinutes=failed?0:(Number.isFinite(owed.usedMinutes)?owed.usedMinutes:0);
+        return;
+      }
       // 还没结清的回执：这一场已经跑完，但账还没记上。最早的那场先结。
       const pending=ledger.runs.filter(item=>item.status==='started'&&!item.settledAt)
         .sort((a,b)=>Number(a.startAt||0)-Number(b.startAt||0))[0]||null;
@@ -241,10 +266,19 @@ export class ScheduledWatch {
         }
         if(!watch?.running){
           // 这一场已经结束：先按实际时长把账记上。
-          // 记下的分钟数要跟着这场走，日程写失败时下一轮还能按原数补记，
-          // 不会被当成「没看成」按 0 分钟覆盖掉。
-          const used=Math.max(0,Math.min(Number.isFinite(session.minutes)?session.minutes:0,Math.round((now-session.startAt)/60000)));
-          pending.settledAt=new Date(now).toISOString();pending.usedMinutes=used;write(this.ledgerFile,ledger);
+          // 记下的分钟数要跟着这场走：重试补记时沿用首次结算值，
+          // 不能用现在的时钟重算——时钟推进后重算会把 3 分钟算成 6 分钟。
+          const used=Number.isFinite(pending.usedMinutes)
+            ? pending.usedMinutes
+            : Math.max(0,Math.min(Number.isFinite(session.minutes)?session.minutes:0,Math.round((now-session.startAt)/60000)));
+          pending.settledAt=new Date(now).toISOString();
+          // 首次结算值要留在账本里：补记重试沿用它，不用推进后的时钟重算。
+          pending.usedMinutes=used;
+          // 补记（把分钟数落进日程）可能写不进去：打上「待补记」标记，
+          // 之后的每一轮 tick 都能从账本里认出这笔账还没落到日程，
+          // 不依赖日程里还挂着的那一场（开场就没落盘的场根本不在日程里）。
+          pending.creditPending=true;
+          write(this.ledgerFile,ledger);
           settled=true;failed=false;usedMinutes=used;return;
         }
         return;
@@ -272,7 +306,18 @@ export class ScheduledWatch {
       const written=this.savePlanImpl({stateDir:this.stateDir,date:owner.date,plan:closeSession({plan:owner.plan,session,cooldown:failed?0:cooldownMinutes(this.random),failed,usedMinutes,now}),now});
       // 日程写不下去时，这场仍然挂在计划里，等下一轮按账本里已记下的分钟数再记一次：
       // 不会被当成「没看成」按 0 分钟覆盖掉。这一轮到此为止，不再开新的一场。
-      if(!written)this.planWriteFailed=true;else this.planWriteFailed=false;
+      if(!written)this.planWriteFailed=true;
+      else{
+        this.planWriteFailed=false;
+        // 这一场的账已经真的落进日程了：把「待补记」标记清掉，
+        // 不然下一轮 tick 会把它当成欠账再补一次。
+        this.control(()=>{
+          const ledger=this.ledger();
+          const entry=ledger.runs.find(item=>item.key===session.key);
+          if(!entry||entry.creditPending!==true)return;
+          delete entry.creditPending;write(this.ledgerFile,ledger);
+        });
+      }
       return true;
     }
     // 这一场从来没落盘过（开场写盘失败）：日程里没有它，只能按场次编号把它属于的那天找回来，
@@ -286,13 +331,25 @@ export class ScheduledWatch {
     // 不能因为这份日程是补记出来的（recovered）就丢掉前面已经记下的时长和场次。
     const base=existing||recoveredPlan(derived);
     const credited=creditSession({plan:base,session,usedMinutes,failed,now});
+    // 这场如果还挂在日程里（结账写回失败过的那一场），补记完就要把它摘下来：
+    // 账已经记进 sessions 了，再挂着会让下一轮的结账分支把同一场再记一次。
+    if(credited.roundSession?.key===session.key)credited.roundSession=null;
     const written=this.savePlanImpl({stateDir:this.stateDir,date:derived,plan:credited,now});
     if(!written){
       this.planWriteFailed=true;
-      // 补记没写回去就不能算结清：把账本里的结清标记撤掉，
-      // 下一轮按账本里同样的分钟数再补一次，不会永远漏掉这一笔。
+      // 补记没写回去：待补记标记必须留在账本里，下一轮要靠它认出这笔账还没落到日程；
+      // 同时把结清标记撤掉，下一轮按账本里同样的分钟数再补一次，不会永远漏掉这一笔。
       this.reopenSettledRun(session.key);
-    }else this.planWriteFailed=false;
+    }else{
+      // 只有真的写进去了才能清标记：写失败就清，下一轮就再也认不出这笔欠账了。
+      this.control(()=>{
+        const ledger=this.ledger();
+        const entry=ledger.runs.find(item=>item.key===session.key);
+        if(!entry||entry.creditPending!==true)return;
+        delete entry.creditPending;write(this.ledgerFile,ledger);
+      });
+      this.planWriteFailed=false;
+    }
     return true;
   }
   // 撤回结清标记：这笔账还没落到日程里，等下一轮重试。
