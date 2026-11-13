@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -94,70 +94,71 @@ async function watchControl(directory,action,signal) {
 // 锁只在「确定没人持有」的时候原地删掉，绝不搬到别处再放回来。
 // 持有者还活着的锁一律不碰。
 function reclaimLockFile(file){return `${file}.reclaim`;}
+// 回收权本身也要互斥，而且要经得起「读到结论之后世界又变了」：
+// 任何「先校验后写入」都封不住——校验发生在过去，写发生在未来。
+// 唯一靠得住的原子动作是 create-if-not-exists（'wx' 打开：文件已存在就失败）。
+// 回收权用「代号递增」的文件名：<file>.reclaim.<N>（旧版固定名 .reclaim 记作代号 0）。
+// 所有回收方从同一份目录清单推出同一个下一步（最大代号 G 的残骸已死 ⇒ 下一个是 G+1），
+// 用 'wx' 原子创建，只有一个能成功；输家重扫时看到活持有者就让路。
+function reclaimLocks(file){
+  const dir=path.dirname(file),prefix=`${path.basename(file)}.reclaim`;
+  let names=[];try{names=readdirSync(dir);}catch{names=[];}
+  const locks=[];
+  for(const name of names){
+    if(name===prefix){locks.push({path:path.join(dir,name),generation:0});continue;}
+    const match=new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\.(\\d+)$`).exec(name);
+    if(match)locks.push({path:path.join(dir,name),generation:Number(match[1])});
+  }
+  return locks.sort((a,b)=>b.generation-a.generation);
+}
 function takeReclaimLock(file){
-  const reclaim=reclaimLockFile(file);
-  for(let attempt=0;attempt<2;attempt++){
-    let descriptor;
-    try{descriptor=openSync(reclaim,'wx',0o600);}
-    catch(error){
-      if(error.code!=='EEXIST')return false;
-      let stat;try{stat=statSync(reclaim);}catch{continue;}
+  for(let attempt=0;attempt<3;attempt++){
+    let blocked=false,maxGeneration=0;
+    for(const lock of reclaimLocks(file)){
+      maxGeneration=Math.max(maxGeneration,lock.generation);
+      let stat=null;try{stat=statSync(lock.path);}catch{continue;}
       // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
-      if(stat.size===0&&Date.now()-Math.floor(stat.mtimeMs)<500)return false;
-      let deadContent=null;try{deadContent=readFileSync(reclaim,'utf8');}catch{deadContent=null;}
-      let record=null;try{record=JSON.parse(deadContent);}catch{record=null;}
+      if(stat.size===0&&Date.now()-Math.floor(stat.mtimeMs)<500){blocked=true;break;}
+      let record=null;try{record=JSON.parse(readFileSync(lock.path,'utf8'));}catch{record=null;}
       if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
-        try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
+        try{process.kill(record.pid,0);blocked=true;break;}catch(error){if(error.code!=='ESRCH'){blocked=true;break;}}
       }
-      // 上一位回收方已经不在了：原地接管这把残骸——不搬走、不腾空路径。
-      // 先给路径建一个硬链接把「我读到的这把」钉住：之后所有校验和写入都走链接（绑 inode），
-      // 别人替换路径也不影响链接指到的那份文件。
-      const pinned=`${reclaim}.pinned-${randomUUID()}`;
-      try{linkSync(reclaim,pinned);}catch{continue;}
-      let owner=null;
-      try{
-        // 链接到的必须还是我读到的残骸：对方已接管过的话这里读到的就是别人的 owner——让路。
-        let pinnedContent=null;try{pinnedContent=readFileSync(pinned,'utf8');}catch{pinnedContent=null;}
-        if(pinnedContent!==deadContent){
-          try{unlinkSync(pinned);}catch{}
-          return false;
-        }
-        // 路径还得指着同一个文件：期间被换成了新文件就别动。
-        let pathStat=null,linkStat=null;
-        try{pathStat=statSync(reclaim);linkStat=statSync(pinned);}catch{pathStat=null;}
-        if(!pathStat||pathStat.ino!==linkStat.ino){
-          try{unlinkSync(pinned);}catch{}
-          return false;
-        }
-        const candidate={pid:process.pid,token:randomUUID()};
-        let handle;
-        try{handle=openSync(pinned,'r+',0o600);}catch{handle=null;}
-        if(handle!==null){
-          try{
-            ftruncateSync(handle,0);
-            writeFileSync(handle,JSON.stringify(candidate));
-            fsyncSync(handle);
-          }finally{closeSync(handle);}
-          // 最后从路径读回校验：token 对得上说明路径仍指着我写的那份，
-          // 对不上说明接管竞态输了（我写进了被换下的旧文件），让路。
-          let current=null;try{current=JSON.parse(readFileSync(reclaim,'utf8'));}catch{current=null;}
-          if(current?.token===candidate.token)owner=candidate;
-        }
-      }finally{try{unlinkSync(pinned);}catch{}}
-      if(!owner)return false;
-      return owner;
+      // 持有者已死的残骸：不挡路，但它的代号要算进「下一步」里。
     }
-    const owner={pid:process.pid,token:randomUUID()};
+    if(blocked)return null;
+    // 清单里的旁路锁全是死残骸：下一步的路径唯一且确定——最大代号 +1。
+    const target=path.join(path.dirname(file),`${path.basename(file)}.reclaim.${maxGeneration+1}`);
+    const owner={pid:process.pid,token:randomUUID(),file:target};
+    let descriptor;
+    try{descriptor=openSync(target,'wx',0o600);}
+    catch(error){
+      if(error.code!=='EEXIST')return null;
+      continue; // 别人抢先创建了：重扫一轮，会看到对方的活 pid 让路。
+    }
     try{writeFileSync(descriptor,JSON.stringify(owner));}finally{closeSync(descriptor);}
+    // 创建成功后再确认一遍没有别的活持有者（防御性校验）。
+    const others=reclaimLocks(file).filter(lock=>lock.path!==target);
+    for(const lock of others){
+      let record=null;try{record=JSON.parse(readFileSync(lock.path,'utf8'));}catch{record=null;}
+      if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
+        let alive=true;
+        try{process.kill(record.pid,0);}catch{alive=false;}
+        if(alive){try{unlinkSync(target);}catch{}return null;}
+      }
+    }
+    // 我是唯一持有者：顺手把更老代号的残骸清掉（它们的持有者都已核实死亡）。
+    for(const lock of others){
+      if(lock.generation>=maxGeneration+1)continue;
+      try{unlinkSync(lock.path);}catch{}
+    }
     return owner;
   }
   return null;
 }
 function releaseReclaimLock(file,owner){
   if(!owner)return;
-  const reclaim=reclaimLockFile(file);
-  let current=null;try{current=JSON.parse(readFileSync(reclaim,'utf8'));}catch{}
-  if(current?.token===owner.token){try{unlinkSync(reclaim);}catch{}}
+  let current=null;try{current=JSON.parse(readFileSync(owner.file,'utf8'));}catch{}
+  if(current?.token===owner.token){try{unlinkSync(owner.file);}catch{}}
 }
 // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
 // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。

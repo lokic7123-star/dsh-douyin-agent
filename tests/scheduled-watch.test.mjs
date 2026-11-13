@@ -458,7 +458,7 @@ test('三个入口抢同一把残留旁路锁，至多一个持有回收权',asy
   const a=new ScheduledWatch({...f.options});
   const b=new ScheduledWatch({...f.options});
   const c=new ScheduledWatch({...f.options});
-  // 残留旁路锁：持有者已退出。
+  // 残留旁路锁：持有者已退出（旧版固定名，记作代号 0）。
   const guard=a.reclaimLockFile();
   fs.writeFileSync(guard,JSON.stringify({pid:2147483647,owner:'synthetic-stale-reclaim'}));
   const staleTime=Date.now()/1000-10;
@@ -469,13 +469,26 @@ test('三个入口抢同一把残留旁路锁，至多一个持有回收权',asy
   }
   const wins=results.filter(result=>result===true).length;
   assert.ok(wins<=1,'至多一个入口拿到回收权');
-  // 赢家的 token 必须还写在文件里——不能被后动手的覆盖。
+  // 赢家的 token 必须还写在它自己那把锁里——不能被后动手的覆盖。
   if(wins===1){
     const winner=results.indexOf(true);
     const owner=[a,b,c][winner].reclaimOwner;
-    const current=JSON.parse(fs.readFileSync(guard,'utf8'));
+    const current=JSON.parse(fs.readFileSync(owner.file,'utf8'));
     assert.equal(current.token,owner.token,'赢家的 token 还在锁文件里');
+    // 更老代号的残骸（旧固定名）已被赢家清理。
+    assert.equal(fs.existsSync(guard),false,'老代号的残骸被清掉了');
   }
+});
+
+test('第一个持有者没释放之前，第二个入口拿不到回收权',async t=>{
+  const f=fixture(t,'2026-10-23T00:59:00Z');
+  const a=new ScheduledWatch({...f.options});
+  const b=new ScheduledWatch({...f.options});
+  assert.equal(a.takeReclaimLock(),true,'第一个入口拿到回收权');
+  assert.equal(b.takeReclaimLock(),false,'持有者未释放时第二个入口必须让路');
+  // 释放之后，第二个入口就能拿到（新代号）。
+  a.releaseReclaimLock();
+  assert.equal(b.takeReclaimLock(),true,'释放后第二个入口能拿到新代号的回收权');
 });
 
 test('同场重试时清标记要落到新回执上，不能命中旧回执',async t=>{

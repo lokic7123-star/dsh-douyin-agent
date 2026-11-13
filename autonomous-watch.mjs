@@ -81,71 +81,73 @@ export class AutonomousWatch {
   // 锁只在「确定没人持有」的时候原地删掉，绝不搬到别处再放回来。
   // 持有者还活着的锁一律不碰。
   reclaimLockFile() { return `${this.files.guard}.reclaim`; }
+  // 回收权本身也要互斥，而且要经得起「读到结论之后世界又变了」：
+  // 任何「先校验后写入」都封不住——校验发生在过去，写发生在未来。
+  // 唯一靠得住的原子动作是 create-if-not-exists（'wx' 打开：文件已存在就失败）。
+  // 回收权用「代号递增」的文件名：<guard>.reclaim.<N>（旧版固定名 .reclaim 记作代号 0）。
+  // 所有回收方从同一份目录清单推出同一个下一步（最大代号 G 的残骸已死 ⇒ 下一个是 G+1），
+  // 用 'wx' 原子创建，只有一个能成功；输家重扫时看到活持有者就让路。
+  reclaimLocks() {
+    const dir = path.dirname(this.files.guard), prefix = `${path.basename(this.files.guard)}.reclaim`;
+    let names = []; try { names = fs.readdirSync(dir); } catch { names = []; }
+    const locks = [];
+    for (const name of names) {
+      if (name === prefix) { locks.push({ path: path.join(dir, name), generation: 0 }); continue; }
+      const match = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(\\d+)$`).exec(name);
+      if (match) locks.push({ path: path.join(dir, name), generation: Number(match[1]) });
+    }
+    return locks.sort((a, b) => b.generation - a.generation);
+  }
   takeReclaimLock() {
-    const file = this.reclaimLockFile();
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let blocked = false, maxGeneration = 0;
+      for (const lock of this.reclaimLocks()) {
+        maxGeneration = Math.max(maxGeneration, lock.generation);
+        let stat = null; try { stat = fs.lstatSync(lock.path); } catch { continue; }
+        // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
+        if (stat.size === 0 && Date.now() - Math.floor(stat.mtimeMs) < 500) { blocked = true; break; }
+        let record = null; try { record = JSON.parse(fs.readFileSync(lock.path, 'utf8')); } catch { record = null; }
+        if (record && Number.isSafeInteger(record.pid) && record.pid > 0) {
+          try { process.kill(record.pid, 0); blocked = true; break; } catch (error) { if (error.code !== 'ESRCH') { blocked = true; break; } }
+        }
+        // 持有者已死的残骸：不挡路，但它的代号要算进「下一步」里。
+      }
+      if (blocked) return false;
+      // 清单里的旁路锁全是死残骸：下一步的路径唯一且确定——最大代号 +1。
+      const target = path.join(path.dirname(this.files.guard), `${path.basename(this.files.guard)}.reclaim.${maxGeneration + 1}`);
+      const owner = { pid: process.pid, token: randomUUID(), file: target };
       let fd;
-      try { fd = fs.openSync(file, 'wx', 0o600); }
+      try { fd = fs.openSync(target, 'wx', 0o600); }
       catch (error) {
         if (error.code !== 'EEXIST') return false;
-        let stat; try { stat = fs.lstatSync(file); } catch { continue; }
-        // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
-        if (stat.size === 0 && Date.now() - Math.floor(stat.mtimeMs) < 500) return false;
-        let deadContent = null; try { deadContent = fs.readFileSync(file, 'utf8'); } catch { deadContent = null; }
-        let record = null; try { record = JSON.parse(deadContent); } catch { record = null; }
-        if (record && Number.isSafeInteger(record.pid) && record.pid > 0) {
-          try { process.kill(record.pid, 0); return false; } catch (error) { if (error.code !== 'ESRCH') return false; }
-        }
-        // 上一位回收方已经不在了：原地接管这把残骸——不搬走、不腾空路径。
-        // 先给路径建一个硬链接把「我读到的这把」钉住：之后所有校验和写入都走链接（绑 inode），
-        // 别人替换路径也不影响链接指到的那份文件。
-        const pinned = `${file}.pinned-${randomUUID()}`;
-        try { fs.linkSync(file, pinned); } catch { continue; }
-        let owner = null;
-        try {
-          // 链接到的必须还是我读到的残骸：对方已接管过的话这里读到的就是别人的 owner——让路。
-          let pinnedContent = null; try { pinnedContent = fs.readFileSync(pinned, 'utf8'); } catch { pinnedContent = null; }
-          if (pinnedContent !== deadContent) {
-            try { fs.unlinkSync(pinned); } catch {}
-            return false;
-          }
-          // 路径还得指着同一个文件：期间被换成了新文件就别动。
-          let pathStat = null, linkStat = null;
-          try { pathStat = fs.lstatSync(file); linkStat = fs.lstatSync(pinned); } catch { pathStat = null; }
-          if (!pathStat || pathStat.ino !== linkStat.ino) {
-            try { fs.unlinkSync(pinned); } catch {}
-            return false;
-          }
-          const candidate = { pid: process.pid, token: randomUUID() };
-          let handle;
-          try { handle = fs.openSync(pinned, 'r+', 0o600); } catch { handle = null; }
-          if (handle !== null) {
-            try {
-              fs.ftruncateSync(handle, 0);
-              fs.writeFileSync(handle, JSON.stringify(candidate));
-              fs.fsyncSync(handle);
-            } finally { fs.closeSync(handle); }
-            // 最后从路径读回校验：token 对得上说明路径仍指着我写的那份，
-            // 对不上说明接管竞态输了（我写进了被换下的旧文件），让路。
-            let current = null; try { current = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { current = null; }
-            if (current?.token === candidate.token) owner = candidate;
-          }
-        } finally { try { fs.unlinkSync(pinned); } catch {} }
-        if (!owner) return false;
-        this.reclaimOwner = owner; return true;
+        continue; // 别人抢先创建了：重扫一轮，会看到对方的活 pid 让路。
       }
-      const owner = { pid: process.pid, token: randomUUID() };
       try { fs.writeFileSync(fd, JSON.stringify(owner)); } finally { fs.closeSync(fd); }
+      // 创建成功后再确认一遍没有别的活持有者（防御性校验）。
+      const others = this.reclaimLocks().filter(lock => lock.path !== target);
+      for (const lock of others) {
+        let record = null; try { record = JSON.parse(fs.readFileSync(lock.path, 'utf8')); } catch { record = null; }
+        if (record && Number.isSafeInteger(record.pid) && record.pid > 0) {
+          let alive = true;
+          try { process.kill(record.pid, 0); } catch { alive = false; }
+          if (alive) { try { fs.unlinkSync(target); } catch {} return false; }
+        }
+      }
+      // 我是唯一持有者：顺手把更老代号的残骸清掉（它们的持有者都已核实死亡）。
+      for (const lock of others) {
+        if (lock.generation >= maxGeneration + 1) continue;
+        try { fs.unlinkSync(lock.path); } catch {}
+      }
       this.reclaimOwner = owner; return true;
     }
     return false;
   }
   releaseReclaimLock() {
-    const file = this.reclaimLockFile(), owner = this.reclaimOwner;
+    const owner = this.reclaimOwner;
     if (!owner) return;
     this.reclaimOwner = null;
-    let current = null; try { current = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
-    if (current?.token === owner.token) { try { fs.unlinkSync(file); } catch {} }
+    let current = null; try { current = JSON.parse(fs.readFileSync(owner.file, 'utf8')); } catch {}
+    if (current?.token === owner.token) { try { fs.unlinkSync(owner.file); } catch {} }
   }
   reclaimStaleGuard() {
     // 没有回收独占权就不动原锁：让正在回收的那位先把该清的清掉。
