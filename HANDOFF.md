@@ -1,5 +1,7 @@
 # 项目交接卡 (HANDOFF)
 
+> **2026-11-13 会话收口（只追加不覆盖）**：**fix: 修复 reclaimStaleGuard 异常与逻辑缺陷**——① **问题/目标**：完成 fix: 修复 reclaimStaleGuard 异常与逻辑缺陷；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：提交 6eb3e37（变更 autonomous-watch.mjs, client.js, comment-browser.mjs, core.mjs 等 11 个文件）；④ **结果**：提交 6eb3e37 已入库；物理门禁 [node --test tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
+
 > **2026-11-13 会话收口（只追加不覆盖）**：**feat: 实现并更新 client.js, panel-redesign-v7.html**——① **问题/目标**：完成 feat: 实现并更新 client.js, panel-redesign-v7.html；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：提交 fbff084（变更 client.js, panel-redesign-v7.html）；④ **结果**：提交 fbff084 已入库；物理门禁 [node --test tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
 
 > **2026-11-13 会话收口（只追加不覆盖）**：**fix: 修复 client.js, panel-redesign-v7.html 中的逻辑缺陷**——① **问题/目标**：完成 fix: 修复 client.js, panel-redesign-v7.html 中的逻辑缺陷；② **踩坑/要点**：平稳收口，前置验证门禁通过；③ **方案**：提交 4e5003c（变更 client.js, panel-redesign-v7.html）；④ **结果**：提交 4e5003c 已入库；物理门禁 [node --test tests/native-client.test.mjs] PASS；工作区收敛干净；⑤ **未收/后续**：无遗留，任务闭环。**Git：只追加，不 squash/rebase**。
