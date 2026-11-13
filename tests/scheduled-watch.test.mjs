@@ -191,13 +191,20 @@ test('回收死进程留下的锁时对方换上了新锁，既不删掉也不�
   const schedule=new ScheduledWatch(f.options);
   const mine=JSON.stringify({pid:process.pid,owner:'synthetic-other-owner'});
   fs.writeFileSync(schedule.guardFile,JSON.stringify({pid:2147483647,owner:'synthetic-dead-owner'}));
-  const original=schedule.takeGuard.bind(schedule);
-  // 就在挪走的那一刻，对方把锁换成了自己的新锁。
-  schedule.takeGuard=()=>{fs.writeFileSync(schedule.guardFile,mine);return original();};
-  assert.equal(schedule.reclaimStaleGuard(),false,'换锁之后不该回收');
+  // 就在回收读到内容的那一刻，对方把锁换成了自己的新锁。
+  const originalRead=fs.readFileSync;
+  fs.readFileSync=(file,...rest)=>{
+    const text=originalRead(file,...rest);
+    if(String(file)===schedule.guardFile&&text&&text.includes('synthetic-dead-owner')){
+      fs.writeFileSync(schedule.guardFile,mine);
+      fs.readFileSync=originalRead;
+    }
+    return text;
+  };
+  try{assert.equal(schedule.reclaimStaleGuard(),false,'换锁之后不该回收');}
+  finally{fs.readFileSync=originalRead;}
   assert.equal(fs.readFileSync(schedule.guardFile,'utf8'),mine,'对方的新锁完好');
   assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.corrupt-')),false,'没有产生归档');
-  assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.taken-')),false,'没有留下挪走的一半');
 });
 test('回收坏锁时对方换上了新锁，既不删掉也不覆盖',async t=>{
   const f=fixture(t);
@@ -205,9 +212,89 @@ test('回收坏锁时对方换上了新锁，既不删掉也不覆盖',async t=>
   const mine=JSON.stringify({pid:process.pid,owner:'synthetic-other-owner'});
   fs.writeFileSync(schedule.guardFile,'合成残留锁');
   const stale=Date.now()/1000-10;fs.utimesSync(schedule.guardFile,stale,stale);
-  const original=schedule.takeGuard.bind(schedule);
-  schedule.takeGuard=()=>{fs.writeFileSync(schedule.guardFile,mine);return original();};
-  assert.equal(schedule.reclaimStaleGuard(),false,'换锁之后不该回收');
+  const originalRead=fs.readFileSync;
+  fs.readFileSync=(file,...rest)=>{
+    const text=originalRead(file,...rest);
+    if(String(file)===schedule.guardFile&&text==='合成残留锁'){
+      fs.writeFileSync(schedule.guardFile,mine);
+      fs.readFileSync=originalRead;
+    }
+    return text;
+  };
+  try{assert.equal(schedule.reclaimStaleGuard(),false,'换锁之后不该回收');}
+  finally{fs.readFileSync=originalRead;}
   assert.equal(fs.readFileSync(schedule.guardFile,'utf8'),mine,'对方的新锁完好');
   assert.equal(fs.readdirSync(f.stateDir).some(name=>name.startsWith('watch-schedule.guard.corrupt-')),false,'没有产生归档');
+});
+test('回收期间原锁路径一直被占着，别的入口进不来临界区',async t=>{
+  const f=fixture(t);
+  const schedule=new ScheduledWatch(f.options);
+  fs.writeFileSync(schedule.guardFile,JSON.stringify({pid:2147483647,owner:'synthetic-dead-owner'}));
+  // 回收读内容的那一刻，原锁必须还在原处：一旦被挪走，这个空隙就够别的入口拿锁。
+  const originalRead=fs.readFileSync;
+  let thirdEntry=null;
+  fs.readFileSync=(file,...rest)=>{
+    const text=originalRead(file,...rest);
+    if(String(file)===schedule.guardFile&&text&&text.includes('synthetic-dead-owner')){
+      try{fs.openSync(schedule.guardFile,'wx',0o600);thirdEntry='拿到了锁';}
+      catch(error){thirdEntry=error.code==='EEXIST'?'拿不到锁':`意外错误 ${error.code}`;}
+      fs.readFileSync=originalRead;
+    }
+    return text;
+  };
+  try{assert.equal(schedule.reclaimStaleGuard(),true,'死进程留下的锁该被回收');}
+  finally{fs.readFileSync=originalRead;}
+  assert.equal(thirdEntry,'拿不到锁','回收期间原锁路径不能被腾空');
+  assert.equal(fs.existsSync(schedule.guardFile),false,'回收完成后位置被腾出来');
+});
+test('补记写盘失败之后，下一轮会按原分钟数再补一次',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  let failed=false;
+  // 第一次补记写不下去：之后必须还会再试，不能就这么算了。
+  const savePlanImpl=args=>{
+    if(!failed&&args.plan?.sessions?.length){failed=true;return false;}
+    return savePlan(args);
+  };
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'}),savePlanImpl});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[{
+    key:'2026-10-23#0',round:0,id:'synthetic-receipt',source:'api',pid:process.pid,
+    startAt:Date.parse('2026-10-23T15:59:00Z'),expiresAt:Date.parse('2026-10-23T16:05:00Z'),
+    minutes:6,startedAt:new Date(Date.parse('2026-10-23T15:59:00Z')).toISOString(),status:'started',
+  }]},null,2));
+  f.setTime('2026-10-23T16:05:00Z');
+  await schedule.tick();
+  assert.equal(failed,true,'第一次补记确实写失败了');
+  let plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23']?.plan?.spentMinutes||0,0,'写失败的那一轮还没记进去');
+  // 账本里这笔不能被当成已经结清：下一轮要按同样的分钟数再补一次。
+  await schedule.tick();
+  plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  assert.equal(plan.days['2026-10-23'].plan.spentMinutes,6,'下一轮按原分钟数补记回来了');
+  assert.ok(plan.days['2026-10-23'].plan.sessions.some(item=>item.key==='2026-10-23#0'),'这一场被记进当天的场次列表');
+});
+test('同一天的两笔历史回执都要记进去，不能只留最后一笔',async t=>{
+  const f=fixture(t,'2026-10-23T15:59:00Z');
+  f.video.savePolicy({windows:['00:00-24:00'],dailyMinutes:60,dailyRequests:30},{explicit:true});
+  const schedule=new ScheduledWatch({...f.options,getWatchState:async()=>({running:false,status:'stopped'})});
+  schedule.configure({enabled:true,maxRequests:30},{explicit:true});
+  // 两笔都发生在前一天：那一天的日程压根不存在，只能靠补记把它补出来。
+  // 补出来的那份是空的（recovered），第二笔必须接着往上加，不能把第一笔冲掉。
+  fs.writeFileSync(schedule.ledgerFile,JSON.stringify({version:1,runs:[
+    {key:'2026-10-22#0',round:0,id:'synthetic-first',source:'api',pid:process.pid,
+      startAt:Date.parse('2026-10-22T15:50:00Z'),expiresAt:Date.parse('2026-10-22T15:53:00Z'),
+      minutes:3,startedAt:new Date(Date.parse('2026-10-22T15:50:00Z')).toISOString(),status:'started'},
+    {key:'2026-10-22#1',round:1,id:'synthetic-second',source:'api',pid:process.pid,
+      startAt:Date.parse('2026-10-22T15:55:00Z'),expiresAt:Date.parse('2026-10-22T15:57:00Z'),
+      minutes:2,startedAt:new Date(Date.parse('2026-10-22T15:55:00Z')).toISOString(),status:'started'},
+  ]},null,2));
+  f.setTime('2026-10-23T16:05:00Z');
+  await schedule.tick();
+  await schedule.tick();
+  const plan=JSON.parse(fs.readFileSync(path.join(f.stateDir,'watch-schedule-plan.json'),'utf8'));
+  const day=plan.days['2026-10-22'].plan;
+  assert.equal(day.spentMinutes,5,'两笔都要记：3 分钟加 2 分钟');
+  assert.ok(day.sessions.some(item=>item.key==='2026-10-22#0'),'第一笔在账里');
+  assert.ok(day.sessions.some(item=>item.key==='2026-10-22#1'),'第二笔也在账里');
 });

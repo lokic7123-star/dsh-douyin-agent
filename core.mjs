@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync, linkSync, copyFileSync, constants } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, unlinkSync, statSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -85,79 +85,97 @@ async function watchControl(directory,action,signal) {
       if(current?.token===token){try{unlinkSync(file);}catch{}}}
   }
 }
-// 把锁原样挪到自己手里再判断：挪动是原子的，两个入口同时来回收时只有一个能挪走，
-// 挪走之后判断的永远是「自己手里这一份」，不用拿路径上的内容跟先前看到的比。
-function takeGuard(file){
-  const taken=`${file}.taken-${randomUUID()}`;
-  try{renameSync(file,taken);}catch{return null;}
-  return taken;
-}
-// 放回原位：只在原位还空着时放回去，绝不覆盖别人的新锁。
-function restoreGuard(file,taken){
-  try{linkSync(taken,file);try{unlinkSync(taken);}catch{}return true;}
-  catch(error){
-    if(error.code!=='EEXIST'){
-      try{copyFileSync(taken,file,constants.COPYFILE_EXCL);try{unlinkSync(taken);}catch{}return true;}
-      catch(fallbackError){if(fallbackError.code==='EEXIST'){try{unlinkSync(taken);}catch{}return false;}return false;}
+// 回收本身也要互斥：两个回收方各自把对方的锁换掉，等于谁也没锁住。
+// 所以先抢一把旁路锁（.reclaim），抢到之后再重新读一次原锁，
+// 确认要动的还是刚才读到的那一把，才动它。
+//
+// 关键：原锁从头到尾不挪走。挪走的那一瞬间原路径是空的，
+// 第三个入口就能在这空隙里拿到锁，进入还在临界区里的那个持有者所在的区。
+// 锁只在「确定没人持有」的时候原地删掉，绝不搬到别处再放回来。
+// 持有者还活着的锁一律不碰。
+function reclaimLockFile(file){return `${file}.reclaim`;}
+function takeReclaimLock(file){
+  const reclaim=reclaimLockFile(file);
+  for(let attempt=0;attempt<2;attempt++){
+    let descriptor;
+    try{descriptor=openSync(reclaim,'wx',0o600);}
+    catch(error){
+      if(error.code!=='EEXIST')return false;
+      let stat;try{stat=statSync(reclaim);}catch{continue;}
+      // 刚建好、内容还没写进去：对方正在拿这把锁，让路。
+      if(stat.size===0&&Date.now()-Math.floor(stat.mtimeMs)<500)return false;
+      let record=null;try{record=JSON.parse(readFileSync(reclaim,'utf8'));}catch{record=null;}
+      if(record&&Number.isSafeInteger(record.pid)&&record.pid>0){
+        try{process.kill(record.pid,0);return false;}catch(error){if(error.code!=='ESRCH')return false;}
+      }
+      // 上一位回收方已经不在了：清掉这把旁路锁再试一次。
+      try{unlinkSync(reclaim);}catch{}
+      continue;
     }
-    // 原位已被别人占用：这份内容原样留档，不能覆盖对方的新锁，也不能直接丢掉。
-    try{renameSync(taken,`${file}.conflict-${Date.now()}-${randomUUID()}`);}catch{}
-    return false;
+    const owner={pid:process.pid,token:randomUUID()};
+    try{writeFileSync(descriptor,JSON.stringify(owner));}finally{closeSync(descriptor);}
+    return owner;
   }
+  return null;
 }
-// 挪到自己手里之后复核：内容与动手前读到的不一致，说明期间被换成别的锁，原样放回去。
-function verifyTaken(file,taken,expected){
-  let current;try{current=readFileSync(taken,'utf8');}catch{current=null;}
-  if(current===expected)return true;
-  restoreGuard(file,taken);return false;
-}
-// 挪到一边的这份是坏锁：改名归档，内容一个字都不改，留给本人核对。
-function archiveTaken(file,taken){
-  const archive=`${file}.corrupt-${Date.now()}-${randomUUID()}`;
-  try{renameSync(taken,archive);}catch{return false;}
-  return true;
+function releaseReclaimLock(file,owner){
+  if(!owner)return;
+  const reclaim=reclaimLockFile(file);
+  let current=null;try{current=JSON.parse(readFileSync(reclaim,'utf8'));}catch{}
+  if(current?.token===owner.token){try{unlinkSync(reclaim);}catch{}}
 }
 // 回收空壳锁与死进程留下的锁：只动确定没人持有的。
 // 内容坏掉的锁也不能永远堵在这里：改名归档（内容原样保留在归档文件里），把位置腾出来。
-//
-// 判断和动手之间不能隔着一次「再看看路径上是什么」：顺序是「先读内容判断 →
-// 再把锁原样挪到自己手里 → 在自己手里复核内容」。持有者还活着的锁从头到尾不挪。
 function reclaimStaleGuard(file){
-  let stat;try{stat=statSync(file);}catch(error){return error.code==='ENOENT';}
-  if(!stat.isFile()||stat.isSymbolicLink())return false;
-  if(stat.size===0){
-    // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
-    if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
-    const taken=takeGuard(file);if(!taken)return false;
-    let size;try{size=statSync(taken).size;}catch{return false;}
-    if(size!==0){restoreGuard(file,taken);return false;}
-    try{unlinkSync(taken);return true;}catch{return false;}
-  }
-  let content;try{content=readFileSync(file,'utf8');}catch{content=null;}
-  let record=null;try{record=JSON.parse(content);}catch{record=null;}
-  if(!record||!Number.isSafeInteger(record.pid)||record.pid<1){
-    // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
-    if(Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
-    const taken=takeGuard(file);if(!taken)return false;
-    if(!verifyTaken(file,taken,content))return false;
-    return archiveTaken(file,taken);
-  }
-  try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
-  const taken=takeGuard(file);if(!taken)return false;
-  if(!verifyTaken(file,taken,content))return false;
-  try{unlinkSync(taken);return true;}catch{return false;}
+  const owner=takeReclaimLock(file);
+  // 没有回收独占权就不动原锁：让正在回收的那位先把该清的清掉。
+  if(!owner)return false;
+  try{
+    // 拿到回收独占权之后要重新读一次：动手前看到的内容可能已经是别人的新锁了。
+    let stat;try{stat=statSync(file);}catch(error){return error.code==='ENOENT';}
+    if(!stat.isFile()||stat.isSymbolicLink())return false;
+    if(stat.size===0){
+      // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
+      if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
+      // 动手前再核一次：期间被换成了别的锁就不动它。
+      let nowStat;try{nowStat=statSync(file);}catch(error){return error.code==='ENOENT';}
+      if(nowStat.size!==0||nowStat.ino!==stat.ino)return false;
+      try{unlinkSync(file);return true;}catch(error){return error.code==='ENOENT';}
+    }
+    let content;try{content=readFileSync(file,'utf8');}catch{content=null;}
+    let record=null;try{record=JSON.parse(content);}catch{record=null;}
+    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1){
+      // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+      if(Date.now()-Math.floor(stat.mtimeMs)<2000)return false;
+      // 坏锁：内容原样归档，把位置腾出来给下一个入口。
+      // 归档前再核一次内容：期间被换成有效锁就别动它。
+      let current;try{current=readFileSync(file,'utf8');}catch{return false;}
+      if(current!==content)return false;
+      const archive=`${file}.corrupt-${Date.now()}-${randomUUID()}`;
+      try{renameSync(file,archive);return true;}catch(error){return error.code==='ENOENT';}
+    }
+    try{process.kill(record.pid,0);return false;}catch(error){if(error.code==='EPERM')return false;if(error.code!=='ESRCH')return false;}
+    // 死进程留下的锁：原地删掉，位置让给下一个入口（不用搬到别处，搬走的空隙会放进别人）。
+    // 动手前再核一次内容：期间被换成有效锁就别动它。
+    let current;try{current=readFileSync(file,'utf8');}catch{return false;}
+    if(current!==content)return false;
+    try{unlinkSync(file);return true;}catch(error){return error.code==='ENOENT';}
+  }finally{releaseReclaimLock(file,owner);}
 }
 // 坏掉的锁改名归档：内容一个字都不改，留给本人核对，但不再挡住所有入口。
 function archiveCorruptGuard(file,stat){
-  let statNow;try{statNow=statSync(file);}catch{return false;}
-  // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
-  if(Date.now()-Math.floor(statNow.mtimeMs)<2000)return false;
-  let content;try{content=readFileSync(file,'utf8');}catch{return false;}
-  let parsed=null;try{parsed=JSON.parse(content);}catch{parsed=null;}
-  if(parsed&&Number.isSafeInteger(parsed.pid)&&parsed.pid>0)return false;
-  const taken=takeGuard(file);if(!taken)return false;
-  if(!verifyTaken(file,taken,content))return false;
-  return archiveTaken(file,taken);
+  const owner=takeReclaimLock(file);
+  if(!owner)return false;
+  try{
+    let statNow;try{statNow=statSync(file);}catch{return false;}
+    // 正在写的那一瞬间（刚落盘、内容还没写全）先放过对方。
+    if(Date.now()-Math.floor(statNow.mtimeMs)<2000)return false;
+    let content;try{content=readFileSync(file,'utf8');}catch{return false;}
+    let parsed=null;try{parsed=JSON.parse(content);}catch{parsed=null;}
+    if(parsed&&Number.isSafeInteger(parsed.pid)&&parsed.pid>0)return false;
+    const archive=`${file}.corrupt-${Date.now()}-${randomUUID()}`;
+    try{renameSync(file,archive);return true;}catch{return false;}
+  }finally{releaseReclaimLock(file,owner);}
 }
 async function acquireNativeVideoLease(directory,signal) {
   const file=path.join(directory,'watch-manual.lock'),token=randomUUID();
