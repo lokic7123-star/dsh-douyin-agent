@@ -245,9 +245,12 @@ export class FriendInteractions {
     let released = false;
     return () => {
       if (released) return;
-      const current = JSON.parse(fs.readFileSync(this.prepareGuard, 'utf8'));
-      if (current.pid !== owner.pid || current.token !== owner.token) throw fail('回复准备锁已变化，未删除其他入口的锁。');
-      fs.unlinkSync(this.prepareGuard); released = true;
+      // 释放只是收尾：锁读不出来、或者已经被别的入口换掉时，都不该盖掉已经成功的准备结果。
+      // 只在内容仍是自己那一份时才删；不匹配就保留对方的锁，不抛错。
+      let current = null;
+      try { current = JSON.parse(fs.readFileSync(this.prepareGuard, 'utf8')); } catch { return; }
+      if (current.pid !== owner.pid || current.token !== owner.token) return;
+      try { fs.unlinkSync(this.prepareGuard); released = true; } catch {}
     };
   }
 

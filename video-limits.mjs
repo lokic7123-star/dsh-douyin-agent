@@ -57,10 +57,36 @@ export class VideoLimits {
     this.policyFile=path.join(stateDir,'video-policy.json');this.sessionsFile=path.join(stateDir,'video-sessions.json');this.guardFile=path.join(stateDir,'video-control.guard');this.usageFile=path.join(stateDir,'video-usage.json');this.budgetFile=path.join(stateDir,'watch-budget.json');this.scheduleFile=path.join(stateDir,'watch-schedule-policy.json');
     const legacySchedule=optional(this.scheduleFile,null);initialize(this.policyFile,{...DEFAULT_VIDEO_POLICY,...(legacySchedule?.maxRequests!==undefined?{dailyRequests:legacySchedule.maxRequests}:{})});initialize(this.sessionsFile,{version:1,current:null});initialize(this.usageFile,{version:1,days:{},active:null});this.enforcing=false;
   }
+  // 回收空壳锁与死进程留下的锁：只动确定没人持有的，不碰内容损坏的。
+  reclaimStaleGuard() {
+    let stat;try{stat=fs.lstatSync(this.guardFile);}catch(error){return error.code==='ENOENT';}
+    if(!stat.isFile()||stat.isSymbolicLink())return false;
+    if(stat.size===0){
+      // 刚建好还没写内容的那一瞬间先放过对方：超过半秒还是空的，才当成空壳。
+      if(Date.now()-Math.floor(stat.mtimeMs)<500)return false;
+      try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+    }
+    let record;try{record=read(this.guardFile);}catch{return false;}
+    if(!record||!Number.isSafeInteger(record.pid)||record.pid<1)return false;
+    if(alive(record.pid))return false;
+    try{fs.unlinkSync(this.guardFile);return true;}catch{return false;}
+  }
   control(action) {
-    let descriptor;const token=randomUUID();try{descriptor=fs.openSync(this.guardFile,'wx',0o600);}catch(error){if(error.code==='EEXIST')throw Object.assign(new Error('视频设置正在更新，或控制锁需要人工核对；未自动删除。'),{status:409,code:'VIDEO_CONTROL_BUSY'});throw error;}
-    try{fs.writeFileSync(descriptor,JSON.stringify({pid:process.pid,token}));}finally{fs.closeSync(descriptor);}
-    try{return action();}finally{const guard=read(this.guardFile);if(guard.token===token&&guard.pid===process.pid)fs.unlinkSync(this.guardFile);}
+    const token=randomUUID();
+    for(let attempt=0;attempt<3;attempt++){
+      let descriptor;
+      try{descriptor=fs.openSync(this.guardFile,'wx',0o600);}
+      catch(error){
+        if(error.code!=='EEXIST')throw error;
+        // 锁在「文件建好、内容还没写进去」这一刻崩掉，会留下 0 字节空壳，
+        // 让所有入口从此一直 409。空壳和死进程留下的锁可以回收；内容坏掉的锁不动，等本人核对。
+        if(this.reclaimStaleGuard())continue;
+        throw Object.assign(new Error('视频设置正在更新，或控制锁需要人工核对；未自动删除。'),{status:409,code:'VIDEO_CONTROL_BUSY'});
+      }
+      try{fs.writeFileSync(descriptor,JSON.stringify({pid:process.pid,token}));}finally{fs.closeSync(descriptor);}
+      try{return action();}finally{let guard=null;try{guard=read(this.guardFile);}catch{}if(guard?.token===token&&guard.pid===process.pid){try{fs.unlinkSync(this.guardFile);}catch{}}}
+    }
+    throw Object.assign(new Error('视频设置正在更新，或控制锁需要人工核对；未自动删除。'),{status:409,code:'VIDEO_CONTROL_BUSY'});
   }
   policy() {
     const raw=read(this.policyFile),schedule=optional(this.scheduleFile,null);

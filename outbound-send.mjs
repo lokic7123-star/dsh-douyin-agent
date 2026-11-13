@@ -81,7 +81,9 @@ export class OutboundCoordinator {
         continue;
       }
       try { fs.writeFileSync(descriptor, JSON.stringify(owner)); fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
-      return () => { const current = JSON.parse(fs.readFileSync(this.guardFile, 'utf8')); if (current?.pid === owner.pid && current.token === owner.token) fs.unlinkSync(this.guardFile); };
+      // 释放锁只是收尾，锁文件读不出来或已被删都不该盖掉已经成功的发送结果，
+      // 所以这里只在自己的身份仍然吻合时才删，并且不抛错。
+      return () => { let current = null; try { current = JSON.parse(fs.readFileSync(this.guardFile, 'utf8')); } catch {} if (current?.pid === owner.pid && current.token === owner.token) { try { fs.unlinkSync(this.guardFile); } catch {} } };
     }
   }
   async run({ recipientId, purpose, signal } = {}, callback) {

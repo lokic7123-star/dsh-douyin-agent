@@ -15,5 +15,6 @@ export function acquireFriendInteractionDispatch(stateDir) {
   fs.mkdirSync(stateDir,{recursive:true});const file=path.join(stateDir,'friend-interactions-control.guard'),owner={pid:process.pid,token:randomUUID()};let descriptor;
   try{descriptor=fs.openSync(file,'wx',0o600);}catch(error){if(error.code==='EEXIST')throw Object.assign(new Error('好友互动总开关或发送正在更新，请稍后重试。'),{status:409,code:'FRIEND_INTERACTIONS_BUSY',beforeDelivery:true});throw error;}
   try{fs.writeFileSync(descriptor,JSON.stringify(owner));fs.fsyncSync(descriptor);}finally{fs.closeSync(descriptor);}
-  let released=false;return()=>{if(released)return;const current=JSON.parse(fs.readFileSync(file,'utf8'));if(current.pid===owner.pid&&current.token===owner.token){fs.unlinkSync(file);released=true;}};
+  // 释放只是收尾：锁文件读不出来不该盖掉已经完成的操作，只在自己的身份仍吻合时才删，且不抛错。
+  let released=false;return()=>{if(released)return;let current=null;try{current=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}if(current&&current.pid===owner.pid&&current.token===owner.token){try{fs.unlinkSync(file);released=true;}catch{}}};
 }
