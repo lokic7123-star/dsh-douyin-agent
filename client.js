@@ -140,9 +140,9 @@ details.ios-interest[open] > summary .ios-chev{transform:rotate(90deg)}
 .dy-textarea{font:inherit;font-size:13px;line-height:1.5;width:100%;max-width:100%;box-sizing:border-box;resize:vertical;
   color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dy-stroke-strong);border-radius:9px;padding:8px 10px;display:block}
 textarea.dy-big{min-height:110px}
-.dy-switch{width:44px;height:26px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);
+.dy-switch{width:40px;height:22px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);
   position:relative;flex:none;cursor:pointer}
-.dy-switch::after{content:'';position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;
+.dy-switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
   background:var(--dsw-alias-switch-thumb,var(--dsw-static-neutral-bluish-00,#fff));box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 32%,transparent);transition:transform .18s ease}
 .dy-switch.on{background:var(--dsw-alias-state-success-primary)}
 .dy-switch.on::after{background:var(--dsw-alias-label-primary-foreground);transform:translateX(18px)}
